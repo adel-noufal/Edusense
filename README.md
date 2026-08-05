@@ -131,15 +131,38 @@ Open `http://localhost:5173` in your browser.
 
 ---
 
-## 📧 Email Notifications Setup (Gmail SMTP)
+## 📧 Email Notifications Setup & Workflow (Gmail SMTP)
 
-EduSense includes an automated background scheduler that sends session reminder emails 15 to 1 minutes before a class starts.
+EduSense includes an automated background scheduler (`APScheduler`) that queries upcoming sessions every minute and sends automated HTML reminder emails to students and instructors 15 to 1 minutes before a class starts.
 
-In `backend/.env`:
+### 🔄 Email SMTP Sequence Diagram
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant SCH as ⏱️ APScheduler (Every 1 min)
+  participant DB as 🗄️ Database (Sessions & Registrations)
+  participant SMTP as 📧 Gmail SMTP Server
+  participant USER as 📬 Student & Instructor Inboxes
+
+  SCH->>DB: Query pending sessions starting in <= 15 minutes
+  DB-->>SCH: Return matching sessions & registered emails
+  SCH->>SCH: Check if reminder already sent for current minute
+  alt SMTP Credentials configured in .env
+    SCH->>SMTP: Send HTML reminder email via TLS (Port 587)
+    SMTP-->>USER: Deliver "Session starting soon!" email with direct link
+    SCH->>DB: Record minute index in reminders_sent column
+  else SMTP Credentials missing / blank
+    SCH->>SCH: Log warning & skip sending (Zero crashes / graceful fallback)
+  end
+```
+
+### ⚙️ Configuration in `backend/.env`:
+
 ```env
 EDUSENSE_SMTP_HOST=smtp.gmail.com
 EDUSENSE_SMTP_PORT=587
-EDUSENSE_SMTP_USER=edusense.eg@gmail.com
+EDUSENSE_SMTP_USER=your-email@gmail.com
 EDUSENSE_SMTP_PASSWORD=your-16-character-app-password
 ```
 *(Generate an App Password via Google Account → Security → 2-Step Verification → App Passwords).*

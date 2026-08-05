@@ -87,6 +87,36 @@ sequenceDiagram
 
 ---
 
+## 📧 Email SMTP Notification Workflow
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant SCH as ⏱️ APScheduler (Every 1 min)
+  participant DB as 🗄️ Database (Sessions & Registrations)
+  participant SMTP as 📧 Gmail SMTP Server
+  participant USER as 📬 Student & Instructor Inboxes
+
+  SCH->>DB: Query pending sessions starting in <= 15 minutes
+  DB-->>SCH: Return matching sessions & registered emails
+  SCH->>SCH: Check if reminder already sent for current minute (reminders_sent)
+  alt SMTP Credentials configured in .env
+    SCH->>SMTP: Send HTML reminder email via TLS (Port 587)
+    SMTP-->>USER: Deliver "Session starting soon!" email with direct live link
+    SCH->>DB: Record minute index in reminders_sent column
+  else SMTP Credentials missing / blank
+    SCH->>SCH: Log warning & skip sending (Zero crashes / graceful fallback)
+  end
+```
+
+1. **Background Job Execution**: `APScheduler` runs every 60 seconds in the background (`app/core/scheduler.py`).
+2. **Upcoming Class Query**: Queries DB for pending sessions starting within 15 minutes.
+3. **Recipient Resolution**: Finds email addresses of all registered students plus the class instructor.
+4. **HTML Email Dispatch**: Builds responsive HTML email template with direct join link and sends via `smtplib` over TLS (Port 587).
+5. **Graceful Fallback**: If SMTP settings are unconfigured, logs a note without interrupting backend execution.
+
+---
+
 ## 🗄️ Database Tables
 
 - `users`: User credentials, roles (`instructor`, `student`, `admin`), avatars.
