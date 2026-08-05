@@ -1,5 +1,37 @@
 # EduSense Multi-Agent System Workflows
 
+👤 **Author:** [Adel Mohamed Noufal](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)  
+🔗 **LinkedIn:** [https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)  
+📦 **Repository:** [https://github.com/adel-noufal/Edusense](https://github.com/adel-noufal/Edusense)
+
+---
+
+## ⚡ Smart Multi-Tier AI Provider Task Router Diagram
+
+```
+                       ┌─────────────────────────────────────┐
+                       │          AI Agent Request           │
+                       └──────────────────┬──────────────────┘
+                                          │
+                        ┌─────────────────▼─────────────────┐
+                        │ 🌐 Gemini 2.0 Flash (Online API)  │
+                        └─────────────────┬─────────────────┘
+                                          │  (If Offline / Connection Fails)
+                        ┌─────────────────▼─────────────────┐
+                        │ 🦙 Specialized Local Ollama LLMs  │
+                        │ • Translation -> Qwen 2.5 (7B)    │
+                        │ • Lessons     -> Mistral (7B)     │
+                        │ • Quizzes     -> Llama 3.1 (8B)   │
+                        │ • Flashcards  -> Llama 3.2 (3B)   │
+                        └─────────────────┬─────────────────┘
+                                          │  (If Ollama Unreachable)
+                        ┌─────────────────▼─────────────────┐
+                        │ ⚙️ Built-in Local Templates        │
+                        └───────────────────────────────────┘
+```
+
+---
+
 ```mermaid
 sequenceDiagram
   autonumber

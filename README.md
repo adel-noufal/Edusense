@@ -1,6 +1,7 @@
 # 🎓 EduSense — Multi-Agent AI Education Platform
 
-[![Author](https://img.shields.io/badge/Author-Adel_Mohamed_Noufal-blue.svg)](https://github.com/adel-noufal)
+[![Author](https://img.shields.io/badge/Author-Adel_Mohamed_Noufal-blue.svg)](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Adel_Mohamed_Noufal-0A66C2.svg?logo=linkedin)](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)
 [![GitHub Repository](https://img.shields.io/badge/GitHub-Edusense-black.svg?logo=github)](https://github.com/adel-noufal/Edusense)
 [![Emotion Model](https://img.shields.io/badge/PyTorch-v7_EfficientNet--B0_(90.9%25)-EE4C2C.svg?logo=pytorch)](https://github.com/adel-noufal/Edusense)
 [![AI Backend](https://img.shields.io/badge/AI_Providers-Gemini_2.0_%7C_Ollama-4285F4.svg)](https://github.com/adel-noufal/Edusense)
@@ -8,8 +9,9 @@
 
 > **EduSense** is a fully local, multi-agent AI Education Platform designed for adaptive learning, automated lesson & assessment generation, real-time webcam emotion recognition, and interactive educational content creation.
 >
-> 👤 **Author:** [Adel Mohamed Noufal](https://github.com/adel-noufal)  
-> 🔗 **Repository:** [github.com/adel-noufal/Edusense](https://github.com/adel-noufal/Edusense)
+> 👤 **Author:** [Adel Mohamed Noufal](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)  
+> 🔗 **LinkedIn:** [https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)  
+> 🔗 **GitHub Repository:** [https://github.com/adel-noufal/Edusense](https://github.com/adel-noufal/Edusense)
 
 ---
 
@@ -242,6 +244,7 @@ docs/         Architecture blueprints and workflow flowcharts
 
 ## 👨‍💻 Author & Contact
 
-Developed by **[Adel Mohamed Noufal](https://github.com/adel-noufal)**  
-GitHub: [https://github.com/adel-noufal](https://github.com/adel-noufal)  
-Repository: [https://github.com/adel-noufal/Edusense](https://github.com/adel-noufal/Edusense)
+Developed by **[Adel Mohamed Noufal](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)**  
+🔗 **LinkedIn:** [https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)  
+🐙 **GitHub:** [https://github.com/adel-noufal](https://github.com/adel-noufal)  
+📦 **Repository:** [https://github.com/adel-noufal/Edusense](https://github.com/adel-noufal/Edusense)

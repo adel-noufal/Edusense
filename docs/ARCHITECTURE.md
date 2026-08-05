@@ -18,6 +18,50 @@ flowchart LR
   API --> Export[ReportLab PDF Service]
   API --> Email[APScheduler + SMTP Email Reminder Service]
   Report --> PDF[Generated PDF Reports]
+---
+
+## 👤 Author & Repository
+- **Author:** [Adel Mohamed Noufal](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)
+- **LinkedIn Profile:** [https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)
+- **GitHub Repository:** [https://github.com/adel-noufal/Edusense](https://github.com/adel-noufal/Edusense)
+
+---
+
+## ⚡ Smart Multi-Tier AI Provider Task Router Diagram
+
+```
+                       ┌─────────────────────────────────────┐
+                       │          AI Agent Request           │
+                       └──────────────────┬──────────────────┘
+                                          │
+                        ┌─────────────────▼─────────────────┐
+                        │ 🌐 Gemini 2.0 Flash (Online API)  │
+                        └─────────────────┬─────────────────┘
+                                          │  (If Offline / Connection Fails)
+                        ┌─────────────────▼─────────────────┐
+                        │ 🦙 Specialized Local Ollama LLMs  │
+                        │ • Translation -> Qwen 2.5 (7B)    │
+                        │ • Lessons     -> Mistral (7B)     │
+                        │ • Quizzes     -> Llama 3.1 (8B)   │
+                        │ • Flashcards  -> Llama 3.2 (3B)   │
+                        └─────────────────┬─────────────────┘
+                                          │  (If Ollama Unreachable)
+                        ┌─────────────────▼─────────────────┐
+                        │ ⚙️ Built-in Local Templates        │
+                        └───────────────────────────────────┘
+```
+
+```mermaid
+flowchart TD
+    Req[AI Agent Request] --> Gemini{🌐 Gemini 2.0 Flash Online?}
+    Gemini -- Yes --> Success1[Return High-Speed API Response]
+    Gemini -- Connection Failed / Offline --> Ollama{🦙 Local Ollama Server Active?}
+    Ollama -- Yes --> Route[Task-Based 4-Model Router]
+    Route --> Qwen[Translation ➔ qwen2.5 7B]
+    Route --> Mistral[Lessons ➔ mistral 7B]
+    Route --> Llama31[Quizzes ➔ llama3.1 8B]
+    Route --> Llama32[Flashcards ➔ llama3.2 3B]
+    Ollama -- No / Unreachable --> Template[⚙️ Deterministic Local Template Fallback]
 ```
 
 ---
