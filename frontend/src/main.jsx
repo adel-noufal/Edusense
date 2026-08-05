@@ -30,12 +30,26 @@ const QuizGenerator       = lazy(() => import('./pages/AITools').then(m => ({ de
 const FlashcardGenerator  = lazy(() => import('./pages/AITools').then(m => ({ default: m.FlashcardGenerator })))
 const VideoLibrary        = lazy(() => import('./pages/AITools').then(m => ({ default: m.VideoLibrary })))
 
-// ── Spinner shown during any lazy-chunk load ─────────────────────────────────
+// ── Spinner & smooth fade transition shown during any lazy-chunk load ──────────
 function PageLoader() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
-      <div style={{ width: 48, height: 48, border: '4px solid #0ea5e9', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-md transition-opacity duration-500 animate-fade-in">
+      <div className="relative flex items-center justify-center">
+        {/* Glowing aura ring */}
+        <div className="absolute h-20 w-20 rounded-full bg-cyan-500/20 blur-xl animate-pulse" />
+        {/* Smooth double spinning rings */}
+        <div className="h-14 w-14 rounded-full border-4 border-cyan-500/20 border-t-cyan-400 border-r-indigo-500 animate-spin" />
+        <div className="absolute h-8 w-8 rounded-full border-2 border-indigo-400/30 border-b-cyan-300 animate-spin-reverse" />
+      </div>
+      <p className="mt-4 text-sm font-semibold tracking-wider text-slate-300 animate-pulse">
+        Loading EduSense...
+      </p>
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+        @keyframes spinReverse { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+        .animate-fade-in { animation: fadeIn 0.35s ease-out forwards; }
+        .animate-spin-reverse { animation: spinReverse 1.2s linear infinite; }
+      `}</style>
     </div>
   )
 }

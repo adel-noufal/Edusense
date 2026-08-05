@@ -89,8 +89,9 @@ export function Register() {
         <option value="instructor">{t('instructor')}</option>
       </select>
       <button type="submit" className="btn-primary w-full">{t('register')}</button>
-      <div className="flex flex-col items-center gap-2 mt-2">
-        <Link className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-ocean dark:hover:text-mint transition-colors" to="/">
+      <div className="flex flex-col items-center gap-2 mt-4">
+        <Link className="text-sm text-slate-500 hover:underline" to="/login">{t('alreadyHaveAccount')}</Link>
+        <Link className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-ocean dark:hover:text-mint transition-colors mt-1" to="/">
           <ArrowLeft size={14} />{t('backToHome')}
         </Link>
       </div>
