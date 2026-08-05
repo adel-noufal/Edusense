@@ -27,6 +27,62 @@ EduSense runs **7 specialized AI agents**, coordinated sequentially by `EduSense
 
 ---
 
+## 👨‍🏫 Instructor System Workflow
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor I as Instructor
+  participant UI as React Frontend
+  participant API as FastAPI Backend
+  participant WF as 7-Agent Workflow
+  participant PDF as ReportLab Service
+
+  I->>UI: 1. Create & Schedule Class Session
+  UI->>API: POST /api/sessions
+  API->>UI: Session Created & Email Reminders Scheduled
+  I->>UI: 2. Launch Live Session Room
+  UI->>API: GET /api/sessions/{id}/emotions/distribution (Polling)
+  API->>UI: Real-time Emotion % & Engagement Timeline
+  UI->>I: Displays Engagement Alert (if < 62%)
+  I->>UI: 3. Trigger AI Session Improvement Loop
+  UI->>API: POST /api/ai/workflow/improve
+  API->>WF: Executes EduSenseAgentWorkflow
+  WF-->>API: Returns Simplified Lesson, Adaptive Quiz & Summary
+  API->>PDF: Generate Session Report PDF
+  PDF-->>UI: Download Link for Executive PDF Report
+```
+
+---
+
+## 🎓 Student System Workflow
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor S as Student
+  participant UI as React Frontend
+  participant Cam as Webcam Processor
+  participant API as FastAPI Backend
+  participant ML as PyTorch EfficientNet-B0 v7
+
+  S->>UI: 1. Register & Join Live Classroom
+  UI->>Cam: Initialize Webcam Stream
+  loop Every N seconds
+    Cam->>UI: Capture Frame (Base64 JPEG)
+    UI->>API: POST /api/sessions/{id}/emotions
+    API->>ML: Classify Emotion (v7 EfficientNet-B0)
+    ML-->>API: Emotion (Happy, Neutral, Confused, Sad, etc.) + Confidence
+    API-->>UI: Emotion Log Saved
+  end
+  S->>UI: 2. Access AI Tools (Adaptive Flashcards & Quizzes)
+  UI->>API: POST /api/ai/flashcards / POST /api/ai/quiz
+  API-->>UI: Interactive Flashcard Decks & Knowledge Checks
+  S->>UI: 3. Receive Practice Feedback & Progress Stats
+```
+
+---
+
 ## ⚡ Smart Multi-Tier AI System (Online + Multi-Model Offline)
 
 EduSense features an **Intelligent Automatic Failover & Task Routing System**:
