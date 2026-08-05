@@ -1,40 +1,50 @@
-import sqlite3
-from sqlalchemy import create_engine, text
+"""
+EduSense Alembic Migration Helper
+==================================
+Run this script from the `backend/` directory using the project's venv.
 
-# Connect to both databases
-sqlite_conn = sqlite3.connect('edusense.db')
-sqlite_conn.row_factory = sqlite3.Row
-pg_engine = create_engine('postgresql+psycopg2://edusense:edusense@localhost:5432/edusense')
+Usage:
+  python migrate.py upgrade        # Apply all pending migrations
+  python migrate.py downgrade -1   # Roll back one migration
+  python migrate.py current        # Show current migration state
+  python migrate.py history        # Show migration history
+  python migrate.py make "msg"     # Generate a new migration from model changes
+"""
 
-tables = [
-    'users', 'profiles', 'sessions', 'feedback',
-    'video_projects', 'session_registrations',
-    'emotion_logs', 'reports', 'quizzes', 'session_notes'
-]
+import sys
+import subprocess
+import os
 
-cursor = sqlite_conn.cursor()
+ALEMBIC = os.path.join(os.path.dirname(__file__), ".venv", "Scripts", "alembic.exe")
+if not os.path.exists(ALEMBIC):
+    # Linux/macOS path
+    ALEMBIC = os.path.join(os.path.dirname(__file__), ".venv", "bin", "alembic")
 
-for table in tables:
-    print(f'Migrating {table}...')
-    cursor.execute(f'SELECT * FROM {table}')
-    rows = cursor.fetchall()
-    
-    if not rows:
-        print(f'  No data in {table}, skipping.')
-        continue
 
-    with pg_engine.begin() as pg_conn:
-        for row in rows:
-            row_dict = dict(row)
-            cols = ', '.join(row_dict.keys())
-            placeholders = ', '.join([f':{k}' for k in row_dict.keys()])
-            sql = text(f'INSERT INTO {table} ({cols}) VALUES ({placeholders}) ON CONFLICT DO NOTHING')
-            try:
-                pg_conn.execute(sql, row_dict)
-            except Exception as e:
-                print(f'  Skipped a row in {table}: {e}')
+def run(args: list[str]):
+    result = subprocess.run([ALEMBIC] + args, cwd=os.path.dirname(__file__))
+    sys.exit(result.returncode)
 
-    print(f'  Done! {len(rows)} rows migrated.')
 
-print('\nMigration complete!')
-sqlite_conn.close()
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__)
+        sys.exit(0)
+
+    cmd = args[0]
+
+    if cmd == "upgrade":
+        run(["upgrade", args[1] if len(args) > 1 else "head"])
+    elif cmd == "downgrade":
+        run(["downgrade", args[1] if len(args) > 1 else "-1"])
+    elif cmd == "current":
+        run(["current"])
+    elif cmd == "history":
+        run(["history", "--verbose"])
+    elif cmd == "make":
+        msg = args[1] if len(args) > 1 else "auto_migration"
+        run(["revision", "--autogenerate", "-m", msg])
+    else:
+        # Pass through any alembic command directly
+        run(args)

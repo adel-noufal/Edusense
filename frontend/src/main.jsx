@@ -1,20 +1,48 @@
-import React from 'react'
+import React, { lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
-import { createBrowserRouter, RouterProvider, Navigate, Route, Routes } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
 import './styles/index.css'
-import Layout from './components/Layout'
-import ErrorBoundary from './components/ErrorBoundary'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { LanguageProvider } from './context/LanguageContext'
-import Landing from './pages/Landing'
-import { Login, Register, ForgotPassword, ResetPassword } from './pages/Auth'
-import { About, InstructorDashboard, NotFound, Settings, StudentDashboard, Support } from './pages/Dashboard'
-import Sessions from './pages/Sessions'
-import { LessonGenerator, QuizGenerator, VideoLibrary, FlashcardGenerator } from './pages/AITools'
-import Reports from './pages/Reports'
-import Profile from './pages/Profile'
-import LiveSessionRoom from './pages/LiveSessionRoom'
-import DatabasePreview from './pages/DatabasePreview'
+
+// ── Lazy-load every page chunk (each becomes a separate JS file on build) ────
+const Layout          = lazy(() => import('./components/Layout'))
+const ErrorBoundary   = lazy(() => import('./components/ErrorBoundary'))
+const Landing         = lazy(() => import('./pages/Landing'))
+const Sessions        = lazy(() => import('./pages/Sessions'))
+const Reports         = lazy(() => import('./pages/Reports'))
+const Profile         = lazy(() => import('./pages/Profile'))
+const LiveSessionRoom = lazy(() => import('./pages/LiveSessionRoom'))
+const DatabasePreview = lazy(() => import('./pages/DatabasePreview'))
+
+// Named exports from multi-component modules resolved lazily
+const Login               = lazy(() => import('./pages/Auth').then(m => ({ default: m.Login })))
+const Register            = lazy(() => import('./pages/Auth').then(m => ({ default: m.Register })))
+const ForgotPassword      = lazy(() => import('./pages/Auth').then(m => ({ default: m.ForgotPassword })))
+const ResetPassword       = lazy(() => import('./pages/Auth').then(m => ({ default: m.ResetPassword })))
+const StudentDashboard    = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.StudentDashboard })))
+const InstructorDashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.InstructorDashboard })))
+const Settings            = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Settings })))
+const Support             = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Support })))
+const NotFound            = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.NotFound })))
+const LessonGenerator     = lazy(() => import('./pages/AITools').then(m => ({ default: m.LessonGenerator })))
+const QuizGenerator       = lazy(() => import('./pages/AITools').then(m => ({ default: m.QuizGenerator })))
+const FlashcardGenerator  = lazy(() => import('./pages/AITools').then(m => ({ default: m.FlashcardGenerator })))
+const VideoLibrary        = lazy(() => import('./pages/AITools').then(m => ({ default: m.VideoLibrary })))
+
+// ── Spinner shown during any lazy-chunk load ─────────────────────────────────
+function PageLoader() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
+      <div style={{ width: 48, height: 48, border: '4px solid #0ea5e9', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
+}
+
+// ── Short helper so each route doesn't repeat Suspense boilerplate ───────────
+const S = ({ children }) => <Suspense fallback={<PageLoader />}>{children}</Suspense>
+
 
 function Protected({ role, children }) {
   const { user } = useAuth()
@@ -24,71 +52,52 @@ function Protected({ role, children }) {
 }
 
 const router = createBrowserRouter([
+  { path: "/",                element: <S><Landing /></S> },
+  { path: "/login",           element: <S><Login /></S> },
+  { path: "/register",        element: <S><Register /></S> },
+  { path: "/forgot-password", element: <S><ForgotPassword /></S> },
+  { path: "/reset-password",  element: <S><ResetPassword /></S> },
   {
-    path: "/",
-    element: <Landing />,
-  },
-  {
-    path: "/about",
-    element: <About />,
-  },
-  {
-    path: "/login",
-    element: <Login />,
-  },
-  {
-    path: "/register",
-    element: <Register />,
-  },
-  {
-    path: "/forgot-password",
-    element: <ForgotPassword />,
-  },
-  {
-    path: "/reset-password",
-    element: <ResetPassword />,
-  },
-  {
-    element: <Layout />,
+    element: <S><Layout /></S>,
     children: [
-      { path: "/student", element: <Protected role="student"><StudentDashboard /></Protected> },
-      { path: "/student/upcoming", element: <Protected role="student"><StudentDashboard /></Protected> },
-      { path: "/student/browse", element: <Protected role="student"><StudentDashboard /></Protected> },
-      { path: "/student/history", element: <Protected role="student"><StudentDashboard /></Protected> },
-      { path: "/student/profile", element: <Protected role="student"><Profile /></Protected> },
-      { path: "/instructor", element: <Protected role="instructor"><InstructorDashboard /></Protected> },
-      { path: "/instructor/sessions", element: <Protected role="instructor"><Sessions /></Protected> },
-      { path: "/instructor/sessions/:sessionId/live", element: <Protected role="instructor"><LiveSessionRoom /></Protected> },
-      { path: "/student/sessions/:sessionId/live", element: <Protected role="student"><LiveSessionRoom /></Protected> },
-      { path: "/instructor/reports", element: <Protected role="instructor"><Reports /></Protected> },
-      { path: "/instructor/lessons", element: <Protected role="instructor"><LessonGenerator /></Protected> },
-      { path: "/instructor/quizzes", element: <Protected role="instructor"><QuizGenerator /></Protected> },
-      { path: "/instructor/flashcards", element: <Protected role="instructor"><FlashcardGenerator /></Protected> },
-      { path: "/instructor/videos", element: <Protected role="instructor"><VideoLibrary /></Protected> },
-      { path: "/instructor/database", element: <Protected role="instructor"><DatabasePreview /></Protected> },
-      { path: "/settings", element: <Protected><Settings /></Protected> },
-      { path: "/support", element: <Protected><Support /></Protected> },
+      { path: "/student",          element: <Protected role="student"><S><StudentDashboard /></S></Protected> },
+      { path: "/student/upcoming", element: <Protected role="student"><S><StudentDashboard /></S></Protected> },
+      { path: "/student/browse",   element: <Protected role="student"><S><StudentDashboard /></S></Protected> },
+      { path: "/student/history",  element: <Protected role="student"><S><StudentDashboard /></S></Protected> },
+      { path: "/student/profile",  element: <Protected role="student"><S><Profile /></S></Protected> },
+      { path: "/student/sessions/:sessionId/live", element: <Protected role="student"><S><LiveSessionRoom /></S></Protected> },
+      { path: "/instructor",       element: <Protected role="instructor"><S><InstructorDashboard /></S></Protected> },
+      { path: "/instructor/sessions", element: <Protected role="instructor"><S><Sessions /></S></Protected> },
+      { path: "/instructor/sessions/:sessionId/live", element: <Protected role="instructor"><S><LiveSessionRoom /></S></Protected> },
+      { path: "/instructor/reports",    element: <Protected role="instructor"><S><Reports /></S></Protected> },
+      { path: "/instructor/lessons",    element: <Protected role="instructor"><S><LessonGenerator /></S></Protected> },
+      { path: "/instructor/quizzes",    element: <Protected role="instructor"><S><QuizGenerator /></S></Protected> },
+      { path: "/instructor/flashcards", element: <Protected role="instructor"><S><FlashcardGenerator /></S></Protected> },
+      { path: "/instructor/videos",     element: <Protected role="instructor"><S><VideoLibrary /></S></Protected> },
+      { path: "/instructor/database",   element: <Protected role="instructor"><S><DatabasePreview /></S></Protected> },
+      { path: "/settings", element: <Protected><S><Settings /></S></Protected> },
+      { path: "/support",  element: <Protected><S><Support /></S></Protected> },
     ],
   },
-  {
-    path: "*",
-    element: <NotFound />,
-  },
+  { path: "*", element: <S><NotFound /></S> },
 ], {
-  future: {
-    v7_startTransition: true,
-    v7_relativeSplatPath: true,
-  }
+  future: { v7_startTransition: true, v7_relativeSplatPath: true }
 })
 
 function App() {
-  return <LanguageProvider><AuthProvider><RouterProvider router={router} /></AuthProvider></LanguageProvider>
+  return (
+    <LanguageProvider>
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
+    </LanguageProvider>
+  )
 }
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <ErrorBoundary>
+    <Suspense fallback={<PageLoader />}>
       <App />
-    </ErrorBoundary>
+    </Suspense>
   </React.StrictMode>,
 )

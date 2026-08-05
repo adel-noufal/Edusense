@@ -5,7 +5,7 @@ from app.api.deps import require_role
 from app.db.session import engine
 from app.models.models import User
 
-router = APIRouter(prefix="/admin", tags=["Admin"])
+router = APIRouter(prefix="/admin", tags=["admin"])
 
 ALLOWED_TABLES = {
     "users",
@@ -21,7 +21,7 @@ ALLOWED_TABLES = {
 
 
 @router.get("/db/tables")
-def list_tables(_: User = Depends(require_role("instructor"))):
+def list_tables(_: User = Depends(require_role("admin", "instructor"))):
     inspector = inspect(engine)
     tables = [name for name in inspector.get_table_names() if name in ALLOWED_TABLES]
     return {
@@ -32,7 +32,7 @@ def list_tables(_: User = Depends(require_role("instructor"))):
 
 
 @router.get("/db/preview/{table_name}")
-def preview_table(table_name: str, limit: int = 25, _: User = Depends(require_role("instructor"))):
+def preview_table(table_name: str, limit: int = 25, _: User = Depends(require_role("admin", "instructor"))):
     if table_name not in ALLOWED_TABLES:
         raise HTTPException(404, "Table not available for preview")
     with engine.connect() as connection:

@@ -117,9 +117,14 @@ backend/app/static/avatars/*
 !backend/app/static/avatars/.gitkeep
 
 
-# Migration scripts (run once, then remove)
+# One-off migration scripts (run once, then remove)
 migrate_attended.py
 alter_db.py
+
+# Alembic — track versions but ignore pycache inside them
+backend/migrations/__pycache__/
+backend/migrations/versions/__pycache__/
+
 
 # Sample data (optional)
 sample_data/
