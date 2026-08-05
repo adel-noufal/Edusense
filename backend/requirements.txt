@@ -1,0 +1,25 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+sqlalchemy==2.0.36
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-jose[cryptography]==3.3.0
+passlib==1.7.4
+python-multipart==0.0.20
+email-validator==2.2.0
+opencv-python>=4.10.0.84
+numpy>=2.1.0
+deepface==0.0.93
+reportlab==4.2.5
+google-adk
+gtts==2.5.4
+psycopg2-binary==2.9.10
+python-docx==1.1.2
+apscheduler==3.10.4
+python-pptx>=0.6.21
+
+# --- v7 Emotion Model (PyTorch EfficientNet-B0, 90.9% accuracy) ---
+# Uncomment to enable the v7 model (CPU-only). Falls back to DeepFace without these.
+torch>=2.0.0
+torchvision>=0.15.0
+pillow>=9.0.0

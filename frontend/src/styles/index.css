@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { min-height: 100%; }
+body {
+  margin: 0;
+  font-family: Inter, "Noto Sans Arabic", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  overflow-x: hidden;
+}
+html[lang="ar"] body { font-family: "Noto Sans Arabic", Inter, ui-sans-serif, system-ui, sans-serif; }
+
+/* Global animations */
+@keyframes blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(20px, -30px) scale(1.05); }
+  66% { transform: translate(-20px, 20px) scale(0.95); }
+}
+.animate-blob { animation: blob 12s ease-in-out infinite; }
+.animation-delay-2000 { animation-delay: 2s; }
+.animation-delay-4000 { animation-delay: 4s; }
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+/* Theme consistency utilities */
+.focus-ring { 
+  @apply focus:outline-none focus:ring-2 focus:ring-mint focus:ring-offset-2 dark:focus:ring-offset-slate-900;
+}
+.panel { 
+  @apply rounded-xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur-sm dark:border-slate-700/80 dark:bg-slate-900/90 sm:p-5;
+}
+
+/* Button styles with animations */
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold focus-ring;
+  @apply transition-all duration-200 ease-out;
+  @apply active:scale-[0.97] active:translate-y-[1px];
+}
+.btn:hover {
+  @apply transform -translate-y-[1px];
+}
+.btn-primary {
+  @apply btn relative overflow-hidden bg-gradient-to-r from-ocean to-teal-600 text-white shadow-lg shadow-ocean/25;
+}
+.btn-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-120%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.22), transparent);
+  transition: transform 0.5s ease;
+}
+.btn-primary:hover::after { transform: translateX(120%); }
+.btn-soft {
+  @apply btn bg-slate-100/90 text-slate-800 hover:bg-slate-200 dark:bg-slate-800/90 dark:text-slate-100 dark:hover:bg-slate-700;
+}
+.btn-download {
+  @apply btn-soft border border-mint/30 text-ocean hover:border-mint hover:bg-mint/10 dark:text-mint;
+}
+.input {
+  @apply w-full rounded-xl border border-slate-300 bg-white/95 px-3 py-2.5 text-sm focus-ring;
+  @apply transition-all duration-150 dark:border-slate-700 dark:bg-slate-950/95 dark:text-slate-100;
+}
+.input:hover {
+  @apply border-slate-400 dark:border-slate-600;
+}
+
+/* Navigation links (tabs/sidebar) animations */
+.nav-link {
+  @apply relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold;
+  @apply transition-all duration-200 ease-out;
+}
+.nav-link::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 999px;
+  @apply bg-ocean dark:bg-mint opacity-0 transition-opacity duration-200;
+}
+.nav-link:hover {
+  @apply bg-slate-100 dark:bg-slate-800/80;
+}
+.nav-link:hover::before {
+  @apply opacity-100;
+}
+.nav-link.active {
+  @apply bg-teal-50 text-ocean dark:bg-slate-800 dark:text-mint;
+}
+.nav-link.active::before {
+  @apply opacity-100;
+}
+
+.page-shell { @apply mx-auto w-full max-w-7xl min-w-0; }
+.table-scroll { @apply max-h-[60vh]; }
+
+/* Responsive adjustments */
+@media (max-width: 1280px) {
+  .page-shell { @apply max-w-full; }
+}
+@media (max-width: 900px) {
+  .panel { @apply p-4; }
+}
+
