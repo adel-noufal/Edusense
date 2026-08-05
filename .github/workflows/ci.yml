@@ -1,0 +1,48 @@
+name: EduSense CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  backend-test:
+    name: Backend Syntax & Build Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Verify Python Compilation
+        run: |
+          python -c "import glob, py_compile; [py_compile.compile(f, doraise=True) for f in glob.glob('backend/**/*.py', recursive=True)]"
+
+  frontend-build:
+    name: Frontend Vite Build Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build

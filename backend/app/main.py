@@ -7,7 +7,39 @@ from app.db.seed import init_db
 from app.core.scheduler import start_scheduler, shutdown_scheduler
 
 settings = get_settings()
-app = FastAPI(title="EduSense AI Education Platform", version="1.0.0")
+
+tags_metadata = [
+    {"name": "auth", "description": "Authentication & JWT Token Management"},
+    {"name": "users", "description": "User Profiles & Account Operations"},
+    {"name": "sessions", "description": "Live Classroom Session Management"},
+    {"name": "emotions", "description": "PyTorch v7 Webcam Emotion Analysis & Distribution Logs"},
+    {"name": "ai", "description": "7-Agent Multi-Tier AI Generation (Lessons, Quizzes, Flashcards)"},
+    {"name": "reports", "description": "ReportLab Executive PDF Generation & Analytics"},
+    {"name": "admin", "description": "Administrative System Overview"},
+]
+
+app = FastAPI(
+    title="EduSense AI Education Platform",
+    description="""
+    **EduSense** is a multi-agent AI Education Platform for adaptive learning, 
+    real-time webcam facial emotion recognition (PyTorch v7 EfficientNet-B0 — 90.9% Accuracy), 
+    and intelligent multi-tier AI model task routing (Gemini 2.0 Flash -> Specialized Local Ollama Models).
+
+    👤 **Author:** Adel Mohamed Noufal  
+    🔗 **LinkedIn:** https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/  
+    📦 **GitHub:** https://github.com/adel-noufal/Edusense
+    """,
+    version="2.0.0",
+    openapi_tags=tags_metadata,
+    contact={
+        "name": "Adel Mohamed Noufal",
+        "url": "https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/",
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT",
+    },
+)
 
 app.add_middleware(
     CORSMiddleware,
