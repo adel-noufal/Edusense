@@ -1,41 +1,110 @@
-# Architecture
+# Architecture & Multi-User System Workflows
 
 ```mermaid
 flowchart LR
-  Student[Student Browser] --> Frontend[React + Vite]
+  Student[Student Browser] --> Frontend[React + Vite Frontend]
   Instructor[Instructor Browser] --> Frontend
   Frontend --> API[FastAPI REST API]
-  API --> Auth[JWT + Password Hashing]
-  API --> DB[(SQLite)]
-  API --> Agents[Google ADK Multi-Agent Layer]
-  Agents --> Emotion[Emotion Analysis Agent + DeepFace]
-  Agents --> Engagement[Student Engagement Agent]
-  Agents --> Recs[Recommendation Agent]
-  Agents --> Lesson[Lesson Generation Agent]
-  Agents --> Quiz[Quiz Generation Agent]
-  Agents --> Report[Report Generation Agent]
-  API --> Video[FFmpeg Video Service]
-  Report --> PDF[PDF Reports]
-  Video --> MP4[Generated MP4]
+  API --> Auth[JWT Security & Security Middleware]
+  API --> DB[(PostgreSQL / SQLite ORM)]
+  API --> Agents[EduSense 7-Agent Workflow Orchestrator]
+  Agents --> Emotion[1. Emotion Analysis Agent - PyTorch v7 EfficientNet / DeepFace]
+  Agents --> Engagement[2. Student Engagement Agent]
+  Agents --> Recs[3. Recommendation Agent]
+  Agents --> Lesson[4. Lesson Generation Agent]
+  Agents --> Quiz[5. Quiz Generation Agent]
+  Agents --> Flashcard[6. Flashcard Generation Agent]
+  Agents --> Report[7. Report Generation Agent]
+  API --> Export[ReportLab PDF Service]
+  API --> Email[APScheduler + SMTP Email Reminder Service]
+  Report --> PDF[Generated PDF Reports]
 ```
 
-## Tables
+---
 
-- users
-- profiles
-- sessions
-- session_registrations
-- emotion_logs
-- reports
-- feedback
-- video_projects
-- quizzes
+## 👨‍🏫 Instructor System Workflow
 
-## Production Hardening Checklist
+```mermaid
+sequenceDiagram
+  autonumber
+  actor I as Instructor
+  participant UI as React Frontend
+  participant API as FastAPI Backend
+  participant WF as 7-Agent Workflow
+  participant PDF as ReportLab Service
 
-- Replace development secret key.
-- Configure HTTPS behind a reverse proxy.
-- Add database migrations with Alembic.
-- Add background workers for heavy DeepFace and FFmpeg jobs.
-- Store generated files outside the app package in production.
-- Add rate limits to auth and webcam ingestion endpoints.
+  I->>UI: 1. Create & Schedule Class Session
+  UI->>API: POST /api/sessions
+  API->>UI: Session Created & Email Reminders Scheduled
+  I->>UI: 2. Launch Live Session Room
+  UI->>API: GET /api/sessions/{id}/emotions/distribution (Polling)
+  API->>UI: Real-time Emotion % & Engagement Timeline
+  UI->>I: Displays Engagement Alert (if < 62%)
+  I->>UI: 3. Trigger AI Session Improvement Loop
+  UI->>API: POST /api/ai/workflow/improve
+  API->>WF: Executes EduSenseAgentWorkflow
+  WF-->>API: Returns Simplified Lesson, Adaptive Quiz & Summary
+  API->>PDF: Generate Session Report PDF
+  PDF-->>UI: Download Link for Executive PDF Report
+```
+
+1. **Session Creation & Scheduling**: Instructor creates a class session, setting date, time, and topic.
+2. **Live Classroom Monitoring**: During class, the instructor dashboard polls real-time engagement and emotion distributions.
+3. **Automated Interventions**: If student engagement drops below threshold (<62%), the system notifies the instructor with pedagogical recommendations.
+4. **Post-Session Report Generation**: After class, the workflow compiles session analytics, generates an improved lesson plan, creates a reinforcement quiz, and exports a downloadable PDF report.
+
+---
+
+## 🎓 Student System Workflow
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor S as Student
+  participant UI as React Frontend
+  participant Cam as Webcam Processor
+  participant API as FastAPI Backend
+  participant ML as PyTorch EfficientNet-B0 v7
+
+  S->>UI: 1. Register & Join Live Classroom
+  UI->>Cam: Initialize Webcam Stream
+  loop Every N seconds
+    Cam->>UI: Capture Frame (Base64 JPEG)
+    UI->>API: POST /api/sessions/{id}/emotions
+    API->>ML: Classify Emotion (v7 EfficientNet-B0)
+    ML-->>API: Emotion (Happy, Neutral, Confused, Sad, etc.) + Confidence
+    API-->>UI: Emotion Log Saved
+  end
+  S->>UI: 2. Access AI Tools (Adaptive Flashcards & Quizzes)
+  UI->>API: POST /api/ai/flashcards / POST /api/ai/quiz
+  API-->>UI: Interactive Flashcard Decks & Knowledge Checks
+  S->>UI: 3. Receive Practice Feedback & Progress Stats
+```
+
+1. **Session Access**: Student views scheduled sessions and joins the live room.
+2. **Webcam Emotion Streaming**: Webcam frames are analyzed locally/server-side using the custom **v7 PyTorch EfficientNet-B0** model to log emotion data seamlessly without disrupting the student.
+3. **Interactive Study Tools**: Students utilize AI-generated flashcards, practice quizzes, and interactive slide materials tailored to the lesson.
+
+---
+
+## 🗄️ Database Tables
+
+- `users`: User credentials, roles (`instructor`, `student`, `admin`), avatars.
+- `profiles`: Extended user metadata and preferences.
+- `sessions`: Class sessions, dates, start times, topics, instructor IDs, and reminder statuses.
+- `session_registrations`: Student enrollment mappings.
+- `emotion_logs`: Timestamped emotion classifications, confidence scores, and session links.
+- `reports`: Saved session analytics reports and generated PDF paths.
+- `ai_generations`: History of generated lessons, quizzes, and flashcards.
+
+---
+
+## 🔒 Production Hardening Checklist
+
+- ✅ Environment secrets stored in `backend/.env` (never committed to git).
+- ✅ Password hashing using `bcrypt` and JWT tokens for auth.
+- ✅ Dual AI provider routing with automatic failover (Gemini -> Ollama -> Local templates).
+- ✅ Dual ML backend (PyTorch v7 EfficientNet-B0 with DeepFace fallback).
+- ✅ APScheduler background job runner for SMTP email reminders.
+- ✅ ReportLab PDF generation service.
+
