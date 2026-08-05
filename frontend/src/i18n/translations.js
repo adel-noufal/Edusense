@@ -33,6 +33,7 @@ export const translations = {
     passwordsMatch: 'Passwords do not match.',
     resetSuccess: 'Password reset successful! You can now log in.',
     backToLogin: 'Back to Login',
+    backToHome: '← Back to main page',
     nav: {
       dashboard: 'Dashboard',
       upcoming: 'Upcoming',
@@ -269,6 +270,7 @@ export const translations = {
     passwordsMatch: 'كلمات المرور غير متطابقة.',
     resetSuccess: 'تم تغيير كلمة المرور بنجاح! يمكنك تسجيل الدخول الآن.',
     backToLogin: 'العودة لتسجيل الدخول',
+    backToHome: '→ العودة للصفحة الرئيسية',
     nav: {
       dashboard: 'لوحة التحكم',
       upcoming: 'القادمة',

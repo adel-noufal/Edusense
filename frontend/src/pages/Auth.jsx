@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, GraduationCap, Globe } from 'lucide-react'
+import { Eye, EyeOff, GraduationCap, Globe, ArrowLeft } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import AnimatedBackground from '../components/AnimatedBackground'
@@ -47,6 +47,9 @@ export function Login() {
       <div className="flex flex-col items-center gap-2 mt-4">
         <Link className="text-sm font-semibold text-ocean dark:text-mint hover:underline" to="/forgot-password">{t('forgotPassword')}</Link>
         <Link className="text-sm text-slate-500 hover:underline" to="/register">{t('needAccount')}</Link>
+        <Link className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-ocean dark:hover:text-mint transition-colors mt-1" to="/">
+          <ArrowLeft size={14} />{t('backToHome')}
+        </Link>
       </div>
     </AuthShell>
   )
@@ -86,6 +89,11 @@ export function Register() {
         <option value="instructor">{t('instructor')}</option>
       </select>
       <button type="submit" className="btn-primary w-full">{t('register')}</button>
+      <div className="flex flex-col items-center gap-2 mt-2">
+        <Link className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-ocean dark:hover:text-mint transition-colors" to="/">
+          <ArrowLeft size={14} />{t('backToHome')}
+        </Link>
+      </div>
     </AuthShell>
   )
 }
