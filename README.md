@@ -2,7 +2,6 @@
 
 [![Author](https://img.shields.io/badge/Author-Adel_Mohamed_Noufal-blue.svg)](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Adel_Mohamed_Noufal-0A66C2.svg?logo=linkedin)](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)
-[![GitHub Repository](https://img.shields.io/badge/GitHub-Edusense-black.svg?logo=github)](https://github.com/adel-noufal/Edusense)
 [![Emotion Model](https://img.shields.io/badge/PyTorch-v7_EfficientNet--B0_(90.9%25)-EE4C2C.svg?logo=pytorch)](https://github.com/adel-noufal/Edusense)
 [![AI Backend](https://img.shields.io/badge/AI_Providers-Gemini_2.0_%7C_Ollama-4285F4.svg)](https://github.com/adel-noufal/Edusense)
 [![Stack](https://img.shields.io/badge/Stack-React_18_%7C_FastAPI_%7C_PostgreSQL-00599C.svg)](https://github.com/adel-noufal/Edusense)
@@ -176,7 +175,7 @@ Open `http://localhost:5173` in your browser.
 ## 🦙 Running Ollama Offline (Multi-Model Setup)
 
 1. Download Ollama from [ollama.com](https://ollama.com).
-2. Pull the 3 specialized models in your terminal:
+2. Pull the 4 specialized models in your terminal:
    ```bash
    ollama pull qwen2.5     # Translation & Multilingual (7B)
    ollama pull mistral     # Lessons & Scripts (7B)
@@ -250,4 +249,3 @@ docs/         Architecture blueprints and workflow flowcharts
 Developed by **[Adel Mohamed Noufal](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)**  
 🔗 **LinkedIn:** [https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)  
 🐙 **GitHub:** [https://github.com/adel-noufal](https://github.com/adel-noufal)  
-📦 **Repository:** [https://github.com/adel-noufal/Edusense](https://github.com/adel-noufal/Edusense)
