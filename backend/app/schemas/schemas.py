@@ -23,6 +23,14 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserUpdate(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    current_password: str | None = None
+    new_password: str | None = Field(default=None, min_length=6)
+
+
+
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -58,6 +66,8 @@ class SessionOut(SessionIn):
     id: int
     instructor_id: int
     status: str
+    prep_start_time: datetime | None = None
+    instructor_name: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -81,11 +91,15 @@ class LessonRequest(BaseModel):
     teaching_style: str = "Friendly"
     duration: int = Field(default=5, ge=1, le=60)
     additional_notes: str | None = None
+    session_id: int | None = None
+    source_session_id: int | None = None
 
 
 class QuizRequest(BaseModel):
     session_id: int | None = None
+    source_session_id: int | None = None
     topic: str
+    prompt: str = ""
     difficulty: str = "Medium"
     count: int = Field(default=8, ge=3, le=30)
 
@@ -101,12 +115,17 @@ class VideoRequest(BaseModel):
     style: str = "Friendly"
     duration: int = Field(default=5, ge=1, le=60)
     notes: str | None = None
+    session_id: int | None = None
+    source_session_id: int | None = None
 
 
 class FlashcardRequest(BaseModel):
     topic: str
+    prompt: str = ""
     count: int = Field(default=10, ge=3, le=40)
     language: str = "English"
+    session_id: int | None = None
+    source_session_id: int | None = None
 
 
 class RecommendationDecision(BaseModel):

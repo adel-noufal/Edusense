@@ -144,7 +144,10 @@ def create_report(session_id: int, db: Session = Depends(get_db), user: User = D
 def report_sessions(db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
     sessions = (
         db.query(ClassSession)
-        .filter(ClassSession.instructor_id == user.id)
+        .filter(
+            ClassSession.instructor_id == user.id,
+            ClassSession.status == "ended",  # Only show completed sessions in Reports
+        )
         .order_by(ClassSession.date.desc(), ClassSession.start_time.desc())
         .all()
     )

@@ -18,6 +18,7 @@ psycopg2-binary==2.9.10
 python-docx==1.1.2
 apscheduler==3.10.4
 python-pptx>=0.6.21
+pypdf>=5.0.0
 
 # --- v7 Emotion Model (PyTorch EfficientNet-B0, 90.9% accuracy) ---
 # Uncomment to enable the v7 model (CPU-only). Falls back to DeepFace without these.

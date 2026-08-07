@@ -104,7 +104,11 @@ export function StudentDashboard() {
 export function InstructorDashboard() {
   const { t } = useLanguage()
   const [sessions, setSessions] = useState([])
+  const [selectedSessionId, setSelectedSessionId] = useState('all')
   const [report, setReport] = useState(null)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [error, setError] = useState('')
+
   async function loadSessions() {
     try {
       const res = await api('/sessions')
@@ -116,8 +120,62 @@ export function InstructorDashboard() {
 
   useEffect(() => { loadSessions() }, [])
 
+  const endedSessions = useMemo(() => sessions.filter((s) => s.status === 'ended'), [sessions])
+
   async function analyze() {
-    if (sessions[0]) setReport(await api(`/ai/recommendations/${sessions[0].id}`))
+    if (!sessions.length) {
+      setError('No sessions found to run feedback loop.')
+      return
+    }
+    
+    // Enforce rule: feedback loop can ONLY be run on ended sessions
+    if (selectedSessionId === 'all') {
+      if (!endedSessions.length) {
+        setError('Feedback loop is only available for ended sessions. None of your sessions have ended yet.')
+        return
+      }
+    } else {
+      const targetSession = sessions.find((s) => String(s.id) === String(selectedSessionId))
+      if (targetSession && targetSession.status !== 'ended') {
+        setError(`Feedback loop is only available for ended sessions. Session "${targetSession.title}" is currently ${targetSession.status}.`)
+        return
+      }
+    }
+
+    setAnalyzing(true)
+    setError('')
+    try {
+      if (selectedSessionId === 'all') {
+        const results = await Promise.all(
+          endedSessions.map((s) => api(`/ai/recommendations/${s.id}`).catch(() => null))
+        )
+        const valid = results.filter(Boolean)
+        if (valid.length) {
+          const recList = Array.from(new Set(valid.flatMap((r) => r.recommendations?.recommendations || [])))
+          const aggregateDistribution = {}
+          valid.forEach((r) => {
+            const dist = r.emotion_report?.distribution || {}
+            Object.entries(dist).forEach(([emo, val]) => {
+              aggregateDistribution[emo] = (aggregateDistribution[emo] || 0) + val
+            })
+          })
+          setReport({
+            recommendations: { recommendations: recList.length ? recList : ['Maintain active student engagement', 'Incorporate interactive checks'] },
+            emotion_report: { distribution: aggregateDistribution },
+            engagement_report: valid[0]?.engagement_report || { attention_timeline: [] },
+          })
+        } else {
+          setError('Could not gather feedback data from ended sessions.')
+        }
+      } else {
+        const res = await api(`/ai/recommendations/${selectedSessionId}`)
+        setReport(res)
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to run feedback loop analysis.')
+    } finally {
+      setAnalyzing(false)
+    }
   }
 
   return (
@@ -125,11 +183,31 @@ export function InstructorDashboard() {
       <Hero title={t('dashboard.instructor')} />
       <Stats sessions={sessions.length} />
       <div className="grid gap-6 xl:grid-cols-2">
-        <div className="panel">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="panel space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-bold">{t('dashboard.managed')}</h2>
-            <button className="btn-primary" type="button" onClick={analyze}>{t('dashboard.feedbackLoop')}</button>
+            <div className="flex flex-wrap items-center gap-2 sm:ms-auto">
+              <select
+                className="input py-1.5 text-xs min-w-[180px] flex-1 sm:flex-none"
+                value={selectedSessionId}
+                onChange={(e) => {
+                  setSelectedSessionId(e.target.value)
+                  setError('')
+                }}
+              >
+                <option value="all">All Ended Sessions ({endedSessions.length})</option>
+                {sessions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title} ({s.status})
+                  </option>
+                ))}
+              </select>
+              <button className="btn-primary py-1.5 px-4 text-xs whitespace-nowrap" type="button" onClick={analyze} disabled={analyzing}>
+                {analyzing ? 'Analyzing...' : t('dashboard.feedbackLoop')}
+              </button>
+            </div>
           </div>
+          {error && <p className="rounded-md bg-red-50 p-2.5 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-200">{error}</p>}
           <SessionList sessions={sessions} showEdit={true} onReload={loadSessions} />
         </div>
         <div className="panel">
@@ -215,7 +293,9 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
     onReload?.()
   }
 
-  async function handleEdit(session) {
+  function handleEdit(e, session) {
+    e.preventDefault()
+    e.stopPropagation()
     setEditingSession(session)
     setEditForm({
       title: session.title,
@@ -227,7 +307,8 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
     })
   }
 
-  async function saveEdit() {
+  async function saveEdit(e) {
+    e.preventDefault()
     await api(`/sessions/${editingSession.id}`, { method: 'PUT', body: editForm })
     setEditingSession(null)
     onReload?.()
@@ -240,39 +321,37 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white/70 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/50" key={session.id}>
           <div>
             <p className="font-bold">{session.title}</p>
-            <p className="text-sm text-slate-500">{session.date} | {session.start_time} | {session.status}</p>
+            <p className="text-sm text-slate-500">{session.date} | {session.start_time} | <span className="capitalize font-semibold text-ocean dark:text-mint">{session.status}</span></p>
             {session.description && <p className="mt-2 max-w-xl text-sm text-slate-600 dark:text-slate-300">{session.description}</p>}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {showEdit && session.status === 'pending' && (
-              <button className="btn-soft" type="button" onClick={() => handleEdit(session)}>Edit</button>
+              <button className="btn-soft" type="button" onClick={(e) => handleEdit(e, session)}>Edit</button>
             )}
             {showUnregister && session.status !== 'ongoing' && (
               <button className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={() => unregister(session.id)}>Unregister</button>
             )}
-            {join && ['ongoing', 'pending'].includes(session.status) ? (
+            {join && ['ongoing', 'pending', 'preparing'].includes(session.status) && (
               <button className="btn-soft" type="button" onClick={() => joinSession(session.id)}>{t('dashboard.join')}</button>
-            ) : (
-              <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold uppercase text-slate-500 dark:bg-slate-800">Completed</span>
             )}
           </div>
         </div>
       ))}
       {editingSession && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-md space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setEditingSession(null)}>
+          <form className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 dark:text-slate-100" onSubmit={saveEdit} onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold">Edit Session</h3>
-            <input className="input w-full" placeholder="Title" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
-            <textarea className="input w-full" placeholder="Description" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} rows={3} />
-            <input className="input w-full" type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} />
-            <input className="input w-full" type="time" value={editForm.start_time} onChange={(e) => setEditForm({ ...editForm, start_time: e.target.value })} />
-            <input className="input w-full" type="number" placeholder="Duration (minutes)" value={editForm.duration} onChange={(e) => setEditForm({ ...editForm, duration: parseInt(e.target.value) })} />
-            <input className="input w-full" type="number" placeholder="Max students" value={editForm.max_students || ''} onChange={(e) => setEditForm({ ...editForm, max_students: e.target.value ? parseInt(e.target.value) : null })} />
-            <div className="flex gap-2">
-              <button className="btn-soft flex-1" onClick={saveEdit}>Save</button>
-              <button className="btn-soft flex-1" onClick={() => setEditingSession(null)}>Cancel</button>
+            <input className="input w-full dark:bg-slate-800 dark:border-slate-700" placeholder="Title" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} required />
+            <textarea className="input w-full dark:bg-slate-800 dark:border-slate-700" placeholder="Description" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} rows={3} />
+            <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} required />
+            <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="time" value={editForm.start_time} onChange={(e) => setEditForm({ ...editForm, start_time: e.target.value })} required />
+            <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="number" placeholder="Duration (minutes)" value={editForm.duration} onChange={(e) => setEditForm({ ...editForm, duration: parseInt(e.target.value) })} />
+            <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="number" placeholder="Max students" value={editForm.max_students || ''} onChange={(e) => setEditForm({ ...editForm, max_students: e.target.value ? parseInt(e.target.value) : null })} />
+            <div className="flex gap-2 pt-2">
+              <button className="btn-primary flex-1" type="submit">Save Changes</button>
+              <button className="btn-soft flex-1" type="button" onClick={() => setEditingSession(null)}>Cancel</button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>
@@ -320,9 +399,11 @@ function SessionCatalog({ sessions, onReload }) {
               <h3 className="text-xl font-black">{session.title}</h3>
               <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-300">{session.description || 'A live learning session ready for registration.'}</p>
             </div>
-            <div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-200">
-              {session.max_students !== null ? `${session.available_seats} seats left` : 'Open seats'}
-            </div>
+            {session.max_students != null && Number(session.max_students) > 0 && (
+              <div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                {session.available_seats} seats left
+              </div>
+            )}
           </div>
           <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-500">
             <span>{session.date}</span>

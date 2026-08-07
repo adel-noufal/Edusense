@@ -13,6 +13,8 @@ export default function DatabasePreview() {
   const [selectedRow, setSelectedRow] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [resetting, setResetting] = useState(false)
+  const [resetMessage, setResetMessage] = useState('')
 
   async function loadTables() {
     setLoading(true)
@@ -28,6 +30,24 @@ export default function DatabasePreview() {
       setError(err.message || 'Could not load database preview')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleResetData() {
+    if (!window.confirm('Are you sure you want to delete all created sessions, emotion logs, quizzes, reports, and generated content? User & Admin accounts will remain intact.')) {
+      return
+    }
+    setResetting(true)
+    setError('')
+    setResetMessage('')
+    try {
+      const res = await api('/admin/reset-data', { method: 'POST' })
+      setResetMessage(res.message)
+      await loadTables()
+    } catch (err) {
+      setError(err.message || 'Failed to reset platform data.')
+    } finally {
+      setResetting(false)
     }
   }
 
@@ -63,8 +83,14 @@ export default function DatabasePreview() {
               <p className="text-sm text-slate-500">{t('database.subtitle')}</p>
             </div>
           </div>
-          <button type="button" className="btn-soft" onClick={loadTables}><RefreshCw size={18} />{t('database.refresh')}</button>
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" onClick={handleResetData} disabled={resetting}>
+              {resetting ? 'Resetting...' : 'Reset Platform Data (Keep Admins)'}
+            </button>
+            <button type="button" className="btn-soft" onClick={loadTables}><RefreshCw size={18} />{t('database.refresh')}</button>
+          </div>
         </div>
+        {resetMessage && <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{resetMessage}</p>}
 
         {meta && (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

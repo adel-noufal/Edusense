@@ -1,11 +1,13 @@
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { BarChart3, BookOpen, Clapperboard, Compass, Database, GraduationCap, Globe, Home, Layers, LogOut, Menu, MessageCircle, Moon, Settings, Sun, UserRound, Video, X } from 'lucide-react'
+import { BarChart3, BookOpen, Clapperboard, Compass, Database, FolderOpen, GraduationCap, Globe, Home, Layers, LogOut, Menu, MessageCircle, Moon, Sun, UserRound, Video, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import AnimatedBackground from './AnimatedBackground'
+import PageTransition from './PageTransition'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
+import { useGenerationJobs } from '../context/GenerationJobContext'
 
-function SidebarNav({ items, onNavigate, t }) {
+function SidebarNav({ items, onNavigate }) {
   return (
     <nav className="mt-8 space-y-1">
       {items.map(({ label, path, Icon }) => (
@@ -19,13 +21,6 @@ function SidebarNav({ items, onNavigate, t }) {
           <Icon size={18} />{label}
         </NavLink>
       ))}
-      <NavLink
-        to="/settings"
-        onClick={onNavigate}
-        className={({ isActive }) => `nav-link ${isActive ? 'active text-slate-600 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'}`}
-      >
-        <Settings size={18} /><span className="ms-2 text-sm">{t('settings')}</span>
-      </NavLink>
     </nav>
   )
 }
@@ -35,6 +30,7 @@ function SidebarNav({ items, onNavigate, t }) {
 export default function Layout() {
   const { user, logout } = useAuth()
   const { t, toggleLang, lang } = useLanguage()
+  const { pendingCount } = useGenerationJobs()
   const navigate = useNavigate()
   const [dark, setDark] = useState(() => localStorage.theme === 'dark')
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -49,6 +45,7 @@ export default function Layout() {
     { label: t('nav.upcoming'), path: '/student/upcoming', Icon: BookOpen },
     { label: t('nav.browse'), path: '/student/browse', Icon: Compass },
     { label: t('nav.history'), path: '/student/history', Icon: BarChart3 },
+    { label: 'My Resources', path: '/student/resources', Icon: FolderOpen },
     { label: t('nav.profile'), path: '/student/profile', Icon: UserRound },
   ]
   const instructorNav = [
@@ -59,8 +56,13 @@ export default function Layout() {
     { label: t('nav.quizzes'), path: '/instructor/quizzes', Icon: MessageCircle },
     { label: t('nav.flashcards'), path: '/instructor/flashcards', Icon: Layers },
     { label: t('nav.videos'), path: '/instructor/videos', Icon: Clapperboard },
+    { label: t('nav.profile'), path: '/student/profile', Icon: UserRound },
   ]
-  const nav = user?.role === 'instructor' ? instructorNav : studentNav
+  const adminNav = [
+    ...instructorNav,
+    { label: 'Database Preview', path: '/admin/database', Icon: Database },
+  ]
+  const nav = user?.role === 'admin' ? adminNav : user?.role === 'instructor' ? instructorNav : studentNav
 
   return (
     <div className="relative min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -68,7 +70,7 @@ export default function Layout() {
       <aside className="fixed inset-y-0 start-0 z-20 hidden w-56 border-e border-slate-200/80 bg-white/95 p-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 md:flex md:flex-col md:justify-between xl:w-64">
         <div>
           <Link to="/" className="flex items-center gap-3 text-xl font-black text-ocean dark:text-mint"><Video /> {t('appName')}</Link>
-          <SidebarNav items={nav} t={t} />
+          <SidebarNav items={nav} />
         </div>
         
         {/* Sidebar Footer Controls */}
@@ -88,6 +90,11 @@ export default function Layout() {
               <span className="ms-2 text-sm">{t('logout')}</span>
             </button>
           )}
+          {pendingCount > 0 && (
+            <p className="rounded-xl bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-800 dark:bg-teal-950/40 dark:text-teal-200">
+              {pendingCount} AI job{pendingCount > 1 ? 's' : ''} running in background
+            </p>
+          )}
         </div>
       </aside>
 
@@ -100,7 +107,7 @@ export default function Layout() {
                 <Link to="/" className="flex items-center gap-3 text-xl font-black text-ocean dark:text-mint" onClick={() => setMobileOpen(false)}><Video /> {t('appName')}</Link>
                 <button type="button" className="btn-soft" onClick={() => setMobileOpen(false)}><X size={18} /></button>
               </div>
-              <SidebarNav items={nav} onNavigate={() => setMobileOpen(false)} t={t} />
+              <SidebarNav items={nav} onNavigate={() => setMobileOpen(false)} />
             </div>
             
             {/* Mobile Footer Controls */}
@@ -135,6 +142,11 @@ export default function Layout() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {pendingCount > 0 && (
+              <span className="rounded-full bg-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
+                {pendingCount} generating
+              </span>
+            )}
             <button type="button" className="btn-soft" onClick={toggleLang} title={lang === 'ar' ? 'English' : 'العربية'}>
               <Globe size={18} /><span className="hidden sm:inline">{t('langToggle')}</span>
             </button>
@@ -146,7 +158,11 @@ export default function Layout() {
             )}
           </div>
         </header>
-        <div className="page-shell p-3 sm:p-4 md:p-6"><Outlet /></div>
+        <div className="page-shell p-3 sm:p-4 md:p-6">
+          <PageTransition>
+            <Outlet />
+          </PageTransition>
+        </div>
       </main>
     </div>
   )

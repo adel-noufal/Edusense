@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, BookOpen, ChevronRight, Database, FileText, Users } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { BarChart3, BookOpen, ChevronRight, FileDown, FileText, Trash2, Upload, Users } from 'lucide-react'
 import { api } from '../services/api'
 import { EmotionDistribution, EngagementLine, StatsBars } from '../components/Charts'
 import { staticUrl } from '../services/api'
@@ -10,8 +10,11 @@ export default function Reports() {
   const [activeStudentId, setActiveStudentId] = useState(null)
   const [sessionDetail, setSessionDetail] = useState(null)
   const [studentDetail, setStudentDetail] = useState(null)
+  const [resources, setResources] = useState([])
+  const [uploadingResource, setUploadingResource] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const resourceInputRef = useRef(null)
 
   async function loadSessions() {
     setLoading(true)
@@ -38,6 +41,9 @@ export default function Reports() {
         setActiveStudentId((current) => current || data.attendees?.[0]?.id || null)
       })
       .catch((err) => setError(err.message))
+    api(`/sessions/${activeSessionId}/resources`)
+      .then((data) => setResources(Array.isArray(data) ? data : []))
+      .catch(() => setResources([]))
   }, [activeSessionId])
 
   useEffect(() => {
@@ -56,6 +62,47 @@ export default function Reports() {
       { name: 'Quizzes', value: sessionDetail.session.quiz_count || 0 },
     ]
   }, [sessionDetail])
+
+  async function uploadResource(e) {
+    const file = e.target.files?.[0]
+    if (!file || !activeSessionId) return
+    setUploadingResource(true)
+    setError('')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/sessions/${activeSessionId}/resources`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const list = await api(`/sessions/${activeSessionId}/resources`)
+      setResources(Array.isArray(list) ? list : [])
+    } catch (err) {
+      setError(err.message || 'Upload failed')
+    } finally {
+      setUploadingResource(false)
+      if (resourceInputRef.current) resourceInputRef.current.value = ''
+    }
+  }
+
+  async function deleteResource(resourceId) {
+    try {
+      await api(`/sessions/resources/${resourceId}`, { method: 'DELETE' })
+      setResources((current) => current.filter((item) => item.id !== resourceId))
+    } catch (err) {
+      setError(err.message || 'Could not delete resource')
+    }
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes) return ''
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
 
   return (
     <div className="page-shell space-y-6">
@@ -164,6 +211,46 @@ export default function Reports() {
                     ))}
                     {!sessionDetail.quizzes?.length && <p className="text-sm text-slate-500">No quizzes are linked to this session yet.</p>}
                   </div>
+                </div>
+              </div>
+
+              <div className="panel space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 text-lg font-bold"><Upload size={20} />Preparation Sources</div>
+                  <button type="button" className="btn-soft" onClick={() => resourceInputRef.current?.click()}>
+                    Upload Source
+                  </button>
+                </div>
+                <input
+                  ref={resourceInputRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.mp4,.zip"
+                  onChange={uploadResource}
+                />
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Upload slides, PDFs, notes, or any materials you already prepared. Students enrolled in this session can access them from their resources page.
+                </p>
+                {uploadingResource && <p className="text-sm text-teal-700 dark:text-teal-300">Uploading...</p>}
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {resources.map((resource) => (
+                    <div key={resource.id} className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
+                      <FileDown size={18} className="text-purple-500 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm truncate">{resource.name}</p>
+                        <p className="text-xs text-slate-500">{formatBytes(resource.file_size)} · {new Date(resource.uploaded_at).toLocaleDateString()}</p>
+                      </div>
+                      <a href={staticUrl(resource.url)} target="_blank" rel="noreferrer" className="btn-soft p-1.5" title="Open">
+                        <FileDown size={16} />
+                      </a>
+                      <button type="button" className="btn-soft p-1.5 text-red-500" onClick={() => deleteResource(resource.id)} title="Delete">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                  {!resources.length && !uploadingResource && (
+                    <p className="text-sm text-slate-500">No preparation files uploaded for this session yet.</p>
+                  )}
                 </div>
               </div>
 
