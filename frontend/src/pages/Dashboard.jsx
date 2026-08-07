@@ -11,22 +11,22 @@ export function StudentDashboard() {
   const { t } = useLanguage()
   const location = useLocation()
   const mode = location.pathname.includes('/history') ? 'history' : location.pathname.includes('/upcoming') ? 'upcoming' : location.pathname.includes('/browse') ? 'browse' : 'all'
-  const [sessions, setSessions] = useState([])
+  const [enrolledSessions, setEnrolledSessions] = useState([])
   const [browseData, setBrowseData] = useState({ sessions: [], summary: null })
   const [analytics, setAnalytics] = useState(null)
   const [error, setError] = useState('')
 
   async function loadSessions() {
     try {
-      const [allSessions, browse] = await Promise.all([
-        api('/sessions'),
+      const [mySessions, browse] = await Promise.all([
+        api('/sessions/student/my-sessions'),
         api('/sessions/browse'),
       ])
-      setSessions(Array.isArray(allSessions) ? allSessions : [])
+      setEnrolledSessions(Array.isArray(mySessions) ? mySessions : [])
       setBrowseData(browse || { sessions: [], summary: null })
       setError('')
     } catch (err) {
-      setSessions([])
+      setEnrolledSessions([])
       setBrowseData({ sessions: [], summary: null })
       setError(err.message)
     }
@@ -34,31 +34,36 @@ export function StudentDashboard() {
 
   useEffect(() => { loadSessions() }, [])
 
-  const filtered = sessions.filter((session) => {
-    if (mode === 'upcoming') return ['pending', 'ongoing'].includes(session.status)
+  const filtered = enrolledSessions.filter((session) => {
+    if (mode === 'upcoming') return ['pending', 'ongoing', 'preparing', 'scheduled', 'upcoming'].includes(session.status)
     if (mode === 'history') return ['ended', 'cancelled'].includes(session.status)
     return true
   })
 
-  const registeredSessions = useMemo(
-    () => browseData.sessions.filter((session) => session.is_registered),
-    [browseData.sessions],
+  const upcomingSessions = useMemo(
+    () => enrolledSessions.filter((session) => ['pending', 'ongoing', 'preparing', 'scheduled', 'upcoming'].includes(session.status)),
+    [enrolledSessions],
   )
   const openCatalog = useMemo(
     () => browseData.sessions.filter((session) => !session.is_registered),
     [browseData.sessions],
   )
-  const firstLive = sessions.find((session) => session.status === 'ongoing') || registeredSessions[0] || filtered[0]
+  const firstLive = enrolledSessions.find((session) => session.status === 'ongoing') || filtered[0]
+  const trialSessionId = upcomingSessions[0]?.id || openCatalog[0]?.id || filtered[0]?.id || null
+
   useEffect(() => {
     if (firstLive) api(`/ai/engagement/${firstLive.id}`).then(setAnalytics).catch(() => setAnalytics(null))
   }, [firstLive])
 
   const titles = { all: t('dashboard.student'), upcoming: t('dashboard.upcoming'), history: t('dashboard.historyTitle'), browse: t('nav.browse') }
+  const upcomingCount = upcomingSessions.length
+  const completedCount = enrolledSessions.filter((session) => ['ended', 'cancelled'].includes(session.status)).length
+  const liveCount = enrolledSessions.filter((session) => session.status === 'ongoing').length
 
   return (
     <div className="page-shell space-y-6">
       <Hero title={titles[mode]} />
-      <Stats sessions={mode === 'upcoming' ? browseData.summary?.available || 0 : sessions.length} />
+      <StudentStats enrolled={enrolledSessions.length} upcoming={upcomingCount} completed={completedCount} live={liveCount} />
       {mode === 'upcoming' && browseData.summary && (
         <div className="grid gap-4 md:grid-cols-3">
           <HighlightCard icon={BookMarked} label="Available Sessions" value={browseData.summary.available} />
@@ -71,7 +76,7 @@ export function StudentDashboard() {
         <div className="panel">
           <h2 className="mb-4 text-lg font-bold">{mode === 'upcoming' ? 'Your Registered Sessions' : titles[mode]}</h2>
           {mode !== 'browse' && (
-            <SessionList sessions={mode === 'upcoming' ? registeredSessions : filtered} join={mode !== 'history'} showUnregister={mode === 'upcoming'} emptyLabel={mode === 'history' ? t('dashboard.noHistory') : 'You have not registered for any sessions yet.'} onReload={loadSessions} />
+            <SessionList sessions={mode === 'upcoming' ? upcomingSessions : filtered} join={mode !== 'history'} showUnregister={mode === 'upcoming'} emptyLabel={mode === 'history' ? t('dashboard.noHistory') : 'You have not registered for any sessions yet.'} onReload={loadSessions} />
           )}
           {mode === 'browse' && (
             <SessionCatalog sessions={openCatalog} onReload={loadSessions} />
@@ -86,11 +91,48 @@ export function StudentDashboard() {
             <SessionCatalog sessions={openCatalog.slice(0, 3)} onReload={loadSessions} />
           </div>
         ) : mode === 'browse' ? (
-          <RecommendedCourses sessions={browseData.sessions} onReload={loadSessions} />
-        ) : (
-          firstLive && mode !== 'history' && <WebcamEmotion sessionId={firstLive.id} />
-        )}
+          <div className="panel space-y-4">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h2 className="text-lg font-bold">Browse sessions</h2>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">Open opportunities</span>
+            </div>
+            <p className="text-sm text-slate-500">Explore available sessions and join the ones that fit your schedule. Enrolled sessions appear in Upcoming.</p>
+            <div className="grid gap-3">
+              {openCatalog.length === 0 ? (
+                <p className="text-sm text-slate-500">No open sessions are available for registration right now.</p>
+              ) : (
+                openCatalog.map((session) => (
+                  <article key={session.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900/60">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">{session.title}</h3>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{session.description || 'No description available.'}</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        {session.status}
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-3 text-sm text-slate-500 dark:text-slate-400">
+                      <span>{session.date}</span>
+                      <span>{session.start_time}</span>
+                      <span>{session.available_seats != null ? `${session.available_seats} seats left` : 'Open seating'}</span>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <button className="btn-primary text-sm py-2 px-3" type="button" onClick={async () => { await api(`/sessions/${session.id}/join`, { method: 'POST' }); loadSessions() }}>
+                        Join Session
+                      </button>
+                      <button className="btn-soft text-sm py-2 px-3" type="button" onClick={() => navigate(`/student/sessions/${session.id}/live`)}>
+                        Preview Room
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
+      {mode !== 'history' && <WebcamEmotion sessionId={trialSessionId} title="Session Camera Trial" />}
       {analytics && (
         <div className="panel">
           <h2 className="mb-4 text-lg font-bold">{t('dashboard.attention')}</h2>
@@ -181,7 +223,6 @@ export function InstructorDashboard() {
   return (
     <div className="page-shell space-y-6">
       <Hero title={t('dashboard.instructor')} />
-      <Stats sessions={sessions.length} />
       <div className="grid gap-6 xl:grid-cols-2">
         <div className="panel space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -244,14 +285,7 @@ function Hero({ title }) {
   )
 }
 
-function Stats({ sessions }) {
-  const { t } = useLanguage()
-  const cards = [
-    [t('dashboard.sessions'), sessions ?? 0, BookOpen],
-    [t('dashboard.engagement'), 78, Activity],
-    [t('dashboard.videos'), 9, Video],
-    [t('dashboard.students'), 128, Users],
-  ]
+function Stats({ cards }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
       {cards.map(([label, value, Icon]) => (
@@ -425,73 +459,6 @@ function SessionCatalog({ sessions, onReload }) {
   )
 }
 
-function RecommendedCourses({ sessions, onReload }) {
-  const navigate = useNavigate()
-  
-  async function register(sessionId) {
-    await api(`/sessions/${sessionId}/join`, { method: 'POST' })
-    await onReload?.()
-  }
-
-  // Curate recommendations from all sessions
-  const recommendations = sessions.map((session, idx) => ({
-    ...session,
-    rating: (4.6 + (idx * 0.1) % 0.4).toFixed(1),
-    reviews: 24 + (idx * 7) % 40,
-    level: idx % 2 === 0 ? 'Beginner' : 'Intermediate',
-  }))
-
-  if (!recommendations.length) {
-    return (
-      <div className="panel space-y-4">
-        <h2 className="text-lg font-bold">Recommended Courses</h2>
-        <p className="text-sm text-slate-500">No courses available for recommendation at the moment.</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="panel space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold">Recommended Courses</h2>
-        <span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-bold text-ocean dark:bg-slate-800 dark:text-mint">
-          AI Curated
-        </span>
-      </div>
-      <div className="space-y-4">
-        {recommendations.slice(0, 3).map((course) => (
-          <div key={course.id} className="relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-4 transition-all hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <span className="inline-block rounded-md bg-teal-50 px-2 py-0.5 text-25xs font-bold uppercase tracking-wider text-ocean dark:bg-slate-850 dark:text-mint text-[10px]">
-                  {course.level}
-                </span>
-                <h4 className="mt-1 font-bold text-slate-900 dark:text-slate-100">{course.title}</h4>
-                <p className="mt-1 text-xs text-slate-500">Duration: {course.duration} mins &middot; ⭐ {course.rating} ({course.reviews} reviews)</p>
-              </div>
-              <div className="shrink-0">
-                {course.is_registered ? (
-                  <span className="inline-flex items-center rounded-full bg-teal-50 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-ocean dark:text-mint">
-                    Enrolled
-                  </span>
-                ) : (
-                  <button 
-                    onClick={() => register(course.id)}
-                    className="btn-soft text-xs py-1.5 px-3"
-                    type="button"
-                  >
-                    Enroll
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 export function About() { return <Info titleKey="appName" textKey="landing.subtitle" /> }
 export function Settings() {
   const { t, lang, setLang } = useLanguage()
@@ -549,7 +516,6 @@ export function Settings() {
         <div className="panel space-y-4">
           <div className="flex items-center gap-3 text-lg font-bold"><BellRing size={20} />Preferences</div>
           <ToggleRow icon={BellRing} label="Email notifications" checked={prefs.emailNotifications} onChange={(value) => setPrefs({ ...prefs, emailNotifications: value })} />
-          <ToggleRow icon={Eye} label="Focus mode hints" checked={!prefs.compactCards} onChange={(value) => setPrefs({ ...prefs, compactCards: !value })} />
         </div>
       </div>
     </div>
@@ -574,6 +540,29 @@ function ToggleRow({ icon: Icon, label, checked, onChange }) {
         <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${checked ? 'end-1' : 'start-1'}`} />
       </button>
     </label>
+  )
+}
+
+function StudentStats({ enrolled, upcoming, completed, live }) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="panel">
+        <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Enrolled sessions</p>
+        <p className="mt-3 text-3xl font-black">{enrolled}</p>
+      </div>
+      <div className="panel">
+        <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Upcoming</p>
+        <p className="mt-3 text-3xl font-black">{upcoming}</p>
+      </div>
+      <div className="panel">
+        <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Completed</p>
+        <p className="mt-3 text-3xl font-black">{completed}</p>
+      </div>
+      <div className="panel">
+        <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Live now</p>
+        <p className="mt-3 text-3xl font-black">{live}</p>
+      </div>
+    </div>
   )
 }
 

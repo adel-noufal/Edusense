@@ -3,6 +3,7 @@ import { BarChart3, BookOpen, ChevronRight, FileDown, FileText, Trash2, Upload, 
 import { api } from '../services/api'
 import { EmotionDistribution, EngagementLine, StatsBars } from '../components/Charts'
 import { staticUrl } from '../services/api'
+import InstructorSources from './InstructorSources'
 
 export default function Reports() {
   const [sessions, setSessions] = useState([])
@@ -13,6 +14,7 @@ export default function Reports() {
   const [resources, setResources] = useState([])
   const [uploadingResource, setUploadingResource] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('overview')
   const [error, setError] = useState('')
   const resourceInputRef = useRef(null)
 
@@ -104,6 +106,10 @@ export default function Reports() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
+  if (activeTab === 'sources') {
+    return <InstructorSources />
+  }
+
   return (
     <div className="page-shell space-y-6">
       <div className="panel overflow-hidden">
@@ -114,7 +120,11 @@ export default function Reports() {
               Select a session to inspect attendees, reactions, linked quizzes, stored reports, and database-relevant records.
             </p>
           </div>
-          <button className="btn-soft" type="button" onClick={loadSessions}>Refresh</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button className={`btn-soft ${activeTab === 'overview' ? 'bg-teal-600 text-white hover:bg-teal-700' : ''}`} type="button" onClick={() => setActiveTab('overview')}>Overview</button>
+            <button className={`btn-soft ${activeTab === 'sources' ? 'bg-teal-600 text-white hover:bg-teal-700' : ''}`} type="button" onClick={() => setActiveTab('sources')}>Sources</button>
+            <button className="btn-soft" type="button" onClick={loadSessions}>Refresh</button>
+          </div>
         </div>
         {stats.length > 0 && (
           <div className="mt-6">
@@ -211,46 +221,6 @@ export default function Reports() {
                     ))}
                     {!sessionDetail.quizzes?.length && <p className="text-sm text-slate-500">No quizzes are linked to this session yet.</p>}
                   </div>
-                </div>
-              </div>
-
-              <div className="panel space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 text-lg font-bold"><Upload size={20} />Preparation Sources</div>
-                  <button type="button" className="btn-soft" onClick={() => resourceInputRef.current?.click()}>
-                    Upload Source
-                  </button>
-                </div>
-                <input
-                  ref={resourceInputRef}
-                  type="file"
-                  className="hidden"
-                  accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.mp4,.zip"
-                  onChange={uploadResource}
-                />
-                <p className="text-sm text-slate-600 dark:text-slate-300">
-                  Upload slides, PDFs, notes, or any materials you already prepared. Students enrolled in this session can access them from their resources page.
-                </p>
-                {uploadingResource && <p className="text-sm text-teal-700 dark:text-teal-300">Uploading...</p>}
-                <div className="space-y-2 max-h-72 overflow-y-auto">
-                  {resources.map((resource) => (
-                    <div key={resource.id} className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-700">
-                      <FileDown size={18} className="text-purple-500 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm truncate">{resource.name}</p>
-                        <p className="text-xs text-slate-500">{formatBytes(resource.file_size)} · {new Date(resource.uploaded_at).toLocaleDateString()}</p>
-                      </div>
-                      <a href={staticUrl(resource.url)} target="_blank" rel="noreferrer" className="btn-soft p-1.5" title="Open">
-                        <FileDown size={16} />
-                      </a>
-                      <button type="button" className="btn-soft p-1.5 text-red-500" onClick={() => deleteResource(resource.id)} title="Delete">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  ))}
-                  {!resources.length && !uploadingResource && (
-                    <p className="text-sm text-slate-500">No preparation files uploaded for this session yet.</p>
-                  )}
                 </div>
               </div>
 

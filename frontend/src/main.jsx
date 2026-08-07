@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from 'react'
+import React, { lazy, Suspense, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
 import './styles/index.css'
@@ -13,6 +13,7 @@ const ErrorBoundary   = lazy(() => import('./components/ErrorBoundary'))
 const Landing         = lazy(() => import('./pages/Landing'))
 const Sessions        = lazy(() => import('./pages/Sessions'))
 const Reports         = lazy(() => import('./pages/Reports'))
+const InstructorSources = lazy(() => import('./pages/InstructorSources'))
 const Profile         = lazy(() => import('./pages/Profile'))
 const LiveSessionRoom = lazy(() => import('./pages/LiveSessionRoom'))
 const DatabasePreview = lazy(() => import('./pages/DatabasePreview'))
@@ -53,9 +54,19 @@ function PageLoader() {
 const S = ({ children }) => <Suspense fallback={<PageLoader />}>{children}</Suspense>
 
 function RouteEnter({ children }) {
-  return <div className="route-enter min-h-full">{children}</div>
-}
+  const [visible, setVisible] = useState(false)
 
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setVisible(true))
+    return () => cancelAnimationFrame(frame)
+  }, [])
+
+  return (
+    <div className={`route-enter ${visible ? 'route-enter-visible' : ''} min-h-full`}>
+      {children}
+    </div>
+  )
+}
 
 function Protected({ role, children }) {
   const { user } = useAuth()
@@ -86,6 +97,7 @@ const router = createBrowserRouter([
       { path: "/instructor/sessions", element: <Protected role="instructor"><S><Sessions /></S></Protected> },
       { path: "/instructor/sessions/:sessionId/live", element: <Protected role="instructor"><S><LiveSessionRoom /></S></Protected> },
       { path: "/instructor/reports",    element: <Protected role="instructor"><S><Reports /></S></Protected> },
+      { path: "/instructor/sources",    element: <Protected role="instructor"><S><InstructorSources /></S></Protected> },
       { path: "/instructor/lessons",    element: <Protected role="instructor"><S><LessonGenerator /></S></Protected> },
       { path: "/instructor/quizzes",    element: <Protected role="instructor"><S><QuizGenerator /></S></Protected> },
       { path: "/instructor/flashcards", element: <Protected role="instructor"><S><FlashcardGenerator /></S></Protected> },

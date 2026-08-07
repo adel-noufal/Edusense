@@ -41,7 +41,7 @@ export default function Landing() {
   return (
     <div className={`landing-page relative min-h-screen overflow-x-hidden bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-white ${mounted ? 'opacity-100' : 'opacity-0'}`}>
       <AnimatedBackground />
-      <header className="relative z-20 mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 route-enter">
+      <header className="relative z-20 mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
         <p className="text-xl font-black text-ocean dark:text-mint">{t('appName')}</p>
         <div className="flex items-center gap-2">
           <button type="button" className="btn-soft flex items-center gap-1.5" onClick={() => setDark(!dark)} title={dark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
@@ -77,7 +77,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="relative mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16 route-enter">
+      <section className="relative mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
         <h2 className="text-2xl font-black sm:text-3xl">{t('landing.featuresTitle')}</h2>
         <p className="mt-2 max-w-2xl text-slate-600 dark:text-slate-300">{t('landing.featuresSubtitle')}</p>
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 landing-stagger">
@@ -92,7 +92,7 @@ export default function Landing() {
       </section>
 
       <section className="bg-ocean/5 py-12 dark:bg-slate-900/50 sm:py-16">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 route-enter">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <h2 className="text-2xl font-black sm:text-3xl">{t('landing.howTitle')}</h2>
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 landing-stagger">
             {steps.map(([num, key]) => (
@@ -114,7 +114,7 @@ export default function Landing() {
         ))}
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 route-enter">
+      <section className="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
         <div className="panel flex flex-col items-start justify-between gap-6 bg-gradient-to-r from-ocean to-teal-700 p-6 text-white shadow-xl shadow-teal-900/20 sm:flex-row sm:items-center sm:p-8">
           <div>
             <h2 className="text-2xl font-black">{t('landing.ctaTitle')}</h2>
