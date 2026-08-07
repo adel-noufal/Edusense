@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, BookOpen, ChevronRight, Database, FileText, Users } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { BarChart3, BookOpen, ChevronRight, FileDown, FileText, Trash2, Upload, Users } from 'lucide-react'
 import { api } from '../services/api'
 import { EmotionDistribution, EngagementLine, StatsBars } from '../components/Charts'
 import { staticUrl } from '../services/api'
+import InstructorSources from './InstructorSources'
 
 export default function Reports() {
   const [sessions, setSessions] = useState([])
@@ -10,8 +11,12 @@ export default function Reports() {
   const [activeStudentId, setActiveStudentId] = useState(null)
   const [sessionDetail, setSessionDetail] = useState(null)
   const [studentDetail, setStudentDetail] = useState(null)
+  const [resources, setResources] = useState([])
+  const [uploadingResource, setUploadingResource] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('overview')
   const [error, setError] = useState('')
+  const resourceInputRef = useRef(null)
 
   async function loadSessions() {
     setLoading(true)
@@ -38,6 +43,9 @@ export default function Reports() {
         setActiveStudentId((current) => current || data.attendees?.[0]?.id || null)
       })
       .catch((err) => setError(err.message))
+    api(`/sessions/${activeSessionId}/resources`)
+      .then((data) => setResources(Array.isArray(data) ? data : []))
+      .catch(() => setResources([]))
   }, [activeSessionId])
 
   useEffect(() => {
@@ -57,6 +65,51 @@ export default function Reports() {
     ]
   }, [sessionDetail])
 
+  async function uploadResource(e) {
+    const file = e.target.files?.[0]
+    if (!file || !activeSessionId) return
+    setUploadingResource(true)
+    setError('')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/sessions/${activeSessionId}/resources`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const list = await api(`/sessions/${activeSessionId}/resources`)
+      setResources(Array.isArray(list) ? list : [])
+    } catch (err) {
+      setError(err.message || 'Upload failed')
+    } finally {
+      setUploadingResource(false)
+      if (resourceInputRef.current) resourceInputRef.current.value = ''
+    }
+  }
+
+  async function deleteResource(resourceId) {
+    try {
+      await api(`/sessions/resources/${resourceId}`, { method: 'DELETE' })
+      setResources((current) => current.filter((item) => item.id !== resourceId))
+    } catch (err) {
+      setError(err.message || 'Could not delete resource')
+    }
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes) return ''
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  if (activeTab === 'sources') {
+    return <InstructorSources />
+  }
+
   return (
     <div className="page-shell space-y-6">
       <div className="panel overflow-hidden">
@@ -67,7 +120,11 @@ export default function Reports() {
               Select a session to inspect attendees, reactions, linked quizzes, stored reports, and database-relevant records.
             </p>
           </div>
-          <button className="btn-soft" type="button" onClick={loadSessions}>Refresh</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button className={`btn-soft ${activeTab === 'overview' ? 'bg-teal-600 text-white hover:bg-teal-700' : ''}`} type="button" onClick={() => setActiveTab('overview')}>Overview</button>
+            <button className={`btn-soft ${activeTab === 'sources' ? 'bg-teal-600 text-white hover:bg-teal-700' : ''}`} type="button" onClick={() => setActiveTab('sources')}>Sources</button>
+            <button className="btn-soft" type="button" onClick={loadSessions}>Refresh</button>
+          </div>
         </div>
         {stats.length > 0 && (
           <div className="mt-6">

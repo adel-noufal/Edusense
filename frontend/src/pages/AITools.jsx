@@ -1,12 +1,84 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2 } from 'lucide-react'
+import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2 } from 'lucide-react'
 import { api, downloadAuthenticatedRequest, staticUrl } from '../services/api'
-import { downloadBlob, downloadText, flashcardsToHtml } from '../utils/download'
+import { downloadBlob, downloadText, flashcardsToHtml, lessonToMarkdown, downloadLessonAsDoc, downloadLessonAsHtml, downloadLessonAsPdf, downloadLessonAsPptxHtml, downloadQuizAsDoc, downloadQuizAsHtml, downloadQuizAsPdf, downloadFlashcardsAsDoc, downloadFlashcardsAsPdf } from '../utils/download'
 import { useLanguage } from '../context/LanguageContext'
+import { useGenerationJobs } from '../context/GenerationJobContext'
+import { SessionPickerFields } from '../components/SessionPickerFields'
 
 const languages = ['English', 'Arabic', 'French', 'Spanish']
 const styles = ['Formal', 'Friendly', 'Interactive', 'Storytelling', 'Professional']
 const difficulties = ['Easy', 'Medium', 'Hard']
+const aiModels = ['Gemini 2.0 Flash (Internet Required)', 'Local Ollama - Mistral / Llama 3.2 (Offline)']
+
+function checkInternetAndModel(selectedModel, setForm) {
+  if (selectedModel && (selectedModel.includes('Gemini') || selectedModel.includes('Internet Required'))) {
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true
+    if (!isOnline) {
+      if (setForm) {
+        setForm((prev) => ({ ...prev, model: aiModels[1] }))
+      }
+      alert("No Internet Connection\n\nGemini requires an active internet connection. Automatically switching your model to Local Ollama (Offline mode) to proceed.")
+      return aiModels[1]
+    }
+  }
+  return selectedModel
+}
+
+/** Strip UI-only fields and normalize session IDs for the API. */
+function buildAiPayload(form) {
+  const { model, session_id, source_session_id, ...rest } = form
+  return {
+    ...rest,
+    session_id: session_id ? Number(session_id) : null,
+    source_session_id: source_session_id ? Number(source_session_id) : null,
+  }
+}
+
+/** Sync local generator UI with a background job that keeps running across tab changes. */
+function useBackgroundGeneration(type) {
+  const { startJob, job, removeJob } = useGenerationJobs(type)
+  const [loading, setLoading] = useState(() => job?.status === 'pending')
+  const [error, setError] = useState(() => (job?.status === 'error' ? job.error : ''))
+
+  useEffect(() => {
+    if (!job) {
+      setLoading(false)
+      return
+    }
+    if (job.status === 'pending') {
+      setLoading(true)
+      setError('Generation running in background — you can navigate away and come back later.')
+      return
+    }
+    if (job.status === 'error') {
+      setLoading(false)
+      setError(job.error || 'Generation failed')
+      return
+    }
+    setLoading(false)
+    setError('')
+  }, [job])
+
+  async function queue(endpoint, payload, label) {
+    setLoading(true)
+    setError('')
+    try {
+      await startJob({ type, endpoint, payload, label })
+      setError('Generation running in background — you can navigate away and come back later.')
+    } catch (err) {
+      setLoading(false)
+      setError(err.message || 'Could not start generation')
+      throw err
+    }
+  }
+
+  function clearCompletedJob() {
+    if (job?.jobId) removeJob(job.jobId)
+  }
+
+  return { loading, error, setError, queue, job, clearCompletedJob }
+}
 
 export function LessonGenerator() {
   const { t } = useLanguage()
@@ -17,11 +89,13 @@ export function LessonGenerator() {
     teaching_style: 'Interactive',
     duration: 5,
     additional_notes: '',
+    session_id: '',
+    source_session_id: '',
+    model: aiModels[0],
   })
   const [result, setResult] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
   const [history, setHistory] = useState([])
+  const { loading, error, setError, queue, job, clearCompletedJob } = useBackgroundGeneration('lesson')
 
   async function loadHistory() {
     try {
@@ -32,23 +106,25 @@ export function LessonGenerator() {
 
   useEffect(() => { loadHistory() }, [])
 
+  useEffect(() => {
+    if (job?.status === 'done' && job.result) {
+      setResult(job.result)
+      loadHistory()
+      clearCompletedJob()
+    }
+  }, [job])
+
   async function submit(e) {
     e.preventDefault()
+    checkInternetAndModel(form.model, setForm)
     if (form.topic.trim().length < 3) {
       setError(t('ai.topicMin'))
       return
     }
-    setLoading(true)
-    setError('')
     try {
-      const res = await api('/ai/lessons', { method: 'POST', body: JSON.stringify(form) })
-      setResult(res)
-      await loadHistory()
-    } catch (err) {
-      setError(err.message || 'Could not generate lesson')
-    } finally {
-      setLoading(false)
-    }
+      const { model, ...payload } = form
+      await queue('/ai/lessons/queue', buildAiPayload(payload), form.topic)
+    } catch { /* handled in hook */ }
   }
 
   async function deleteHistory(id, e) {
@@ -65,12 +141,14 @@ export function LessonGenerator() {
       <div className="space-y-6">
         <ToolShell title={t('ai.lessonTitle')} icon={<Sparkles />} onSubmit={submit} loading={loading} error={error}>
           <div className="grid gap-4 md:grid-cols-2">
+            <SelectField label="AI Model" value={form.model} options={aiModels} onChange={(value) => setForm({ ...form, model: value })} />
             <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
             <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} />
             <SelectField label={t('ai.language')} value={form.language} options={languages} onChange={(value) => setForm({ ...form, language: value })} />
             <SelectField label={t('ai.style')} value={form.teaching_style} options={styles} onChange={(value) => setForm({ ...form, teaching_style: value })} />
             <Field label={t('ai.duration')} type="number" value={form.duration} onChange={(value) => setForm({ ...form, duration: Number(value) || 5 })} />
             <Field label={t('ai.notes')} value={form.additional_notes} onChange={(value) => setForm({ ...form, additional_notes: value })} textarea />
+            <SessionPickerFields form={form} setForm={setForm} />
           </div>
           <button className="btn-primary" disabled={loading}>{loading ? t('ai.generatingLesson') : t('ai.generateLesson')}</button>
         </ToolShell>
@@ -117,12 +195,19 @@ export function LessonGenerator() {
 
 export function FlashcardGenerator() {
   const { t } = useLanguage()
-  const [form, setForm] = useState({ topic: 'Neural Networks', count: 10, language: 'English' })
+  const [form, setForm] = useState({
+    topic: 'Neural Networks',
+    prompt: 'Focus on key definitions, formulas, and practical examples',
+    count: 10,
+    language: 'English',
+    session_id: '',
+    source_session_id: '',
+    model: aiModels[0],
+  })
   const [result, setResult] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
   const [flipped, setFlipped] = useState({})
   const [history, setHistory] = useState([])
+  const { loading, error, setError, queue, job, clearCompletedJob } = useBackgroundGeneration('flashcard')
 
   async function loadHistory() {
     try {
@@ -133,24 +218,26 @@ export function FlashcardGenerator() {
 
   useEffect(() => { loadHistory() }, [])
 
+  useEffect(() => {
+    if (job?.status === 'done' && job.result) {
+      setResult(job.result)
+      loadHistory()
+      clearCompletedJob()
+    }
+  }, [job])
+
   async function submit(e) {
     e.preventDefault()
+    checkInternetAndModel(form.model, setForm)
     if (form.topic.trim().length < 3) {
       setError(t('ai.topicMin'))
       return
     }
-    setLoading(true)
-    setError('')
     setFlipped({})
     try {
-      const res = await api('/ai/flashcards', { method: 'POST', body: JSON.stringify({ ...form, count: Number(form.count) || 10 }) })
-      setResult(res)
-      await loadHistory()
-    } catch (err) {
-      setError(err.message || 'Could not generate flashcards')
-    } finally {
-      setLoading(false)
-    }
+      const { model, ...payload } = form
+      await queue('/ai/flashcards/queue', buildAiPayload({ ...payload, count: Number(form.count) || 10 }), form.topic)
+    } catch { /* handled in hook */ }
   }
 
   async function deleteHistory(id, e) {
@@ -167,9 +254,14 @@ export function FlashcardGenerator() {
       <div className="space-y-6">
         <ToolShell title={t('ai.flashcardTitle')} icon={<Layers />} onSubmit={submit} loading={loading} error={error}>
           <div className="grid gap-4 md:grid-cols-2">
+            <SelectField label="AI Model" value={form.model} options={aiModels} onChange={(value) => setForm({ ...form, model: value })} />
             <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
             <Field label={t('ai.cardCount')} type="number" value={form.count} onChange={(value) => setForm({ ...form, count: value })} />
             <SelectField label={t('ai.language')} value={form.language} options={languages} onChange={(value) => setForm({ ...form, language: value })} />
+            <div className="md:col-span-2">
+              <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} textarea />
+            </div>
+            <SessionPickerFields form={form} setForm={setForm} />
           </div>
           <button className="btn-primary" disabled={loading}>{loading ? t('ai.generatingLesson') : t('ai.generateFlashcards')}</button>
         </ToolShell>
@@ -186,8 +278,10 @@ export function FlashcardGenerator() {
                 setResult(h.data)
                 setForm({
                   topic: h.topic,
+                  prompt: h.prompt || h.data.prompt || '',
                   count: h.data.cards?.length || 10,
-                  language: h.data.language || 'English'
+                  language: h.data.language || 'English',
+                  model: aiModels[0],
                 })
                 setFlipped({})
               }}
@@ -203,6 +297,7 @@ export function FlashcardGenerator() {
                 </button>
               </div>
               <p className="text-xs text-slate-500 mt-1">{new Date(h.created_at).toLocaleDateString()}</p>
+              {h.prompt && <p className="text-xs text-slate-400 mt-1 truncate">{h.prompt}</p>}
             </div>
           ))}
           {!history.length && <p className="text-sm text-slate-500">No flashcards generated yet.</p>}
@@ -214,13 +309,20 @@ export function FlashcardGenerator() {
 
 export function QuizGenerator() {
   const { t } = useLanguage()
-  const [form, setForm] = useState({ topic: 'Neural Networks', difficulty: 'Medium', count: 5, session_id: '' })
+  const [form, setForm] = useState({
+    topic: 'Neural Networks',
+    prompt: 'Focus on conceptual understanding and real-world applications',
+    difficulty: 'Medium',
+    count: 5,
+    session_id: '',
+    source_session_id: '',
+    model: aiModels[0],
+  })
   const [result, setResult] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
   const [answers, setAnswers] = useState({})
   const [revealed, setRevealed] = useState({})
   const [history, setHistory] = useState([])
+  const { loading, error, setError, queue, job, clearCompletedJob } = useBackgroundGeneration('quiz')
 
   async function loadHistory() {
     try {
@@ -231,30 +333,27 @@ export function QuizGenerator() {
 
   useEffect(() => { loadHistory() }, [])
 
+  useEffect(() => {
+    if (job?.status === 'done' && job.result) {
+      setResult(job.result)
+      loadHistory()
+      clearCompletedJob()
+    }
+  }, [job])
+
   async function submit(e) {
     e.preventDefault()
+    checkInternetAndModel(form.model, setForm)
     if (form.topic.trim().length < 3) {
       setError(t('ai.topicMin'))
       return
     }
-    setLoading(true)
-    setError('')
     setAnswers({})
     setRevealed({})
     try {
-      const payload = {
-        ...form,
-        count: Number(form.count) || 5,
-        session_id: form.session_id === '' ? null : Number(form.session_id),
-      }
-      const res = await api('/ai/quizzes', { method: 'POST', body: JSON.stringify(payload) })
-      setResult(res)
-      await loadHistory()
-    } catch (err) {
-      setError(err.message || 'Could not generate quiz')
-    } finally {
-      setLoading(false)
-    }
+      const { model, ...payload } = form
+      await queue('/ai/quizzes/queue', buildAiPayload({ ...payload, count: Number(form.count) || 5 }), form.topic)
+    } catch { /* handled in hook */ }
   }
 
   async function deleteHistory(id, e) {
@@ -271,10 +370,14 @@ export function QuizGenerator() {
       <div className="space-y-6">
         <ToolShell title={t('ai.quizTitle')} icon={<FileQuestion />} onSubmit={submit} loading={loading} error={error}>
           <div className="grid gap-4 md:grid-cols-2">
+            <SelectField label="AI Model" value={form.model} options={aiModels} onChange={(value) => setForm({ ...form, model: value })} />
             <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
             <SelectField label={t('ai.difficulty')} value={form.difficulty} options={difficulties} onChange={(value) => setForm({ ...form, difficulty: value })} />
             <Field label={t('ai.questionCount')} type="number" value={form.count} onChange={(value) => setForm({ ...form, count: value })} />
-            <Field label={t('ai.sessionId')} value={form.session_id} onChange={(value) => setForm({ ...form, session_id: value })} />
+            <div className="md:col-span-2">
+              <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} textarea />
+            </div>
+            <SessionPickerFields form={form} setForm={setForm} />
           </div>
           <button className="btn-primary" disabled={loading}>{loading ? t('ai.generatingLesson') : t('ai.generateQuiz')}</button>
         </ToolShell>
@@ -291,9 +394,12 @@ export function QuizGenerator() {
                 setResult(h)
                 setForm({
                   topic: h.title,
+                  prompt: '',
                   difficulty: h.difficulty,
                   count: h.questions?.length || 5,
-                  session_id: h.session_id || ''
+                  session_id: h.session_id ? String(h.session_id) : '',
+                  source_session_id: '',
+                  model: aiModels[0],
                 })
                 setAnswers({})
                 setRevealed({})
@@ -328,41 +434,124 @@ export function VideoLibrary() {
     style: 'Friendly',
     duration: 5,
     notes: '',
+    session_id: '',
+    source_session_id: '',
+    model: aiModels[0],
   })
   const [result, setResult] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [history, setHistory] = useState([])
+  const { loading, error, setError, queue, job, clearCompletedJob } = useBackgroundGeneration('video')
+
+  async function loadHistory() {
+    try {
+      const data = await api('/ai/videos')
+      setHistory(Array.isArray(data) ? data : [])
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => { loadHistory() }, [])
+
+  useEffect(() => {
+    if (job?.status === 'done' && job.result) {
+      setResult(job.result)
+      loadHistory()
+      clearCompletedJob()
+    }
+  }, [job])
 
   async function submit(e) {
     e.preventDefault()
+    checkInternetAndModel(form.model, setForm)
     if (form.title.trim().length < 3) {
       setError(t('ai.titleMin'))
       return
     }
-    setLoading(true)
-    setError('')
     try {
-      setResult(await api('/ai/videos', { method: 'POST', body: JSON.stringify(form) }))
-    } catch (err) {
-      setError(err.message || 'Could not generate video')
-    } finally {
-      setLoading(false)
+      const { model, ...payload } = form
+      await queue('/ai/videos/queue', buildAiPayload(payload), form.title)
+    } catch { /* handled in hook */ }
+  }
+
+  async function deleteHistory(id, e) {
+    e.stopPropagation()
+    try {
+      await api(`/ai/videos/${id}`, { method: 'DELETE' })
+      await loadHistory()
+      if (result?.id === id) setResult(null)
+    } catch { /* ignore */ }
+  }
+
+  async function openHistoryItem(item) {
+    try {
+      const detail = await api(`/ai/videos/${item.id}`)
+      setResult(detail)
+      setForm({
+        title: detail.title || item.title,
+        prompt: detail.prompt || '',
+        language: detail.language || 'English',
+        style: detail.style || 'Friendly',
+        duration: detail.duration || 5,
+        notes: detail.notes || '',
+        session_id: '',
+        source_session_id: '',
+        model: aiModels[0],
+      })
+    } catch {
+      setResult(item)
     }
   }
 
   return (
-    <ToolShell title={t('ai.videoTitle')} icon={<Video />} onSubmit={submit} loading={loading} error={error}>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label={t('sessions.titleField')} value={form.title} onChange={(value) => setForm({ ...form, title: value })} />
-        <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} />
-        <SelectField label={t('ai.language')} value={form.language} options={languages} onChange={(value) => setForm({ ...form, language: value })} />
-        <SelectField label={t('ai.videoStyle')} value={form.style} options={styles} onChange={(value) => setForm({ ...form, style: value })} />
-        <Field label={t('ai.duration')} type="number" value={form.duration} onChange={(value) => setForm({ ...form, duration: Number(value) || 5 })} />
-        <Field label={t('ai.videoNotes')} value={form.notes} onChange={(value) => setForm({ ...form, notes: value })} textarea />
+    <div className="grid gap-6 xl:grid-cols-[1fr_320px] items-start">
+      <div className="space-y-6">
+        <ToolShell title={t('ai.videoTitle')} icon={<Video />} onSubmit={submit} loading={loading} error={error}>
+          <div className="grid gap-4 md:grid-cols-2">
+            <SelectField label="AI Model" value={form.model} options={aiModels} onChange={(value) => setForm({ ...form, model: value })} />
+            <Field label={t('sessions.titleField')} value={form.title} onChange={(value) => setForm({ ...form, title: value })} />
+            <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} />
+            <SelectField label={t('ai.language')} value={form.language} options={languages} onChange={(value) => setForm({ ...form, language: value })} />
+            <SelectField label={t('ai.videoStyle')} value={form.style} options={styles} onChange={(value) => setForm({ ...form, style: value })} />
+            <Field label={t('ai.duration')} type="number" value={form.duration} onChange={(value) => setForm({ ...form, duration: Number(value) || 5 })} />
+            <Field label={t('ai.videoNotes')} value={form.notes} onChange={(value) => setForm({ ...form, notes: value })} textarea />
+            <SessionPickerFields form={form} setForm={setForm} />
+          </div>
+          <button className="btn-primary" disabled={loading}>{loading ? t('ai.buildingVideo') : t('ai.generateVideo')}</button>
+        </ToolShell>
+        {loading && (
+          <div className="panel flex items-center gap-3 border border-teal-200 bg-teal-50/70 text-sm text-teal-900 dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100">
+            <Clock3 className="animate-pulse shrink-0" size={18} />
+            Building your video in the background. You can browse other tabs — come back here when it finishes.
+          </div>
+        )}
+        {result && <VideoResult result={result} initialForm={form} onReplace={setResult} onHistoryRefresh={loadHistory} />}
       </div>
-      <button className="btn-primary" disabled={loading}>{loading ? t('ai.buildingVideo') : t('ai.generateVideo')}</button>
-      {result && <VideoResult result={result} initialForm={form} onReplace={setResult} />}
-    </ToolShell>
+
+      <div className="panel space-y-4">
+        <h2 className="text-lg font-bold">Recent Videos</h2>
+        <div className="space-y-3 max-h-[640px] overflow-y-auto">
+          {history.map((h) => (
+            <div
+              key={h.id}
+              onClick={() => openHistoryItem(h)}
+              className={`group cursor-pointer rounded-2xl border p-4 transition hover:bg-slate-50/50 dark:hover:bg-slate-800/50 ${result?.id === h.id ? 'border-teal-300 bg-teal-50/70 dark:border-teal-700 dark:bg-slate-800' : 'border-slate-200 dark:border-slate-700'}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-bold text-sm truncate block max-w-[180px]">{h.title}</span>
+                <button
+                  onClick={(e) => deleteHistory(h.id, e)}
+                  className="text-slate-400 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">{new Date(h.created_at).toLocaleDateString()} · {h.status}</p>
+              {h.scenes?.length > 0 && <p className="text-xs text-slate-400 mt-1">{h.scenes.length} scenes</p>}
+            </div>
+          ))}
+          {!history.length && <p className="text-sm text-slate-500">No videos generated yet.</p>}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -404,26 +593,31 @@ function SelectField({ label, value, options, onChange }) {
 
 function LessonResult({ result, request }) {
   const { t } = useLanguage()
+  const slug = (result.topic || 'lesson').replace(/\s+/g, '-').toLowerCase()
   return (
     <div className="space-y-5 rounded-md border border-slate-200 p-4 dark:border-slate-700">
-      <ResultHeader title={result.topic} subtitle={`${result.language} · ${result.style} · ${result.duration} min`} />
+      <ResultHeader title={result.topic} subtitle={`${result.language} · ${result.style} · ${result.duration} min`} model={request?.model} />
       <DownloadBar
         items={[
           {
-            label: 'Word',
-            onClick: () => downloadAuthenticatedRequest('/ai/lessons/export-word', `${(result.topic || 'lesson').replace(/\s+/g, '-').toLowerCase()}.doc`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(request),
-            }),
+            label: 'Word (.doc)',
+            onClick: () => downloadLessonAsDoc(result, `${slug}.doc`),
           },
           {
-            label: 'PowerPoint',
-            onClick: () => downloadAuthenticatedRequest('/ai/lessons/export-pptx', `${(result.topic || 'lesson').replace(/\s+/g, '-').toLowerCase()}.pptx`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(request),
-            }),
+            label: 'PowerPoint (.pptx)',
+            onClick: () => downloadLessonAsPptxHtml(result, `${slug}.pptx.html`),
+          },
+          {
+            label: 'PDF Document (.pdf)',
+            onClick: () => downloadLessonAsPdf(result, slug),
+          },
+          {
+            label: 'HTML (.html)',
+            onClick: () => downloadLessonAsHtml(result, `${slug}.html`),
+          },
+          {
+            label: 'Markdown (.md)',
+            onClick: () => downloadText(lessonToMarkdown(result), `${slug}.md`, 'text/markdown'),
           },
         ]}
       />
@@ -479,12 +673,15 @@ function LessonResult({ result, request }) {
 
 function QuizResult({ result, answers, revealed, onAnswer, onReveal }) {
   const { t } = useLanguage()
+  const slug = (result.title || 'quiz').replace(/\s+/g, '-').toLowerCase()
   return (
     <div className="space-y-4 rounded-md border border-slate-200 p-4 dark:border-slate-700">
       <ResultHeader title={result.title} subtitle={result.difficulty} />
       <DownloadBar
         items={[
-          ...(result.id ? [{ label: 'Word', onClick: () => downloadAuthenticatedRequest(`/ai/quizzes/${result.id}/download-word`, `quiz-${result.id}.doc`) }] : []),
+          { label: 'Word (.doc)', onClick: () => downloadQuizAsDoc(result, `${slug}.doc`) },
+          { label: 'PDF Document (.pdf)', onClick: () => downloadQuizAsPdf(result, slug) },
+          { label: 'HTML (.html)', onClick: () => downloadQuizAsHtml(result, `${slug}.html`) },
         ]}
       />
       <div className="space-y-4">
@@ -534,8 +731,9 @@ function QuizResult({ result, answers, revealed, onAnswer, onReveal }) {
   )
 }
 
-function VideoResult({ result, initialForm, onReplace }) {
+function VideoResult({ result, initialForm, onReplace, onHistoryRefresh }) {
   const { t } = useLanguage()
+  const { startJob, job: editJob, removeJob } = useGenerationJobs('video-edit')
   const playerUrl = result.video_url ? staticUrl(result.video_url) : null
   const mp4Url = result.mp4_url ? staticUrl(result.mp4_url) : null
   const [editForm, setEditForm] = useState({
@@ -545,8 +743,22 @@ function VideoResult({ result, initialForm, onReplace }) {
     style: initialForm.style,
     duration: initialForm.duration,
     notes: initialForm.notes,
+    session_id: initialForm.session_id || '',
+    source_session_id: initialForm.source_session_id || '',
   })
   const [editing, setEditing] = useState(false)
+
+  useEffect(() => {
+    if (editJob?.status === 'done' && editJob.result) {
+      onReplace(editJob.result)
+      onHistoryRefresh?.()
+      removeJob(editJob.jobId)
+      setEditing(false)
+    }
+    if (editJob?.status === 'error') {
+      setEditing(false)
+    }
+  }, [editJob])
 
   async function downloadStatic(url, filename) {
     const response = await fetch(url)
@@ -557,16 +769,20 @@ function VideoResult({ result, initialForm, onReplace }) {
     e.preventDefault()
     setEditing(true)
     try {
-      const updated = await api(`/ai/videos/${result.id}/edit`, { method: 'POST', body: JSON.stringify(editForm) })
-      onReplace(updated)
-    } finally {
+      await startJob({
+        type: 'video-edit',
+        endpoint: `/ai/videos/${result.id}/edit/queue`,
+        payload: buildAiPayload(editForm),
+        label: editForm.title,
+      })
+    } catch {
       setEditing(false)
     }
   }
 
   return (
     <div className="space-y-4 rounded-md border border-slate-200 p-4 dark:border-slate-700">
-      <ResultHeader title={t('ai.videoReady')} subtitle={result.status} />
+      <ResultHeader title={result.title || t('ai.videoReady')} subtitle={result.status} />
       <DownloadBar
         items={[
           ...(mp4Url ? [{ label: t('ai.downloadMp4'), onClick: () => downloadStatic(mp4Url, `${(result.lesson?.topic || result.id || 'video').toString().replace(/\s+/g, '-').toLowerCase()}.mp4`) }] : []),
@@ -596,7 +812,8 @@ function VideoResult({ result, initialForm, onReplace }) {
           <SelectField label="Style" value={editForm.style} options={styles} onChange={(value) => setEditForm({ ...editForm, style: value })} />
           <Field label="Duration" type="number" value={editForm.duration} onChange={(value) => setEditForm({ ...editForm, duration: Number(value) || 5 })} />
           <Field label="Edit prompt" value={editForm.notes || ''} onChange={(value) => setEditForm({ ...editForm, notes: value })} textarea />
-          <button type="submit" className="btn-primary md:col-span-2">{editing ? 'Updating video...' : 'Apply prompt edit'}</button>
+          <SessionPickerFields form={editForm} setForm={setEditForm} />
+          <button type="submit" className="btn-primary md:col-span-2">{editing ? 'Updating video in background...' : 'Apply prompt edit'}</button>
         </form>
       </Section>
       {result.scenes?.length > 0 && (
@@ -625,16 +842,16 @@ function FlashcardResult({ result, request, flipped, onFlip }) {
   const slug = (result.title || 'flashcards').replace(/\s+/g, '-').toLowerCase()
   return (
     <div className="space-y-4 rounded-md border border-slate-200 p-4 dark:border-slate-700">
-      <ResultHeader title={result.title} subtitle={`${result.cards?.length || 0} · ${result.language}`} />
+      <ResultHeader title={result.title} subtitle={`${result.cards?.length || 0} cards · ${result.language}`} model={request?.model} />
       <DownloadBar
         items={[
           {
-            label: 'Word',
-            onClick: () => downloadAuthenticatedRequest('/ai/flashcards/export-word', `${(result.title || 'flashcards').replace(/\s+/g, '-').toLowerCase()}.doc`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ topic: request.topic, count: Number(request.count) || 10, language: request.language }),
-            }),
+            label: 'Word (.doc)',
+            onClick: () => downloadFlashcardsAsDoc(result, `${slug}.doc`),
+          },
+          {
+            label: 'PDF Document (.pdf)',
+            onClick: () => downloadFlashcardsAsPdf(result, slug),
           },
           { label: t('ai.downloadHtml'), onClick: () => downloadText(flashcardsToHtml(result), `${slug}.html`, 'text/html') },
         ]}
@@ -669,14 +886,19 @@ function DownloadBar({ items }) {
   )
 }
 
-function ResultHeader({ title, subtitle }) {
+function ResultHeader({ title, subtitle, model }) {
   return (
     <div className="flex items-start justify-between gap-3">
       <div>
         <p className="text-lg font-bold">{title}</p>
         <p className="text-sm text-slate-500">{subtitle}</p>
+        {model && (
+          <span className="mt-1 inline-block rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-ocean dark:bg-slate-800 dark:text-mint">
+            ⚡ {model}
+          </span>
+        )}
       </div>
-      <CheckCircle2 className="text-emerald-500" size={20} />
+      <CheckCircle2 className="text-emerald-500 shrink-0" size={20} />
     </div>
   )
 }

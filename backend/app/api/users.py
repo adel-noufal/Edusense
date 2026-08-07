@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_role
 from app.db.session import get_db
-from app.models.models import Profile, User
-from app.schemas.schemas import ProfileIn, UserOut
+from app.models.models import User, Profile
+from app.core.security import hash_password, verify_password
+from app.schemas.schemas import ProfileIn, UserOut, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["Users"])
 AVATAR_DIR = Path(__file__).resolve().parents[1] / "static" / "avatars"
@@ -15,6 +16,28 @@ AVATAR_DIR = Path(__file__).resolve().parents[1] / "static" / "avatars"
 
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
+    return user
+
+
+@router.put("/me", response_model=UserOut)
+def update_me(payload: UserUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if payload.email and payload.email != user.email:
+        existing = db.query(User).filter(User.email == payload.email).first()
+        if existing:
+            raise HTTPException(400, "Email address already in use")
+        user.email = payload.email
+
+    if payload.name:
+        user.name = payload.name.strip()
+
+    if payload.new_password:
+        if not payload.current_password or not verify_password(payload.current_password, user.password_hash):
+            raise HTTPException(400, "Current password is required to set a new password")
+        user.password_hash = hash_password(payload.new_password)
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
     return user
 
 

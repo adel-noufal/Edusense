@@ -11,22 +11,22 @@ export function StudentDashboard() {
   const { t } = useLanguage()
   const location = useLocation()
   const mode = location.pathname.includes('/history') ? 'history' : location.pathname.includes('/upcoming') ? 'upcoming' : location.pathname.includes('/browse') ? 'browse' : 'all'
-  const [sessions, setSessions] = useState([])
+  const [enrolledSessions, setEnrolledSessions] = useState([])
   const [browseData, setBrowseData] = useState({ sessions: [], summary: null })
   const [analytics, setAnalytics] = useState(null)
   const [error, setError] = useState('')
 
   async function loadSessions() {
     try {
-      const [allSessions, browse] = await Promise.all([
-        api('/sessions'),
+      const [mySessions, browse] = await Promise.all([
+        api('/sessions/student/my-sessions'),
         api('/sessions/browse'),
       ])
-      setSessions(Array.isArray(allSessions) ? allSessions : [])
+      setEnrolledSessions(Array.isArray(mySessions) ? mySessions : [])
       setBrowseData(browse || { sessions: [], summary: null })
       setError('')
     } catch (err) {
-      setSessions([])
+      setEnrolledSessions([])
       setBrowseData({ sessions: [], summary: null })
       setError(err.message)
     }
@@ -34,31 +34,36 @@ export function StudentDashboard() {
 
   useEffect(() => { loadSessions() }, [])
 
-  const filtered = sessions.filter((session) => {
-    if (mode === 'upcoming') return ['pending', 'ongoing'].includes(session.status)
+  const filtered = enrolledSessions.filter((session) => {
+    if (mode === 'upcoming') return ['pending', 'ongoing', 'preparing', 'scheduled', 'upcoming'].includes(session.status)
     if (mode === 'history') return ['ended', 'cancelled'].includes(session.status)
     return true
   })
 
-  const registeredSessions = useMemo(
-    () => browseData.sessions.filter((session) => session.is_registered),
-    [browseData.sessions],
+  const upcomingSessions = useMemo(
+    () => enrolledSessions.filter((session) => ['pending', 'ongoing', 'preparing', 'scheduled', 'upcoming'].includes(session.status)),
+    [enrolledSessions],
   )
   const openCatalog = useMemo(
     () => browseData.sessions.filter((session) => !session.is_registered),
     [browseData.sessions],
   )
-  const firstLive = sessions.find((session) => session.status === 'ongoing') || registeredSessions[0] || filtered[0]
+  const firstLive = enrolledSessions.find((session) => session.status === 'ongoing') || filtered[0]
+  const trialSessionId = upcomingSessions[0]?.id || openCatalog[0]?.id || filtered[0]?.id || null
+
   useEffect(() => {
     if (firstLive) api(`/ai/engagement/${firstLive.id}`).then(setAnalytics).catch(() => setAnalytics(null))
   }, [firstLive])
 
   const titles = { all: t('dashboard.student'), upcoming: t('dashboard.upcoming'), history: t('dashboard.historyTitle'), browse: t('nav.browse') }
+  const upcomingCount = upcomingSessions.length
+  const completedCount = enrolledSessions.filter((session) => ['ended', 'cancelled'].includes(session.status)).length
+  const liveCount = enrolledSessions.filter((session) => session.status === 'ongoing').length
 
   return (
     <div className="page-shell space-y-6">
       <Hero title={titles[mode]} />
-      <Stats sessions={mode === 'upcoming' ? browseData.summary?.available || 0 : sessions.length} />
+      <StudentStats enrolled={enrolledSessions.length} upcoming={upcomingCount} completed={completedCount} live={liveCount} />
       {mode === 'upcoming' && browseData.summary && (
         <div className="grid gap-4 md:grid-cols-3">
           <HighlightCard icon={BookMarked} label="Available Sessions" value={browseData.summary.available} />
@@ -71,7 +76,7 @@ export function StudentDashboard() {
         <div className="panel">
           <h2 className="mb-4 text-lg font-bold">{mode === 'upcoming' ? 'Your Registered Sessions' : titles[mode]}</h2>
           {mode !== 'browse' && (
-            <SessionList sessions={mode === 'upcoming' ? registeredSessions : filtered} join={mode !== 'history'} showUnregister={mode === 'upcoming'} emptyLabel={mode === 'history' ? t('dashboard.noHistory') : 'You have not registered for any sessions yet.'} onReload={loadSessions} />
+            <SessionList sessions={mode === 'upcoming' ? upcomingSessions : filtered} join={mode !== 'history'} showUnregister={mode === 'upcoming'} emptyLabel={mode === 'history' ? t('dashboard.noHistory') : 'You have not registered for any sessions yet.'} onReload={loadSessions} />
           )}
           {mode === 'browse' && (
             <SessionCatalog sessions={openCatalog} onReload={loadSessions} />
@@ -86,11 +91,48 @@ export function StudentDashboard() {
             <SessionCatalog sessions={openCatalog.slice(0, 3)} onReload={loadSessions} />
           </div>
         ) : mode === 'browse' ? (
-          <RecommendedCourses sessions={browseData.sessions} onReload={loadSessions} />
-        ) : (
-          firstLive && mode !== 'history' && <WebcamEmotion sessionId={firstLive.id} />
-        )}
+          <div className="panel space-y-4">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h2 className="text-lg font-bold">Browse sessions</h2>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">Open opportunities</span>
+            </div>
+            <p className="text-sm text-slate-500">Explore available sessions and join the ones that fit your schedule. Enrolled sessions appear in Upcoming.</p>
+            <div className="grid gap-3">
+              {openCatalog.length === 0 ? (
+                <p className="text-sm text-slate-500">No open sessions are available for registration right now.</p>
+              ) : (
+                openCatalog.map((session) => (
+                  <article key={session.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900/60">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">{session.title}</h3>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{session.description || 'No description available.'}</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        {session.status}
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-3 text-sm text-slate-500 dark:text-slate-400">
+                      <span>{session.date}</span>
+                      <span>{session.start_time}</span>
+                      <span>{session.available_seats != null ? `${session.available_seats} seats left` : 'Open seating'}</span>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <button className="btn-primary text-sm py-2 px-3" type="button" onClick={async () => { await api(`/sessions/${session.id}/join`, { method: 'POST' }); loadSessions() }}>
+                        Join Session
+                      </button>
+                      <button className="btn-soft text-sm py-2 px-3" type="button" onClick={() => navigate(`/student/sessions/${session.id}/live`)}>
+                        Preview Room
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
+      {mode !== 'history' && <WebcamEmotion sessionId={trialSessionId} title="Session Camera Trial" />}
       {analytics && (
         <div className="panel">
           <h2 className="mb-4 text-lg font-bold">{t('dashboard.attention')}</h2>
@@ -104,7 +146,11 @@ export function StudentDashboard() {
 export function InstructorDashboard() {
   const { t } = useLanguage()
   const [sessions, setSessions] = useState([])
+  const [selectedSessionId, setSelectedSessionId] = useState('all')
   const [report, setReport] = useState(null)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [error, setError] = useState('')
+
   async function loadSessions() {
     try {
       const res = await api('/sessions')
@@ -116,20 +162,93 @@ export function InstructorDashboard() {
 
   useEffect(() => { loadSessions() }, [])
 
+  const endedSessions = useMemo(() => sessions.filter((s) => s.status === 'ended'), [sessions])
+
   async function analyze() {
-    if (sessions[0]) setReport(await api(`/ai/recommendations/${sessions[0].id}`))
+    if (!sessions.length) {
+      setError('No sessions found to run feedback loop.')
+      return
+    }
+    
+    // Enforce rule: feedback loop can ONLY be run on ended sessions
+    if (selectedSessionId === 'all') {
+      if (!endedSessions.length) {
+        setError('Feedback loop is only available for ended sessions. None of your sessions have ended yet.')
+        return
+      }
+    } else {
+      const targetSession = sessions.find((s) => String(s.id) === String(selectedSessionId))
+      if (targetSession && targetSession.status !== 'ended') {
+        setError(`Feedback loop is only available for ended sessions. Session "${targetSession.title}" is currently ${targetSession.status}.`)
+        return
+      }
+    }
+
+    setAnalyzing(true)
+    setError('')
+    try {
+      if (selectedSessionId === 'all') {
+        const results = await Promise.all(
+          endedSessions.map((s) => api(`/ai/recommendations/${s.id}`).catch(() => null))
+        )
+        const valid = results.filter(Boolean)
+        if (valid.length) {
+          const recList = Array.from(new Set(valid.flatMap((r) => r.recommendations?.recommendations || [])))
+          const aggregateDistribution = {}
+          valid.forEach((r) => {
+            const dist = r.emotion_report?.distribution || {}
+            Object.entries(dist).forEach(([emo, val]) => {
+              aggregateDistribution[emo] = (aggregateDistribution[emo] || 0) + val
+            })
+          })
+          setReport({
+            recommendations: { recommendations: recList.length ? recList : ['Maintain active student engagement', 'Incorporate interactive checks'] },
+            emotion_report: { distribution: aggregateDistribution },
+            engagement_report: valid[0]?.engagement_report || { attention_timeline: [] },
+          })
+        } else {
+          setError('Could not gather feedback data from ended sessions.')
+        }
+      } else {
+        const res = await api(`/ai/recommendations/${selectedSessionId}`)
+        setReport(res)
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to run feedback loop analysis.')
+    } finally {
+      setAnalyzing(false)
+    }
   }
 
   return (
     <div className="page-shell space-y-6">
       <Hero title={t('dashboard.instructor')} />
-      <Stats sessions={sessions.length} />
       <div className="grid gap-6 xl:grid-cols-2">
-        <div className="panel">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="panel space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-bold">{t('dashboard.managed')}</h2>
-            <button className="btn-primary" type="button" onClick={analyze}>{t('dashboard.feedbackLoop')}</button>
+            <div className="flex flex-wrap items-center gap-2 sm:ms-auto">
+              <select
+                className="input py-1.5 text-xs min-w-[180px] flex-1 sm:flex-none"
+                value={selectedSessionId}
+                onChange={(e) => {
+                  setSelectedSessionId(e.target.value)
+                  setError('')
+                }}
+              >
+                <option value="all">All Ended Sessions ({endedSessions.length})</option>
+                {sessions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title} ({s.status})
+                  </option>
+                ))}
+              </select>
+              <button className="btn-primary py-1.5 px-4 text-xs whitespace-nowrap" type="button" onClick={analyze} disabled={analyzing}>
+                {analyzing ? 'Analyzing...' : t('dashboard.feedbackLoop')}
+              </button>
+            </div>
           </div>
+          {error && <p className="rounded-md bg-red-50 p-2.5 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-200">{error}</p>}
           <SessionList sessions={sessions} showEdit={true} onReload={loadSessions} />
         </div>
         <div className="panel">
@@ -166,14 +285,7 @@ function Hero({ title }) {
   )
 }
 
-function Stats({ sessions }) {
-  const { t } = useLanguage()
-  const cards = [
-    [t('dashboard.sessions'), sessions ?? 0, BookOpen],
-    [t('dashboard.engagement'), 78, Activity],
-    [t('dashboard.videos'), 9, Video],
-    [t('dashboard.students'), 128, Users],
-  ]
+function Stats({ cards }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
       {cards.map(([label, value, Icon]) => (
@@ -215,7 +327,9 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
     onReload?.()
   }
 
-  async function handleEdit(session) {
+  function handleEdit(e, session) {
+    e.preventDefault()
+    e.stopPropagation()
     setEditingSession(session)
     setEditForm({
       title: session.title,
@@ -227,7 +341,8 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
     })
   }
 
-  async function saveEdit() {
+  async function saveEdit(e) {
+    e.preventDefault()
     await api(`/sessions/${editingSession.id}`, { method: 'PUT', body: editForm })
     setEditingSession(null)
     onReload?.()
@@ -240,39 +355,37 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white/70 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/50" key={session.id}>
           <div>
             <p className="font-bold">{session.title}</p>
-            <p className="text-sm text-slate-500">{session.date} | {session.start_time} | {session.status}</p>
+            <p className="text-sm text-slate-500">{session.date} | {session.start_time} | <span className="capitalize font-semibold text-ocean dark:text-mint">{session.status}</span></p>
             {session.description && <p className="mt-2 max-w-xl text-sm text-slate-600 dark:text-slate-300">{session.description}</p>}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {showEdit && session.status === 'pending' && (
-              <button className="btn-soft" type="button" onClick={() => handleEdit(session)}>Edit</button>
+              <button className="btn-soft" type="button" onClick={(e) => handleEdit(e, session)}>Edit</button>
             )}
             {showUnregister && session.status !== 'ongoing' && (
               <button className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={() => unregister(session.id)}>Unregister</button>
             )}
-            {join && ['ongoing', 'pending'].includes(session.status) ? (
+            {join && ['ongoing', 'pending', 'preparing'].includes(session.status) && (
               <button className="btn-soft" type="button" onClick={() => joinSession(session.id)}>{t('dashboard.join')}</button>
-            ) : (
-              <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold uppercase text-slate-500 dark:bg-slate-800">Completed</span>
             )}
           </div>
         </div>
       ))}
       {editingSession && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-md space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setEditingSession(null)}>
+          <form className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 dark:text-slate-100" onSubmit={saveEdit} onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold">Edit Session</h3>
-            <input className="input w-full" placeholder="Title" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
-            <textarea className="input w-full" placeholder="Description" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} rows={3} />
-            <input className="input w-full" type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} />
-            <input className="input w-full" type="time" value={editForm.start_time} onChange={(e) => setEditForm({ ...editForm, start_time: e.target.value })} />
-            <input className="input w-full" type="number" placeholder="Duration (minutes)" value={editForm.duration} onChange={(e) => setEditForm({ ...editForm, duration: parseInt(e.target.value) })} />
-            <input className="input w-full" type="number" placeholder="Max students" value={editForm.max_students || ''} onChange={(e) => setEditForm({ ...editForm, max_students: e.target.value ? parseInt(e.target.value) : null })} />
-            <div className="flex gap-2">
-              <button className="btn-soft flex-1" onClick={saveEdit}>Save</button>
-              <button className="btn-soft flex-1" onClick={() => setEditingSession(null)}>Cancel</button>
+            <input className="input w-full dark:bg-slate-800 dark:border-slate-700" placeholder="Title" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} required />
+            <textarea className="input w-full dark:bg-slate-800 dark:border-slate-700" placeholder="Description" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} rows={3} />
+            <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} required />
+            <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="time" value={editForm.start_time} onChange={(e) => setEditForm({ ...editForm, start_time: e.target.value })} required />
+            <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="number" placeholder="Duration (minutes)" value={editForm.duration} onChange={(e) => setEditForm({ ...editForm, duration: parseInt(e.target.value) })} />
+            <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="number" placeholder="Max students" value={editForm.max_students || ''} onChange={(e) => setEditForm({ ...editForm, max_students: e.target.value ? parseInt(e.target.value) : null })} />
+            <div className="flex gap-2 pt-2">
+              <button className="btn-primary flex-1" type="submit">Save Changes</button>
+              <button className="btn-soft flex-1" type="button" onClick={() => setEditingSession(null)}>Cancel</button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>
@@ -320,9 +433,11 @@ function SessionCatalog({ sessions, onReload }) {
               <h3 className="text-xl font-black">{session.title}</h3>
               <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-300">{session.description || 'A live learning session ready for registration.'}</p>
             </div>
-            <div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-200">
-              {session.max_students !== null ? `${session.available_seats} seats left` : 'Open seats'}
-            </div>
+            {session.max_students != null && Number(session.max_students) > 0 && (
+              <div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                {session.available_seats} seats left
+              </div>
+            )}
           </div>
           <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-500">
             <span>{session.date}</span>
@@ -340,73 +455,6 @@ function SessionCatalog({ sessions, onReload }) {
           </div>
         </article>
       )))}
-    </div>
-  )
-}
-
-function RecommendedCourses({ sessions, onReload }) {
-  const navigate = useNavigate()
-  
-  async function register(sessionId) {
-    await api(`/sessions/${sessionId}/join`, { method: 'POST' })
-    await onReload?.()
-  }
-
-  // Curate recommendations from all sessions
-  const recommendations = sessions.map((session, idx) => ({
-    ...session,
-    rating: (4.6 + (idx * 0.1) % 0.4).toFixed(1),
-    reviews: 24 + (idx * 7) % 40,
-    level: idx % 2 === 0 ? 'Beginner' : 'Intermediate',
-  }))
-
-  if (!recommendations.length) {
-    return (
-      <div className="panel space-y-4">
-        <h2 className="text-lg font-bold">Recommended Courses</h2>
-        <p className="text-sm text-slate-500">No courses available for recommendation at the moment.</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="panel space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold">Recommended Courses</h2>
-        <span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-bold text-ocean dark:bg-slate-800 dark:text-mint">
-          AI Curated
-        </span>
-      </div>
-      <div className="space-y-4">
-        {recommendations.slice(0, 3).map((course) => (
-          <div key={course.id} className="relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-4 transition-all hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <span className="inline-block rounded-md bg-teal-50 px-2 py-0.5 text-25xs font-bold uppercase tracking-wider text-ocean dark:bg-slate-850 dark:text-mint text-[10px]">
-                  {course.level}
-                </span>
-                <h4 className="mt-1 font-bold text-slate-900 dark:text-slate-100">{course.title}</h4>
-                <p className="mt-1 text-xs text-slate-500">Duration: {course.duration} mins &middot; ⭐ {course.rating} ({course.reviews} reviews)</p>
-              </div>
-              <div className="shrink-0">
-                {course.is_registered ? (
-                  <span className="inline-flex items-center rounded-full bg-teal-50 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-ocean dark:text-mint">
-                    Enrolled
-                  </span>
-                ) : (
-                  <button 
-                    onClick={() => register(course.id)}
-                    className="btn-soft text-xs py-1.5 px-3"
-                    type="button"
-                  >
-                    Enroll
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
@@ -468,7 +516,6 @@ export function Settings() {
         <div className="panel space-y-4">
           <div className="flex items-center gap-3 text-lg font-bold"><BellRing size={20} />Preferences</div>
           <ToggleRow icon={BellRing} label="Email notifications" checked={prefs.emailNotifications} onChange={(value) => setPrefs({ ...prefs, emailNotifications: value })} />
-          <ToggleRow icon={Eye} label="Focus mode hints" checked={!prefs.compactCards} onChange={(value) => setPrefs({ ...prefs, compactCards: !value })} />
         </div>
       </div>
     </div>
@@ -493,6 +540,29 @@ function ToggleRow({ icon: Icon, label, checked, onChange }) {
         <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${checked ? 'end-1' : 'start-1'}`} />
       </button>
     </label>
+  )
+}
+
+function StudentStats({ enrolled, upcoming, completed, live }) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="panel">
+        <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Enrolled sessions</p>
+        <p className="mt-3 text-3xl font-black">{enrolled}</p>
+      </div>
+      <div className="panel">
+        <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Upcoming</p>
+        <p className="mt-3 text-3xl font-black">{upcoming}</p>
+      </div>
+      <div className="panel">
+        <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Completed</p>
+        <p className="mt-3 text-3xl font-black">{completed}</p>
+      </div>
+      <div className="panel">
+        <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Live now</p>
+        <p className="mt-3 text-3xl font-black">{live}</p>
+      </div>
+    </div>
   )
 }
 
