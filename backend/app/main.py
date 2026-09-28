@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.api import admin, ai, auth, emotions, reports, sessions, users
+from app.api import admin, ai, auth, emotions, rag, reports, sessions, users
 from app.core.config import get_settings
 from app.db.seed import init_db
 from app.core.scheduler import start_scheduler, shutdown_scheduler
@@ -14,6 +14,7 @@ tags_metadata = [
     {"name": "sessions", "description": "Live Classroom Session Management"},
     {"name": "emotions", "description": "PyTorch v7 Webcam Emotion Analysis & Distribution Logs"},
     {"name": "ai", "description": "7-Agent Multi-Tier AI Generation (Lessons, Quizzes, Flashcards)"},
+    {"name": "rag", "description": "Data Ingestion & Retrieval-Augmented Generation Knowledge Base"},
     {"name": "reports", "description": "ReportLab Executive PDF Generation & Analytics"},
     {"name": "admin", "description": "Administrative System Overview"},
 ]
@@ -56,8 +57,10 @@ app.include_router(users.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
 app.include_router(emotions.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(rag.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+
 
 
 @app.on_event("startup")
