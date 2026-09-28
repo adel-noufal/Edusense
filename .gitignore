@@ -142,3 +142,12 @@ sample_data/
 *.pkl
 backend/app/static/models/*.pth
 !backend/app/static/models/.gitkeep
+
+# ChromaDB Vector Store (Task 1)
+data/chroma/
+backend/data/chroma/
+
+# Local SQLite databases
+*.db
+backend/*.db
+
