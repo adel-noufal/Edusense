@@ -31,6 +31,14 @@ EduSense runs **7 specialized AI agents**, coordinated sequentially by `EduSense
 
 ---
 
+## 🗺️ Roadmap
+
+- **RAG system**: in progress (vector store, ingestion, search tool done).
+- **Security hardening**: coming soon (access control, hashing, encryption, rate limiting, audit logging, privacy and consent).
+
+---
+
+
 ## 👨‍🏫 Instructor System Workflow
 
 ```mermaid
