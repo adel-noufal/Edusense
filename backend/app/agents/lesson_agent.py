@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Optional
+
 from app.agents.base import AgentResult, LocalLLM, adk_agent
 from app.core.config import get_settings
 from app.services.gemini import generate_json_any
@@ -5,12 +9,73 @@ from app.services.gemini import generate_json_any
 ADK_AGENT = adk_agent("lesson_generation_agent", "Generate lesson outlines, scripts, slides, images, and diagrams.")
 
 
+# ---------------------------------------------------------------------------
+# RAG context helpers
+# ---------------------------------------------------------------------------
+
+def _build_rag_context(topic: str, subject: Optional[str], grade_level: Optional[str]) -> tuple[str, list[str]]:
+    """
+    Calls RAG_Search_Tool and returns:
+      - A formatted context block to inject into the prompt
+      - A deduplicated list of source strings ("filename p.N")
+    Returns ("", []) if RAG is unavailable or returns no results.
+    """
+    try:
+        from app.agents.tools import RAG_Search_Tool
+        chunks = RAG_Search_Tool(
+            query=topic,
+            subject=subject,
+            grade_level=grade_level,
+            top_k=5,
+        )
+    except Exception as exc:
+        print(f"[RAG] Lesson RAG lookup failed ({exc}); generating without source material.")
+        return "", []
+
+    if not chunks:
+        return "", []
+
+    lines = []
+    sources: list[str] = []
+    for chunk in chunks:
+        src = chunk.get("source_file", "")
+        page = chunk.get("page", "")
+        label = f"{src} p.{page}" if src and page else (src or "unknown")
+        if label not in sources:
+            sources.append(label)
+        lines.append(f"[Source: {label}]\n{chunk['text']}")
+
+    context_block = "\n\n".join(lines)
+    return context_block, sources
+
+
+# ---------------------------------------------------------------------------
+# Agent
+# ---------------------------------------------------------------------------
+
 class LessonGenerationAgent:
     name = "Lesson Generation Agent"
 
     def generate(self, request) -> AgentResult:
         topic = request.topic
         settings = get_settings()
+
+        # ── RAG retrieval ───────────────────────────────────────────────────
+        subject = getattr(request, "subject", None)
+        grade_level = getattr(request, "grade_level", None)
+        rag_context, rag_sources = _build_rag_context(topic, subject, grade_level)
+
+        if rag_context:
+            source_instruction = (
+                "\n\nIMPORTANT: Use ONLY the following source material as your factual basis. "
+                "Do NOT invent facts not present in the sources. "
+                "If the sources are insufficient for a section, state so explicitly.\n\n"
+                "=== SOURCE MATERIAL ===\n"
+                f"{rag_context}\n"
+                "=== END SOURCE MATERIAL ===\n"
+            )
+        else:
+            source_instruction = ""
 
         # Try AI provider with automatic fallback (Gemini -> Ollama -> Template)
         try:
@@ -23,11 +88,12 @@ Language: {request.language}
 Duration: {request.duration} minutes
 Instructor notes: {request.additional_notes or "None"}
 Extra guidance: {request.prompt}
-
+{source_instruction}
 Instructions:
 1. Provide deep, rigorous, and practical explanations. Avoid generic filler words.
 2. Structure slides like a senior presentation designer with clear titles, bullet points, visual diagram descriptions, and instructor speaking notes.
 3. Include real-world industrial case studies, step-by-step mechanisms, and practical code/math examples.
+4. If source material is provided above, ground every claim in those sources and cite them.
 
 Return ONLY valid JSON matching this structure:
 {{
@@ -59,25 +125,25 @@ Return ONLY valid JSON matching this structure:
   "slides": [
     {{
       "title": "1. Introduction to {topic}",
-      "content": "• Core Definition: Foundational concept breakdown\n• Industry Value: Why leading organizations adopt this approach\n• Key Objective: What learners will master by the end of this module",
+      "content": "• Core Definition: Foundational concept breakdown\\n• Industry Value: Why leading organizations adopt this approach\\n• Key Objective: What learners will master by the end of this module",
       "diagram": "Concept Architecture Diagram: Input -> Processing Core -> Output State",
       "notes": "Welcome class! Start by highlighting the real-world impact of {topic} before diving into technical details."
     }},
     {{
       "title": "2. Underlying Mechanics & Pipeline",
-      "content": "• Step 1: Initialization and feature preparation\n• Step 2: Core processing pipeline & state transformation\n• Step 3: Validation, error checking, and result delivery",
+      "content": "• Step 1: Initialization and feature preparation\\n• Step 2: Core processing pipeline & state transformation\\n• Step 3: Validation, error checking, and result delivery",
       "diagram": "Flowchart: [Raw Data] -> [Preprocessing] -> [Core Engine] -> [Validated Output]",
       "notes": "Focus on step 2 here—make sure students understand how the transformation happens under the hood."
     }},
     {{
       "title": "3. Practical Case Study & Implementation",
-      "content": "• Real-World Scenario: Solving enterprise scaling challenges\n• Key Implementation Details: Critical parameters & configurations\n• Best Practices: Avoid common pitfalls and anti-patterns",
+      "content": "• Real-World Scenario: Solving enterprise scaling challenges\\n• Key Implementation Details: Critical parameters & configurations\\n• Best Practices: Avoid common pitfalls and anti-patterns",
       "diagram": "System Blueprint: Microservice Architecture & API Integration",
       "notes": "Use this slide to connect theory to practice. Walk through the code/configuration line by line."
     }},
     {{
       "title": "4. Summary & Strategic Takeaways",
-      "content": "• Foundational Insight: Core theoretical takeaway\n• Operational Strategy: How to apply this immediately\n• Next Steps: Advanced topics and practical exercises",
+      "content": "• Foundational Insight: Core theoretical takeaway\\n• Operational Strategy: How to apply this immediately\\n• Next Steps: Advanced topics and practical exercises",
       "diagram": "Summary Matrix: Strengths vs. Considerations",
       "notes": "Wrap up by asking 2-3 quick questions to check student comprehension."
     }}
@@ -121,6 +187,7 @@ Return ONLY valid JSON matching this structure:
                     "summary": data.get("summary", ""),
                     "key_points": data.get("key_points") or [],
                     "images": [],
+                    "sources": rag_sources,
                 })
         except Exception:
             pass
@@ -187,6 +254,7 @@ Return ONLY valid JSON matching this structure:
             "summary": f"Learners now possess a thorough understanding of {topic}, spanning theoretical fundamentals, hands-on implementation steps, and production optimization techniques.",
             "key_points": objectives,
             "images": [],
+            "sources": rag_sources,
         })
 
     def simplify_from_recommendation(self, topic: str, recommendations: list[str]) -> AgentResult:
@@ -196,4 +264,3 @@ Return ONLY valid JSON matching this structure:
             "alternative_explanations": ["Use an everyday analogy.", "Show a visual sequence.", "Break the task into three small decisions."],
             "additional_examples": recommendations[:3],
         })
-

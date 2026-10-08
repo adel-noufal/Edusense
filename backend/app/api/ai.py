@@ -81,7 +81,7 @@ def _run_lesson_bg(job_id: str, payload: LessonRequest, instructor_id: int):
             enriched = payload.model_copy(update={
                 "additional_notes": _append_source(payload.additional_notes, source),
             })
-            result = lessons.generate(enriched).data
+            result = lessons.generate(enriched).data  # subject/grade_level are on enriched
             gen = AIGeneration(
                 instructor_id=instructor_id,
                 session_id=payload.session_id,
@@ -107,7 +107,10 @@ def _run_flashcard_bg(job_id: str, payload: FlashcardRequest, instructor_id: int
         try:
             source = _get_source_context(db, payload.source_session_id, instructor_id)
             prompt = _append_source(payload.prompt, source)
-            result = flashcards.generate(payload.topic, payload.count, payload.language, prompt).data
+            result = flashcards.generate(
+                payload.topic, payload.count, payload.language, prompt,
+                subject=payload.subject, grade_level=payload.grade_level,
+            ).data
             gen = AIGeneration(
                 instructor_id=instructor_id,
                 session_id=payload.session_id,
@@ -133,7 +136,10 @@ def _run_quiz_bg(job_id: str, payload: QuizRequest, instructor_id: int):
         try:
             source = _get_source_context(db, payload.source_session_id, instructor_id)
             prompt = _append_source(payload.prompt, source)
-            result = quizzes.generate(payload.topic, payload.difficulty, payload.count, prompt).data
+            result = quizzes.generate(
+                payload.topic, payload.difficulty, payload.count, prompt,
+                subject=payload.subject, grade_level=payload.grade_level,
+            ).data
             quiz = Quiz(session_id=payload.session_id, title=result["title"], difficulty=result["difficulty"], questions_json=json.dumps(result["questions"]))
             db.add(quiz)
             db.commit()
@@ -278,7 +284,10 @@ def _run_video_edit_bg(job_id: str, video_id: int, payload: VideoRequest, instru
 def generate_flashcards(payload: FlashcardRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
     source = _get_source_context(db, payload.source_session_id, user.id)
     prompt = _append_source(payload.prompt, source)
-    result = flashcards.generate(payload.topic, payload.count, payload.language, prompt).data
+    result = flashcards.generate(
+        payload.topic, payload.count, payload.language, prompt,
+        subject=payload.subject, grade_level=payload.grade_level,
+    ).data
 
     # Save to history
     generation = AIGeneration(
@@ -400,7 +409,7 @@ def generate_lesson(payload: LessonRequest, db: Session = Depends(get_db), user:
     enriched = payload.model_copy(update={
         "additional_notes": _append_source(payload.additional_notes, source),
     })
-    result = lessons.generate(enriched).data
+    result = lessons.generate(enriched).data  # subject/grade_level are on enriched
 
     # Save to history
     generation = AIGeneration(
@@ -421,7 +430,10 @@ def generate_lesson(payload: LessonRequest, db: Session = Depends(get_db), user:
 def generate_quiz(payload: QuizRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
     source = _get_source_context(db, payload.source_session_id, user.id)
     prompt = _append_source(payload.prompt, source)
-    result = quizzes.generate(payload.topic, payload.difficulty, payload.count, prompt).data
+    result = quizzes.generate(
+        payload.topic, payload.difficulty, payload.count, prompt,
+        subject=payload.subject, grade_level=payload.grade_level,
+    ).data
     quiz = Quiz(session_id=payload.session_id, title=result["title"], difficulty=result["difficulty"], questions_json=json.dumps(result["questions"]))
     db.add(quiz)
     db.commit()

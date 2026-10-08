@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import json
+from typing import Optional
 
 from app.agents.base import AgentResult, adk_agent
 from app.core.config import get_settings
@@ -7,23 +10,87 @@ from app.services.gemini import generate_json_any
 ADK_AGENT = adk_agent("quiz_generation_agent", "Generate MCQ, true/false, and short-answer quizzes.")
 
 
+# ---------------------------------------------------------------------------
+# RAG context helpers
+# ---------------------------------------------------------------------------
+
+def _build_rag_context(topic: str, subject: Optional[str], grade_level: Optional[str]) -> tuple[str, list[str]]:
+    """Returns (formatted_context_block, list_of_source_labels)."""
+    try:
+        from app.agents.tools import RAG_Search_Tool
+        chunks = RAG_Search_Tool(
+            query=topic,
+            subject=subject,
+            grade_level=grade_level,
+            top_k=5,
+        )
+    except Exception as exc:
+        print(f"[RAG] Quiz RAG lookup failed ({exc}); generating without source material.")
+        return "", []
+
+    if not chunks:
+        return "", []
+
+    lines = []
+    sources: list[str] = []
+    for chunk in chunks:
+        src = chunk.get("source_file", "")
+        page = chunk.get("page", "")
+        label = f"{src} p.{page}" if src and page else (src or "unknown")
+        if label not in sources:
+            sources.append(label)
+        lines.append(f"[Source: {label}]\n{chunk['text']}")
+
+    return "\n\n".join(lines), sources
+
+
+# ---------------------------------------------------------------------------
+# Agent
+# ---------------------------------------------------------------------------
+
 class QuizGenerationAgent:
     name = "Quiz Generation Agent"
 
-    def generate(self, topic: str, difficulty: str = "Medium", count: int = 8, prompt: str = "") -> AgentResult:
+    def generate(
+        self,
+        topic: str,
+        difficulty: str = "Medium",
+        count: int = 8,
+        prompt: str = "",
+        subject: Optional[str] = None,
+        grade_level: Optional[str] = None,
+    ) -> AgentResult:
         settings = get_settings()
         instructor_notes = f'\nInstructor guidance: "{prompt}"' if prompt.strip() else ""
+
+        # ── RAG retrieval ───────────────────────────────────────────────────
+        rag_context, rag_sources = _build_rag_context(topic, subject, grade_level)
+
+        if rag_context:
+            source_instruction = (
+                "\n\nIMPORTANT: Base every question strictly on the following source material. "
+                "Do NOT invent facts not present in the sources. "
+                "Cite the relevant source label next to each question where possible.\n\n"
+                "=== SOURCE MATERIAL ===\n"
+                f"{rag_context}\n"
+                "=== END SOURCE MATERIAL ==="
+            )
+        else:
+            source_instruction = ""
+
         # Try AI provider with automatic fallback (Gemini -> Ollama -> Template)
         try:
             prompt_text = f"""
 You are a Senior Assessment Specialist and University Examiner.
 Generate {count} EXPERT-LEVEL, highly rigorous assessment questions for: "{topic}"
 Difficulty Level: {difficulty}{instructor_notes}
+{source_instruction}
 
 Instructions:
 1. Every question must test analytical comprehension, architectural evaluation, or real-world problem solving.
 2. For multiple-choice questions, provide 4 clear options (A, B, C, D) where distractors represent plausible real-world misconceptions.
 3. Every question MUST include a detailed 2-3 sentence explanation clarifying WHY the correct option is right and WHY distractors are incorrect.
+4. If source material is provided above, ground every question in those sources.
 
 Return ONLY valid JSON:
 {{
@@ -47,6 +114,7 @@ Return ONLY valid JSON:
                     "title": data.get("title") or f"{topic} Master Assessment",
                     "difficulty": data.get("difficulty") or difficulty,
                     "questions": data["questions"],
+                    "sources": rag_sources,
                 })
         except Exception:
             pass
@@ -115,7 +183,12 @@ Return ONLY valid JSON:
                 "explanation": "Strategy A eliminates redundant processing through intelligent caching and memoization, dramatically improving execution speed.",
                 "difficulty": difficulty,
             })
-        return AgentResult(self.name, {"title": f"{topic} Master Assessment", "difficulty": difficulty, "questions": questions[:count]})
+        return AgentResult(self.name, {
+            "title": f"{topic} Master Assessment",
+            "difficulty": difficulty,
+            "questions": questions[:count],
+            "sources": rag_sources,
+        })
 
     @staticmethod
     def dumps(data: dict) -> str:
