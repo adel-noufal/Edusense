@@ -24,17 +24,18 @@ EduSense runs **7 specialized AI agents**, coordinated sequentially by `EduSense
 1. 🎭 **Emotion Analysis Agent** — Analyzes webcam frames in real-time using a custom **v7 PyTorch EfficientNet-B0** model (**90.9% Accuracy**) with DeepFace fallback.
 2. 📊 **Student Engagement Agent** — Computes real-time engagement and attention metrics from emotion distributions.
 3. 💡 **Recommendation Agent** — Generates pedagogical interventions when engagement drops below threshold (< 62%).
-4. 📚 **Lesson Generation Agent** — Generates structured lessons, slides, outlines, and teaching scripts.
-5. 📝 **Quiz Generation Agent** — Generates adaptive MCQs, True/False, and short-answer questions.
-6. 🎴 **Flashcard Generation Agent** — Produces study flashcard decks.
+4. 📚 **Lesson Generation Agent** — Generates structured lessons, slides, outlines, and teaching scripts (RAG-grounded).
+5. 📝 **Quiz Generation Agent** — Generates adaptive MCQs, True/False, and short-answer questions (RAG-grounded).
+6. 🎴 **Flashcard Generation Agent** — Produces study flashcard decks (RAG-grounded).
 7. 📄 **Report Generation Agent** — Generates executive PDF reports via `ReportLab`.
+8. 🧠 **RAG Knowledge Base & AI Chat Assistant** — Grounded PDF course material retrieval via ChromaDB vector embeddings, interactive AI Chat (`POST /api/rag/ask`), instructor suggestions (`GET /api/rag/suggest`), and Knowledge Base Admin Dashboard (`/instructor/knowledge-base`).
 
 ---
 
 ## 🗺️ Roadmap
 
-- **RAG system**: in progress (vector store, ingestion, search tool done).
-- **Security hardening**: coming soon (access control, hashing, encryption, rate limiting, audit logging, privacy and consent).
+- ✅ **RAG System**: Complete (ChromaDB vector store, PDF ingestion pipeline, RAG search tool, agent grounding, student Q&A, instructor suggestions, and Knowledge Base Admin Dashboard).
+- 🔒 **Security Hardening**: Coming soon in upcoming commits (advanced access control, hashing, encryption, rate limiting, audit logging, privacy & consent).
 
 ---
 
