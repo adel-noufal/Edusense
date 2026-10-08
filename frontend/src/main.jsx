@@ -33,6 +33,7 @@ const QuizGenerator       = lazy(() => import('./pages/AITools').then(m => ({ de
 const FlashcardGenerator  = lazy(() => import('./pages/AITools').then(m => ({ default: m.FlashcardGenerator })))
 const VideoLibrary        = lazy(() => import('./pages/AITools').then(m => ({ default: m.VideoLibrary })))
 const StudentResources    = lazy(() => import('./pages/StudentResources'))
+const KnowledgeBase       = lazy(() => import('./pages/KnowledgeBase'))
 
 // ── Branded page loader with smooth entrance ─────────────────────────────────
 function PageLoader() {
@@ -102,7 +103,8 @@ const router = createBrowserRouter([
       { path: "/instructor/quizzes",    element: <Protected role="instructor"><S><QuizGenerator /></S></Protected> },
       { path: "/instructor/flashcards", element: <Protected role="instructor"><S><FlashcardGenerator /></S></Protected> },
       { path: "/instructor/videos",     element: <Protected role="instructor"><S><VideoLibrary /></S></Protected> },
-      { path: "/instructor/database",   element: <Protected><S><DatabasePreview /></S></Protected> },
+      { path: "/instructor/database",        element: <Protected><S><DatabasePreview /></S></Protected> },
+      { path: "/instructor/knowledge-base",   element: <Protected role="instructor"><S><KnowledgeBase /></S></Protected> },
       { path: "/admin/database",        element: <Protected><S><DatabasePreview /></S></Protected> },
       { path: "/settings", element: <Protected><S><Settings /></S></Protected> },
       { path: "/support",  element: <Protected><S><Support /></S></Protected> },

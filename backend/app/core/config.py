@@ -30,7 +30,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RAG_MIN_SCORE", "EDUSENSE_RAG_MIN_SCORE", "rag_min_score")
     )
 
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000"
     youtube_api_key: str = ""
     google_cloud_credentials_json: str = ""
     frontend_url: str = "http://localhost:5173"

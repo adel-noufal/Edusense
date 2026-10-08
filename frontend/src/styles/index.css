@@ -58,57 +58,20 @@ html[lang="ar"] body { font-family: "Noto Sans Arabic", Inter, ui-sans-serif, sy
   @apply mx-auto w-full max-w-7xl min-w-0;
   position: relative;
   isolation: isolate;
-  animation: pageRise 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: pageRise 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-.page-shell::before,
-.page-shell::after {
-  content: '';
-  position: absolute;
-  inset: -8rem auto auto -8rem;
-  width: 18rem;
-  height: 18rem;
-  border-radius: 9999px;
-  background: radial-gradient(circle, rgba(45, 212, 191, 0.16), transparent 72%);
-  pointer-events: none;
-  z-index: -1;
-  animation: blob 18s ease-in-out infinite;
-}
-.page-shell::after {
-  inset: auto -6rem -7rem auto;
-  width: 16rem;
-  height: 16rem;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.14), transparent 70%);
-  animation-direction: reverse;
-}
-/* Stagger direct children cards so they settle one after another */
-.page-shell > * {
-  animation: itemSettle 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-.page-shell > *:nth-child(1) { animation-delay: 0.04s; }
-.page-shell > *:nth-child(2) { animation-delay: 0.08s; }
-.page-shell > *:nth-child(3) { animation-delay: 0.13s; }
-.page-shell > *:nth-child(4) { animation-delay: 0.17s; }
-.page-shell > *:nth-child(5) { animation-delay: 0.21s; }
 
-/* ─── Blob background ─── */
-.animate-blob {
-  animation: blob 22s ease-in-out infinite;
-  will-change: transform, border-radius;
-}
-.animation-delay-2000 { animation-delay: 5s; }
-.animation-delay-4000 { animation-delay: 10s; }
-
-/* ─── Panel cards ─── */
+/* ─── Panel cards (optimized for 60fps scrolling) ─── */
 .panel {
-  @apply rounded-2xl border border-slate-200/80 bg-white/95 p-5 shadow-sm backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/95 sm:p-6;
-  transition: box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1),
-              border-color 0.35s cubic-bezier(0.22, 1, 0.36, 1),
-              transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  @apply rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm dark:border-slate-800/90 dark:bg-slate-900 sm:p-6;
+  transition: box-shadow 0.2s ease,
+              border-color 0.2s ease,
+              transform 0.2s ease;
 }
 .panel:hover {
-  @apply border-slate-300/90 dark:border-slate-700/90;
-  box-shadow: 0 8px 32px -6px rgba(0,0,0,0.10), 0 2px 8px -2px rgba(0,0,0,0.06);
-  transform: translateY(-2px);
+  @apply border-slate-300 dark:border-slate-700;
+  box-shadow: 0 8px 24px -6px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
 }
 /* Modal panels animate differently */
 .modal-panel {
@@ -195,17 +158,16 @@ html[lang="ar"] body { font-family: "Noto Sans Arabic", Inter, ui-sans-serif, sy
 
 /* ─── Route & page transitions ─── */
 @keyframes routeEnter {
-  0%   { opacity: 0; transform: translateY(18px) scale(0.985); filter: blur(4px); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  0%   { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 .route-enter {
   opacity: 0;
-  transform: translateY(18px) scale(0.985);
-  filter: blur(4px);
-  will-change: transform, opacity, filter;
+  transform: translateY(8px);
+  will-change: transform, opacity;
 }
 .route-enter-visible {
-  animation: routeEnter 0.52s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: routeEnter 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* ─── Landing page cinematic entrance ─── */
