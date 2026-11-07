@@ -44,6 +44,7 @@ class Session(Base):
     reminder_sent: Mapped[bool] = mapped_column(Boolean, default=False)
     # Comma-separated list of minutes for which reminders have been sent (e.g. "15,10,5")
     reminders_sent: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    registrations: Mapped[list["SessionRegistration"]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
 
 class SessionRegistration(Base):
@@ -53,6 +54,7 @@ class SessionRegistration(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     attended: Mapped[bool] = mapped_column(Boolean, default=False)
+    session: Mapped["Session"] = relationship(back_populates="registrations")
 
 
 class EmotionLog(Base):
@@ -105,6 +107,71 @@ class Quiz(Base):
     difficulty: Mapped[str] = mapped_column(String(40), default="Medium")
     questions_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Task 10: Quiz Timer settings
+    time_limit_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Per-quiz time limit
+    time_limit_per_question_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Per-question time limit
+    # Quiz Anti-Cheat / Fullscreen Lockdown settings
+    fullscreen_lock: Mapped[bool] = mapped_column(Boolean, default=False)
+    camera_monitoring: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class QuizAttempt(Base):
+    """Student quiz attempt with server-side timing validation."""
+    __tablename__ = "quiz_attempts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    quiz_id: Mapped[int] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"), index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Server-side timing
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Anti-cheat
+    is_locked: Mapped[bool] = mapped_column(Boolean, default=False)  # Locked due to violation
+    lock_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Answers and scoring
+    answers_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # Student answers
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    details_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # Per-question breakdown
+
+
+class QuizViolation(Base):
+    """Anti-cheat violation log for quiz attempts."""
+    __tablename__ = "quiz_violations"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    quiz_id: Mapped[int] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"), index=True)
+    attempt_id: Mapped[int | None] = mapped_column(ForeignKey("quiz_attempts.id", ondelete="SET NULL"), nullable=True, index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[str] = mapped_column(String(60), index=True)  # exit_attempt, tab_switch, second_device_detected, etc.
+    details_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    # Instructor re-entry approval
+    is_reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    re_entry_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class QuizAgentConfig(Base):
+    """Reusable quiz generation configuration saved by instructors."""
+    __tablename__ = "quiz_agent_configs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    instructor_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(180))  # e.g., "Weekly Physics Quiz", "Final Exam Config"
+    # Generation preferences
+    subject: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    grade_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    difficulty_mix: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: {"easy": 0.3, "medium": 0.5, "hard": 0.2}
+    question_types: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: ["multiple_choice", "true_false", "short_answer"]
+    topic_weights: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: {"Photosynthesis": 0.4, "Cellular Respiration": 0.6}
+    time_limit_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fullscreen_lock: Mapped[bool] = mapped_column(Boolean, default=False)
+    camera_monitoring: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Common prompt additions
+    custom_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class SessionNote(Base):
@@ -184,4 +251,17 @@ class AuditLog(Base):
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)  # IPv4 or IPv6
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class ConsentRecord(Base):
+    """User consent records for data processing (webcam, quiz camera, etc.)."""
+    __tablename__ = "consent_records"
+    __table_args__ = (UniqueConstraint("user_id", "consent_type", name="uq_user_consent_type"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    consent_type: Mapped[str] = mapped_column(String(50), index=True)  # e.g., "emotion_detection", "quiz_anti_cheat"
+    given: Mapped[bool] = mapped_column(Boolean, default=False)
+    version: Mapped[str] = mapped_column(String(20))  # e.g., "1.0"
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

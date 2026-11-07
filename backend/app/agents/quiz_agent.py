@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from typing import Optional
+from sqlalchemy.orm import Session
 
 from app.agents.base import AgentResult, adk_agent
 from app.agents.logging_utils import LLMAuditContext
 from app.agents.prompts.scope_guardrail import build_guardrail_prompt
 from app.core.config import get_settings
+from app.db.session import SessionLocal
+from app.models.models import QuizAgentConfig
 from app.services.gemini import generate_json_any
 
 ADK_AGENT = adk_agent("quiz_generation_agent", "Generate MCQ, true/false, and short-answer quizzes.")
@@ -61,9 +64,53 @@ class QuizGenerationAgent:
         prompt: str = "",
         subject: Optional[str] = None,
         grade_level: Optional[str] = None,
+        config_id: Optional[int] = None,
     ) -> AgentResult:
         settings = get_settings()
-        instructor_notes = f'\nInstructor guidance: "{prompt}"' if prompt.strip() else ""
+
+        # Load config if provided and merge preferences
+        config_difficulty = difficulty
+        config_count = count
+        config_prompt = prompt
+        config_subject = subject
+        config_grade_level = grade_level
+        config_time_limit = None
+        config_fullscreen_lock = False
+        config_camera_monitoring = False
+
+        if config_id:
+            db = SessionLocal()
+            try:
+                config = db.query(QuizAgentConfig).filter_by(id=config_id).first()
+                if config:
+                    if config.difficulty_mix:
+                        # Use the highest weighted difficulty as default
+                        import json as _json
+                        mix = _json.loads(config.difficulty_mix)
+                        config_difficulty = max(mix, key=mix.get).capitalize()
+                    if config.question_types:
+                        # Could influence question type distribution
+                        pass
+                    if config.topic_weights:
+                        # Could influence topic emphasis in prompt
+                        import json as _json
+                        weights = _json.loads(config.topic_weights)
+                        if weights:
+                            top_topic = max(weights, key=weights.get)
+                            config_prompt = f'{prompt}\nFocus emphasis on: {top_topic}' if prompt.strip() else f'Focus emphasis on: {top_topic}'
+                    config_time_limit = config.time_limit_seconds
+                    config_fullscreen_lock = config.fullscreen_lock
+                    config_camera_monitoring = config.camera_monitoring
+                    if config.custom_prompt:
+                        config_prompt = f'{config_prompt}\n{config.custom_prompt}'.strip()
+                    if config.subject and not subject:
+                        config_subject = config.subject
+                    if config.grade_level and not grade_level:
+                        config_grade_level = config.grade_level
+            finally:
+                db.close()
+
+        instructor_notes = f'\nInstructor guidance: "{config_prompt}"' if config_prompt.strip() else ""
 
         # ── RAG retrieval ───────────────────────────────────────────────────
         rag_context, rag_sources = _build_rag_context(topic, subject, grade_level)

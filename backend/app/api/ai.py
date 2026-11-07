@@ -4,7 +4,7 @@ import threading
 import time
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -17,8 +17,8 @@ from app.agents.workflow import EduSenseAgentWorkflow
 from app.agents.orchestrator import AgentOrchestrator
 from app.api.deps import get_current_user, require_role
 from app.db.session import get_db, SessionLocal
-from app.models.models import AIGeneration, ChatMessage as ChatMessageModel, Quiz, Report, SessionResource, User, VideoProject
-from app.schemas.schemas import FlashcardRequest, LessonRequest, QuizRequest, RecommendationDecision, VideoRequest
+from app.models.models import AIGeneration, ChatMessage as ChatMessageModel, Quiz, QuizAgentConfig, Report, SessionResource, User, VideoProject
+from app.schemas.schemas import FlashcardRequest, LessonRequest, QuizRequest, QuizAgentConfigCreate, QuizAgentConfigUpdate, QuizAgentConfigOut, RecommendationDecision, VideoRequest
 from app.services.export import build_json_bytes, build_video_zip, build_word_document_bytes, lesson_to_markdown, build_true_docx_bytes, build_pptx_bytes
 from app.services.generation_jobs import create_job, get_job_payload, list_pending_jobs, set_job_status
 from app.services.source_extractor import build_session_source_context
@@ -190,12 +190,36 @@ def _run_quiz_bg(job_id: str, payload: QuizRequest, instructor_id: int):
             result = quizzes.generate(
                 payload.topic, payload.difficulty, payload.count, prompt,
                 subject=payload.subject, grade_level=payload.grade_level,
+                config_id=payload.config_id,
             ).data
-            quiz = Quiz(session_id=payload.session_id, title=result["title"], difficulty=result["difficulty"], questions_json=json.dumps(result["questions"]))
+
+            # Apply config settings to quiz if config_id provided
+            config_time_limit = None
+            config_fullscreen_lock = False
+            config_camera_monitoring = False
+            if payload.config_id:
+                config = db.query(QuizAgentConfig).filter_by(id=payload.config_id, instructor_id=instructor_id).first()
+                if config:
+                    config_time_limit = config.time_limit_seconds
+                    config_fullscreen_lock = config.fullscreen_lock
+                    config_camera_monitoring = config.camera_monitoring
+
+            quiz = Quiz(
+                session_id=payload.session_id,
+                title=result["title"],
+                difficulty=result["difficulty"],
+                questions_json=json.dumps(result["questions"]),
+                time_limit_seconds=config_time_limit,
+                fullscreen_lock=config_fullscreen_lock,
+                camera_monitoring=config_camera_monitoring,
+            )
             db.add(quiz)
             db.commit()
             db.refresh(quiz)
             result["id"] = quiz.id
+            result["time_limit_seconds"] = config_time_limit
+            result["fullscreen_lock"] = config_fullscreen_lock
+            result["camera_monitoring"] = config_camera_monitoring
         finally:
             db.close()
         _finish_job(job_id, "done", result)
@@ -484,11 +508,35 @@ def generate_quiz(payload: QuizRequest, db: Session = Depends(get_db), user: Use
     result = quizzes.generate(
         payload.topic, payload.difficulty, payload.count, prompt,
         subject=payload.subject, grade_level=payload.grade_level,
+        config_id=payload.config_id,
     ).data
-    quiz = Quiz(session_id=payload.session_id, title=result["title"], difficulty=result["difficulty"], questions_json=json.dumps(result["questions"]))
+
+    # Apply config settings to quiz if config_id provided
+    config_time_limit = None
+    config_fullscreen_lock = False
+    config_camera_monitoring = False
+    if payload.config_id:
+        config = db.query(QuizAgentConfig).filter_by(id=payload.config_id, instructor_id=user.id).first()
+        if config:
+            config_time_limit = config.time_limit_seconds
+            config_fullscreen_lock = config.fullscreen_lock
+            config_camera_monitoring = config.camera_monitoring
+
+    quiz = Quiz(
+        session_id=payload.session_id,
+        title=result["title"],
+        difficulty=result["difficulty"],
+        questions_json=json.dumps(result["questions"]),
+        time_limit_seconds=config_time_limit,
+        fullscreen_lock=config_fullscreen_lock,
+        camera_monitoring=config_camera_monitoring,
+    )
     db.add(quiz)
     db.commit()
     result["id"] = quiz.id
+    result["time_limit_seconds"] = config_time_limit
+    result["fullscreen_lock"] = config_fullscreen_lock
+    result["camera_monitoring"] = config_camera_monitoring
     return result
 
 
@@ -515,6 +563,125 @@ def delete_quiz(quiz_id: int, db: Session = Depends(get_db), _: User = Depends(r
     if not deleted:
         raise HTTPException(404, "Quiz not found")
     return {"message": "Quiz deleted"}
+
+
+# ─── Quiz Agent Config Endpoints ───────────────────────────────────────────────────
+
+@router.post("/quiz-configs", response_model=QuizAgentConfigOut)
+def create_quiz_config(
+    payload: QuizAgentConfigCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """
+    Create a reusable quiz generation configuration.
+    Stores difficulty mix, question types, topic weights, time limits, and anti-cheat settings.
+    """
+    config = QuizAgentConfig(
+        instructor_id=user.id,
+        session_id=payload.session_id,
+        name=payload.name,
+        subject=payload.subject,
+        grade_level=payload.grade_level,
+        difficulty_mix=json.dumps(payload.difficulty_mix) if payload.difficulty_mix else None,
+        question_types=json.dumps(payload.question_types) if payload.question_types else None,
+        topic_weights=json.dumps(payload.topic_weights) if payload.topic_weights else None,
+        time_limit_seconds=payload.time_limit_seconds,
+        fullscreen_lock=payload.fullscreen_lock,
+        camera_monitoring=payload.camera_monitoring,
+        custom_prompt=payload.custom_prompt,
+    )
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+
+    # Audit
+    from app.core.audit import log_audit_event
+    log_audit_event(db, action="create_quiz_config", user=user, resource_type="quiz_config", resource_id=str(config.id), request=request, details={"name": config.name})
+
+    return QuizAgentConfigOut.model_validate(config)
+
+
+@router.get("/quiz-configs", response_model=list[QuizAgentConfigOut])
+def list_quiz_configs(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """List all quiz generation configurations for the instructor."""
+    configs = db.query(QuizAgentConfig).filter_by(instructor_id=user.id).order_by(QuizAgentConfig.updated_at.desc()).all()
+    return [QuizAgentConfigOut.model_validate(c) for c in configs]
+
+
+@router.get("/quiz-configs/{config_id}", response_model=QuizAgentConfigOut)
+def get_quiz_config(
+    config_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """Get a specific quiz generation configuration."""
+    config = db.query(QuizAgentConfig).filter_by(id=config_id, instructor_id=user.id).first()
+    if not config:
+        raise HTTPException(404, "Quiz config not found")
+    return QuizAgentConfigOut.model_validate(config)
+
+
+@router.put("/quiz-configs/{config_id}", response_model=QuizAgentConfigOut)
+def update_quiz_config(
+    config_id: int,
+    payload: QuizAgentConfigUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """Update a quiz generation configuration."""
+    config = db.query(QuizAgentConfig).filter_by(id=config_id, instructor_id=user.id).first()
+    if not config:
+        raise HTTPException(404, "Quiz config not found")
+
+    config.name = payload.name
+    config.session_id = payload.session_id
+    config.subject = payload.subject
+    config.grade_level = payload.grade_level
+    config.difficulty_mix = json.dumps(payload.difficulty_mix) if payload.difficulty_mix else None
+    config.question_types = json.dumps(payload.question_types) if payload.question_types else None
+    config.topic_weights = json.dumps(payload.topic_weights) if payload.topic_weights else None
+    config.time_limit_seconds = payload.time_limit_seconds
+    config.fullscreen_lock = payload.fullscreen_lock
+    config.camera_monitoring = payload.camera_monitoring
+    config.custom_prompt = payload.custom_prompt
+
+    db.commit()
+    db.refresh(config)
+
+    # Audit
+    from app.core.audit import log_audit_event
+    log_audit_event(db, action="update_quiz_config", user=user, resource_type="quiz_config", resource_id=str(config.id), request=request, details={"name": config.name})
+
+    return QuizAgentConfigOut.model_validate(config)
+
+
+@router.delete("/quiz-configs/{config_id}")
+def delete_quiz_config(
+    config_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """Delete a quiz generation configuration."""
+    config = db.query(QuizAgentConfig).filter_by(id=config_id, instructor_id=user.id).first()
+    if not config:
+        raise HTTPException(404, "Quiz config not found")
+
+    config_name = config.name
+    db.delete(config)
+    db.commit()
+
+    # Audit
+    from app.core.audit import log_audit_event
+    log_audit_event(db, action="delete_quiz_config", user=user, resource_type="quiz_config", resource_id=str(config_id), request=request, details={"name": config_name})
+
+    return {"message": "Quiz config deleted"}
 
 
 @router.get("/generations")

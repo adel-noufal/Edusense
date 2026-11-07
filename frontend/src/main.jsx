@@ -35,6 +35,7 @@ const VideoLibrary        = lazy(() => import('./pages/AITools').then(m => ({ de
 const ChatbotGenerator    = lazy(() => import('./pages/AITools').then(m => ({ default: m.ChatbotGenerator })))
 const StudentResources    = lazy(() => import('./pages/StudentResources'))
 const KnowledgeBase       = lazy(() => import('./pages/KnowledgeBase'))
+const StudentQuiz         = lazy(() => import('./pages/Quiz'))
 
 // ── Branded page loader with smooth entrance ─────────────────────────────────
 function PageLoader() {
@@ -94,6 +95,7 @@ const router = createBrowserRouter([
       { path: "/student/history",  element: <Protected role="student"><S><StudentDashboard /></S></Protected> },
       { path: "/student/profile",    element: <Protected><S><Profile /></S></Protected> },
       { path: "/student/resources",   element: <Protected role="student"><S><StudentResources /></S></Protected> },
+      { path: "/student/quizzes/:quizId", element: <Protected role="student"><S><StudentQuiz /></S></Protected> },
       { path: "/student/sessions/:sessionId/live", element: <Protected><S><LiveSessionRoom /></S></Protected> },
       { path: "/instructor",       element: <Protected role="instructor"><S><InstructorDashboard /></S></Protected> },
       { path: "/instructor/sessions", element: <Protected role="instructor"><S><Sessions /></S></Protected> },

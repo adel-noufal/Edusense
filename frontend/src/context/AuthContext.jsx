@@ -1,19 +1,26 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
 import { api } from '../services/api'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('edusense_user') || 'null'))
+  const [consents, setConsents] = useState(() => JSON.parse(localStorage.getItem('edusense_consents') || '{}'))
 
   useEffect(() => {
     if (user) localStorage.setItem('edusense_user', JSON.stringify(user))
   }, [user])
 
+  useEffect(() => {
+    localStorage.setItem('edusense_consents', JSON.stringify(consents))
+  }, [consents])
+
   async function login(email, password) {
     const result = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
     localStorage.setItem('edusense_token', result.access_token)
     setUser(result.user)
+    // Fetch consents after login
+    await fetchConsents()
     return result.user
   }
 
@@ -24,13 +31,59 @@ export function AuthProvider({ children }) {
     return result.user
   }
 
+  async function fetchConsents() {
+    try {
+      const data = await api('/emotions/consent/list')
+      const consentMap = {}
+      data.forEach(c => {
+        consentMap[c.consent_type] = {
+          given: c.given,
+          version: c.version,
+          timestamp: c.timestamp,
+          withdrawn_at: c.withdrawn_at,
+        }
+      })
+      setConsents(consentMap)
+    } catch (e) {
+      console.warn('Failed to fetch consents:', e)
+      setConsents({})
+    }
+  }
+
+  async function giveConsent(consentType, version = '1.0') {
+    await api('/emotions/consent/give', { method: 'POST', body: JSON.stringify({ consent_type: consentType, version }) })
+    await fetchConsents()
+  }
+
+  async function withdrawConsent(consentType) {
+    await api(`/emotions/consent/withdraw/${consentType}`, { method: 'POST' })
+    await fetchConsents()
+  }
+
+  function hasConsent(consentType) {
+    const c = consents[consentType]
+    return c && c.given && !c.withdrawn_at
+  }
+
   function logout() {
     localStorage.removeItem('edusense_token')
     localStorage.removeItem('edusense_user')
+    localStorage.removeItem('edusense_consents')
     setUser(null)
+    setConsents({})
   }
 
-  const value = useMemo(() => ({ user, login, register, logout }), [user])
+  const value = useMemo(() => ({
+    user,
+    consents,
+    login,
+    register,
+    logout,
+    fetchConsents,
+    giveConsent,
+    withdrawConsent,
+    hasConsent,
+  }), [user, consents])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

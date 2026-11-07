@@ -1,8 +1,9 @@
 from datetime import date, datetime
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from app.api.deps import require_role
+from app.core.audit import log_audit_event
 from app.db.session import engine, get_db
 from app.models.models import User, Session as AppSession, SessionRegistration, EmotionLog, Report, Feedback, VideoProject, Quiz, SessionNote, AIGeneration
 
@@ -32,7 +33,10 @@ def serialize_cell(val):
 
 
 @router.get("/db/tables")
-def list_tables(_: User = Depends(require_role("admin", "instructor"))):
+def list_tables(request: Request, user: User = Depends(require_role("admin", "instructor")), db: Session = Depends(get_db)):
+    # Audit: admin/instructor listing database tables
+    log_audit_event(db, action="list_db_tables", user=user, resource_type="database", request=request)
+
     inspector = inspect(engine)
     tables = [name for name in inspector.get_table_names() if name in ALLOWED_TABLES]
     return {
@@ -43,13 +47,17 @@ def list_tables(_: User = Depends(require_role("admin", "instructor"))):
 
 
 @router.get("/db/preview/{table_name}")
-def preview_table(table_name: str, limit: int = 25, _: User = Depends(require_role("admin", "instructor"))):
+def preview_table(table_name: str, limit: int = 25, request: Request = None, user: User = Depends(require_role("admin", "instructor")), db: Session = Depends(get_db)):
     if table_name not in ALLOWED_TABLES:
         raise HTTPException(404, "Table not available for preview")
+
+    # Audit: admin/instructor previewing database table
+    log_audit_event(db, action="preview_db_table", user=user, resource_type="database", resource_id=table_name, request=request, details={"limit": limit})
+
     with engine.connect() as connection:
         rows = connection.execute(text(f"SELECT * FROM {table_name} LIMIT :limit"), {"limit": min(limit, 100)}).mappings().all()
         count = connection.execute(text(f"SELECT COUNT(*) AS total FROM {table_name}")).scalar_one()
-    
+
     clean_rows = [{k: serialize_cell(v) for k, v in dict(row).items()} for row in rows]
     return {
         "table": table_name,

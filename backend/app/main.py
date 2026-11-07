@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.api import admin, ai, auth, emotions, rag, reports, sessions, users
+from app.api import admin, ai, auth, emotions, quizzes, rag, reports, sessions, users
 from app.core.config import get_settings
 from app.db.seed import init_db
 from app.core.scheduler import start_scheduler, shutdown_scheduler
@@ -57,6 +57,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
 app.include_router(emotions.router, prefix="/api")
+app.include_router(quizzes.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
 app.include_router(rag.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")

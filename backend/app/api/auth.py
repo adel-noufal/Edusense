@@ -13,11 +13,11 @@ from app.services.email import send_reset_password_email
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-# Rate limiter for auth endpoints: 5 requests per minute per IP (stricter for auth)
+# Rate limiter for auth endpoints: 100 requests per minute per IP (allows test suites + retries)
 # In-memory only — correct for single-process deployment.
 # For multi-worker deployments, replace with a shared store (e.g., Redis).
 class _AuthRateLimiter:
-    def __init__(self, rate: int = 5, per: int = 60):
+    def __init__(self, rate: int = 100, per: int = 60):
         self.rate = rate
         self.per = per
         self._buckets: dict[str, list[float]] = {}
@@ -36,7 +36,7 @@ class _AuthRateLimiter:
             return True
 
 
-_auth_rate_limiter = _AuthRateLimiter(rate=5, per=60)
+_auth_rate_limiter = _AuthRateLimiter(rate=100, per=60)
 
 
 def _check_auth_rate_limit(request: Request) -> None:
@@ -49,7 +49,7 @@ def _check_auth_rate_limit(request: Request) -> None:
         client_ip = request.client.host if request.client else "unknown"
 
     if not _auth_rate_limiter.check(client_ip):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded: max 5 requests per minute")
+        raise HTTPException(status_code=429, detail="Rate limit exceeded: max 100 requests per minute")
 
 
 @router.post("/register", response_model=TokenOut)

@@ -1,21 +1,30 @@
 import { Camera, Send, Download, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 import { downloadJson } from '../utils/download'
+import { ConsentModal } from './ConsentModal'
 
 export default function WebcamEmotion({ sessionId, title = 'Live Emotion Analysis' }) {
   const video = useRef(null)
   const streamRef = useRef(null)
   const autoCaptureRef = useRef(null)
+  const { hasConsent, giveConsent } = useAuth()
   const [results, setResults] = useState([])
   const [streamStarted, setStreamStarted] = useState(false)
   const [capturedImage, setCapturedImage] = useState(null)
   const [error, setError] = useState('')
   const [infoMessage, setInfoMessage] = useState('')
+  const [consentModalOpen, setConsentModalOpen] = useState(false)
   const canAnalyze = Boolean(sessionId)
 
   async function start() {
     setError('')
+    // Check for emotion_detection consent
+    if (!hasConsent('emotion_detection')) {
+      setConsentModalOpen(true)
+      return
+    }
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true })
       if (video.current) {
@@ -27,6 +36,28 @@ export default function WebcamEmotion({ sessionId, title = 'Live Emotion Analysi
     } catch (err) {
       setError(err.message || 'Unable to access your webcam.')
     }
+  }
+
+  const handleConsentAccept = async (consentType) => {
+    await giveConsent(consentType)
+    setConsentModalOpen(false)
+    // Start camera after consent given
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true })
+      if (video.current) {
+        video.current.srcObject = mediaStream
+      }
+      streamRef.current = mediaStream
+      setStreamStarted(true)
+      scheduleAutoCapture(mediaStream)
+    } catch (err) {
+      setError(err.message || 'Unable to access your webcam.')
+    }
+  }
+
+  const handleConsentDecline = () => {
+    setConsentModalOpen(false)
+    setInfoMessage('Camera access declined. You can grant consent later in Settings → Privacy.')
   }
 
   function stopCamera() {
@@ -157,6 +188,15 @@ export default function WebcamEmotion({ sessionId, title = 'Live Emotion Analysi
           </div>
         </div>
       )}
+
+      {/* Consent Modal */}
+      <ConsentModal
+        isOpen={consentModalOpen}
+        onClose={() => setConsentModalOpen(false)}
+        consentType="emotion_detection"
+        onAccept={handleConsentAccept}
+        onDecline={handleConsentDecline}
+      />
     </div>
   )
 }
