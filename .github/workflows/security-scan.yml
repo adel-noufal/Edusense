@@ -1,0 +1,218 @@
+name: Security Vulnerability Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run daily at 3:00 AM UTC
+    - cron: '0 3 * * *'
+
+permissions:
+  contents: read
+  security-events: write  # for CodeQL SARIF upload
+  actions: read  # for checking workflow runs
+
+jobs:
+  # Python dependency vulnerability scanning with pip-audit
+  pip-audit:
+    name: Python Dependency Scan (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          pip install -r requirements.txt
+
+      - name: Run pip-audit
+        working-directory: ./backend
+        run: |
+          pip-audit --desc --format=json --output=pip-audit-report.json || true
+          pip-audit --desc
+
+      - name: Upload pip-audit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pip-audit-report
+          path: backend/pip-audit-report.json
+          retention-days: 30
+
+      - name: Fail on high/critical vulnerabilities
+        working-directory: ./backend
+        run: |
+          # Check if there are HIGH or CRITICAL vulnerabilities
+          if [ -f pip-audit-report.json ]; then
+            HIGH_CRITICAL=$(jq '[.vulnerabilities[] | select(.fix_versions != null) | select(.aliases[] | test("HIGH|CRITICAL"; "i"))] | length' pip-audit-report.json 2>/dev/null || echo "0")
+            if [ "$HIGH_CRITICAL" -gt 0 ]; then
+              echo "::error::Found $HIGH_CRITICAL HIGH/CRITICAL vulnerabilities"
+              exit 1
+            fi
+          fi
+
+  # Alternative: Safety check (another Python vulnerability scanner)
+  safety:
+    name: Python Dependency Scan (Safety)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install safety
+          pip install -r requirements.txt
+
+      - name: Run Safety check
+        working-directory: ./backend
+        run: |
+          safety check --json --output safety-report.json || true
+          safety check
+
+      - name: Upload Safety report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: safety-report
+          path: backend/safety-report.json
+          retention-days: 30
+
+  # CodeQL Analysis (GitHub's semantic code analysis)
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['python']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Optional: specify queries for security-focused scanning
+          queries: security-extended,security-and-quality
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # Container image vulnerability scanning (if using Docker)
+  container-scan:
+    name: Container Image Scan (Trivy)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build backend image
+        working-directory: ./backend
+        run: |
+          docker build -t edusense-backend:${{ github.sha }} .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'edusense-backend:${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'container-scan'
+
+  # Secret scanning
+  secret-scan:
+    name: Secret Scanning (TruffleHog)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for secret scanning
+
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+          extra_args: --debug --fail
+
+  # Dependency review for PRs
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          config-file: '.github/dependency-review-config.yml'
+          fail-on-severity: high
+
+  # Summary job
+  summary:
+    name: Security Scan Summary
+    runs-on: ubuntu-latest
+    needs: [pip-audit, safety, codeql, container-scan, secret-scan, dependency-review]
+    if: always()
+    steps:
+      - name: Check job statuses
+        run: |
+          echo "Security scan completed"
+          echo "pip-audit: ${{ needs.pip-audit.result }}"
+          echo "safety: ${{ needs.safety.result }}"
+          echo "codeql: ${{ needs.codeql.result }}"
+          echo "container-scan: ${{ needs.container-scan.result }}"
+          echo "secret-scan: ${{ needs.secret-scan.result }}"
+          echo "dependency-review: ${{ needs.dependency-review.result }}"
+
+          # Fail if any required scan failed
+          if [[ "${{ needs.pip-audit.result }}" == "failure" ]] || \
+             [[ "${{ needs.safety.result }}" == "failure" ]] || \
+             [[ "${{ needs.codeql.result }}" == "failure" ]] || \
+             [[ "${{ needs.secret-scan.result }}" == "failure" ]] || \
+             [[ "${{ needs.dependency-review.result }}" == "failure" ]]; then
+            echo "::error::One or more security scans failed"
+            exit 1
+          fi

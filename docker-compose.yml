@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: edusense-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: edusense
+      POSTGRES_PASSWORD: edusense
+      POSTGRES_DB: edusense
+    ports:
+      - "5432:5432"
+    volumes:
+      - edusense_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U edusense -d edusense"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  edusense_pgdata:

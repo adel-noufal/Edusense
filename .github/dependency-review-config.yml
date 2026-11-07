@@ -1,0 +1,16 @@
+# Dependency Review Configuration
+# Used by actions/dependency-review-action to fail PRs with vulnerable dependencies
+
+# Fail on these severity levels
+fail-on-severity: high
+
+# Allow specific vulnerabilities with justification
+# Format: [{"id": "CVE-XXXX-XXXX", "reason": "Justification", "expires": "YYYY-MM-DD"}]
+allow-ghsas: []
+
+# Custom vulnerability database (optional)
+# vulnerability-db: "https://example.com/advisories.json"
+
+# Ignore specific packages (use sparingly with justification)
+# ignore-packages:
+#   - "package-name"
