@@ -161,16 +161,32 @@ export function LessonGenerator() {
           {history.map((h) => (
             <div 
               key={h.id} 
-              onClick={() => {
-                setResult(h.data)
-                setForm({
-                  topic: h.topic,
-                  prompt: h.prompt,
-                  language: h.data.language || 'English',
-                  teaching_style: h.data.style || 'Interactive',
-                  duration: h.data.duration || 5,
-                  additional_notes: '',
-                })
+              onClick={async () => {
+                try {
+                  const latest = await api(`/ai/generations/${h.id}`)
+                  setResult(latest.data)
+                  setForm(prev => ({
+                    ...prev,
+                    topic: latest.topic || h.topic,
+                    prompt: latest.prompt || h.prompt,
+                    language: latest.data?.language || h.data?.language || 'English',
+                    teaching_style: latest.data?.style || h.data?.style || 'Interactive',
+                    duration: latest.data?.duration || h.data?.duration || 5,
+                    session_id: latest.session_id ? String(latest.session_id) : (prev.session_id || ''),
+                    additional_notes: '',
+                  }))
+                } catch {
+                  setResult(h.data)
+                  setForm(prev => ({
+                    ...prev,
+                    topic: h.topic,
+                    prompt: h.prompt,
+                    language: h.data?.language || 'English',
+                    teaching_style: h.data?.style || 'Interactive',
+                    duration: h.data?.duration || 5,
+                    additional_notes: '',
+                  }))
+                }
               }}
               className="group cursor-pointer rounded-2xl border border-slate-200 p-4 hover:bg-slate-50/50 transition dark:border-slate-700 dark:hover:bg-slate-800/50"
             >
@@ -1009,6 +1025,12 @@ export function ChatbotGenerator() {
     <div className="grid gap-6 xl:grid-cols-[1fr_320px] items-start">
       <div className="space-y-6">
         <ToolShell title={t('ai.chatbot') || 'AI Chatbot'} icon={<Bot />} onSubmit={sendMessage} loading={loading} error={error}>
+          <div className="rounded-xl border border-teal-200 bg-teal-50/60 p-3 text-xs text-teal-900 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-200">
+            <p className="font-semibold flex items-center gap-1.5"><Bot size={14} /> Multi-Source Teaching Assistant</p>
+            <p className="mt-0.5 text-slate-600 dark:text-slate-300">
+              Unlike the static Document Repository in Knowledge Base, this assistant dynamically queries your indexed materials, falls back to live web search, and uses Gemini to synthesize lesson ideas, answer student doubts, or explain complex concepts.
+            </p>
+          </div>
           <div className="space-y-4">
             {/* Chat Messages */}
             <div className="h-[500px] overflow-y-auto space-y-4 p-4 rounded-xl border border-slate-200 bg-white/50 dark:border-slate-700 dark:bg-slate-900/50">

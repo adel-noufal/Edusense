@@ -58,15 +58,21 @@ async def ingest_document(
         }
 
     # Synchronous processing for normal files
-    result = ingestion.process_and_ingest_document(
-        file_bytes=content,
-        filename=filename,
-        subject=subject,
-        grade_level=grade_level,
-        topic=topic,
-        source_id=filename
-    )
-    return result
+    try:
+        result = ingestion.process_and_ingest_document(
+            file_bytes=content,
+            filename=filename,
+            subject=subject,
+            grade_level=grade_level,
+            topic=topic,
+            source_id=filename
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process and ingest document '{filename}': {str(exc)}"
+        )
 
 
 @router.get("/sources", response_model=List[Dict[str, Any]])

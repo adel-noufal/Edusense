@@ -701,6 +701,27 @@ def list_generations(type: str | None = None, db: Session = Depends(get_db), use
     ]
 
 
+@router.get("/generations/{gen_id}")
+def get_generation(gen_id: int, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
+    """Get the latest data for a single AI generation."""
+    g = db.query(AIGeneration).filter_by(id=gen_id, instructor_id=user.id).first()
+    if not g:
+        raise HTTPException(404, "Generation not found")
+    try:
+        data = json.loads(g.data_json)
+    except Exception:
+        data = {}
+    return {
+        "id": g.id,
+        "type": g.type,
+        "topic": g.topic,
+        "prompt": g.prompt,
+        "session_id": g.session_id,
+        "created_at": g.created_at,
+        "data": data,
+    }
+
+
 @router.delete("/generations/{gen_id}")
 def delete_generation(gen_id: int, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
     deleted = db.query(AIGeneration).filter_by(id=gen_id, instructor_id=user.id).delete()

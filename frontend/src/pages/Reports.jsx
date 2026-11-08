@@ -73,10 +73,10 @@ export default function Reports() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const token = localStorage.getItem('token')
+      const authToken = token()
       const res = await fetch(`/api/sessions/${activeSessionId}/resources`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       })
       if (!res.ok) throw new Error(await res.text())

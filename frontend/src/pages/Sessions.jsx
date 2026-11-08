@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookOpen, CheckCircle2, FileDown, FolderOpen, Link2, PlayCircle, Plus, RefreshCw, Trash2, Upload, Users, X } from 'lucide-react'
-import { api } from '../services/api'
+import { api, token } from '../services/api'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
 
@@ -71,10 +71,10 @@ export default function Sessions() {
         try {
           const formData = new FormData()
           formData.append('file', pendingCreateFile)
-          const token = localStorage.getItem('token')
+          const authToken = token()
           const res = await fetch(`/api/sessions/${created.id}/resources`, {
             method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
+            headers: { Authorization: `Bearer ${authToken}` },
             body: formData,
           })
           if (!res.ok) throw new Error(await res.text())
@@ -183,10 +183,10 @@ export default function Sessions() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const token = localStorage.getItem('token')
+      const authToken = token()
       const res = await fetch(`/api/sessions/${resourcePanel.session.id}/resources`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       })
       if (!res.ok) throw new Error(await res.text())

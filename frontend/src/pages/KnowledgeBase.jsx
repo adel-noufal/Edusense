@@ -89,8 +89,14 @@ function UploadModal({ onClose, onSuccess }) {
         headers: { Authorization: `Bearer ${tok}` },
         body: form,
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.detail || 'Upload failed')
+      const text = await res.text()
+      let data = null
+      try {
+        data = text ? JSON.parse(text) : {}
+      } catch {
+        data = { detail: text || `Upload failed with HTTP ${res.status}` }
+      }
+      if (!res.ok) throw new Error(data?.detail || `Upload failed (status ${res.status})`)
       setProgress(data.status === 'queued'
         ? `Queued for background processing (${data.source_id})`
         : `Done — ${data.chunks_added ?? '?'} chunks indexed`)
@@ -570,7 +576,7 @@ export default function KnowledgeBaseDashboard() {
             <h1 className="text-2xl font-black">Knowledge Base</h1>
           </div>
           <p className="max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Manage your indexed course materials. Upload PDFs to power RAG-grounded lessons, quizzes, and student Q&A.
+            <span className="font-semibold text-slate-700 dark:text-slate-200">Document Repository & Vector Index:</span> Upload and manage PDFs and textbooks. Documents here are parsed into semantic chunks to ground AI lesson planning, exam questions, and curriculum alignment.
           </p>
         </div>
         <div className="flex items-center gap-2">

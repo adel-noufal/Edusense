@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FileDown, FolderOpen, RefreshCw, Trash2, Upload } from 'lucide-react'
-import { api, staticUrl } from '../services/api'
+import { api, staticUrl, token } from '../services/api'
 
 export default function InstructorSources() {
   const [sessions, setSessions] = useState([])
@@ -62,10 +62,10 @@ export default function InstructorSources() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const token = localStorage.getItem('token')
+      const authToken = token()
       const res = await fetch(`/api/sessions/${activeSessionId}/resources`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       })
       if (!res.ok) throw new Error(await res.text())
