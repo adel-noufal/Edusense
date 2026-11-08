@@ -25,7 +25,7 @@ EduSense runs **7 specialized AI agents**, coordinated sequentially by `EduSense
 2. 📊 **Student Engagement Agent** — Computes real-time engagement and attention metrics from emotion distributions.
 3. 💡 **Recommendation Agent** — Generates pedagogical interventions when engagement drops below threshold (< 62%).
 4. 📚 **Lesson Generation Agent** — Generates structured lessons, slides, outlines, and teaching scripts (RAG-grounded).
-5. 📝 **Quiz Generation Agent** — Generates adaptive MCQs, True/False, and short-answer questions (RAG-grounded).
+5. 📝 **Quiz Generation Agent** — Generates adaptive MCQs, True/False, and short-answer questions (RAG-grounded), with instructor-configurable timers and reusable `QuizAgentConfig` presets.
 6. 🎴 **Flashcard Generation Agent** — Produces study flashcard decks (RAG-grounded).
 7. 📄 **Report Generation Agent** — Generates executive PDF reports via `ReportLab`.
 8. 🧠 **RAG Knowledge Base & AI Chat Assistant** — Grounded PDF course material retrieval via ChromaDB vector embeddings, interactive AI Chat (`POST /api/rag/ask`), instructor suggestions (`GET /api/rag/suggest`), and Knowledge Base Admin Dashboard (`/instructor/knowledge-base`).
@@ -34,11 +34,13 @@ EduSense runs **7 specialized AI agents**, coordinated sequentially by `EduSense
 
 ## 🗺️ Roadmap
 
-- ✅ **RAG System**: DONE — vector store (ChromaDB), dual ingestion paths (general `/api/rag/ingest` + auto-ingest on session resource upload), `RAG_Search_Tool`, RAG grounding in Lesson/Quiz/Flashcard agents (with `sources`/`unverified` badges), `Web_Search_Tool`, agent orchestrator with 4 failover states, chatbot (`/api/ai/chat`, rate-limited, with persisted conversation history).
-- 🔒 **Security Hardening**: NOT STARTED — access control, hashing audit, encryption, rate limiting beyond the chat endpoint, audit logging, privacy/consent — coming next.
+- ✅ **RAG System**: DONE — vector store (ChromaDB), dual ingestion paths (general `/api/rag/ingest` + auto-ingest on session resource upload), `RAG_Search_Tool`, RAG grounding in Lesson/Quiz/Flashcard agents (with `sources`/`unverified` badges), `Web_Search_Tool`, agent orchestrator with 4 failover states, chatbot (`/api/ai/chat`, rate-limited, with persisted conversation history), shared scope guardrail + audit logging across all LLM-calling agents (including the offline template fallback tier).
+- ✅ **Security Hardening**: DONE — Argon2 password hashing (with backward-compatible fallback), role-based access control audited and enforced across every API endpoint, structured audit logging (database + file) for auth/sessions/reports/users/admin actions, rate limiting on auth and chat endpoints, `DISABLE_DEFAULT_ACCOUNTS` env flag for production, documented HTTPS/TLS deployment setup, CI security scanning (pip-audit, CodeQL, Trivy, TruffleHog).
+- ✅ **Quiz Timer & Anti-Cheat**: DONE — per-quiz/per-question timers with server-side time validation, Quiz AI Agent Generator (`QuizAgentConfig` — reusable instructor presets for difficulty, question types, topic weighting, timer, and anti-cheat settings), fullscreen lockdown with exit-attempt detection (tab switch, window blur, fullscreen exit), dynamic traceable watermark overlay, optional camera-based second-device detection, instructor violation review with explicit re-entry approval (no auto re-enable).
+- ✅ **Privacy & Consent**: DONE — granular webcam consent tracked separately per purpose (`emotion_detection` vs. `quiz_anti_cheat`), enforced server-side (not just hidden in the UI), declining consent never blocks non-camera platform access, draft Privacy Policy and Terms of Service (see `docs/PRIVACY_POLICY.md` and `docs/TERMS_OF_SERVICE.md` — **draft text, pending legal review before production use**, especially given minors are involved).
+- 🔄 **Engagement Model**: IN PROGRESS — replacing the current emotion-classifier-derived engagement score with a separately trained, calibrated model (training underway on a dedicated dataset).
 
 ---
-
 
 ## 👨‍🏫 Instructor System Workflow
 
@@ -95,32 +97,26 @@ sequenceDiagram
 ```
 
 ---
+                   ┌─────────────────────────────────────┐
+                   │          AI Agent Request           │
+                   └──────────────────┬──────────────────┘
+                                      │
+                    ┌─────────────────▼─────────────────┐
+                    │ 🌐 Gemini 2.0 Flash (Online API)  │
+                    └─────────────────┬─────────────────┘
+                                      │  (If Offline / Connection Fails)
+                    ┌─────────────────▼─────────────────┐
+                    │ 🦙 Specialized Local Ollama LLMs  │
+                    │ • Translation -> Qwen 2.5 (7B)    │
+                    │ • Lessons     -> Mistral (7B)     │
+                    │ • Quizzes     -> Llama 3.1 (8B)   │
+                    │ • Flashcards  -> Llama 3.2 (3B)   │
+                    └─────────────────┬─────────────────┘
+                                      │  (If Ollama Unreachable)
+                    ┌─────────────────▼─────────────────┐
+                    │ ⚙️ Built-in Local Templates        │
+                    └───────────────────────────────────┘
 
-## ⚡ Smart Multi-Tier AI System (Online + Multi-Model Offline)
-
-EduSense features an **Intelligent Automatic Failover & Task Routing System**:
-
-```
-                       ┌─────────────────────────────────────┐
-                       │          AI Agent Request           │
-                       └──────────────────┬──────────────────┘
-                                          │
-                        ┌─────────────────▼─────────────────┐
-                        │ 🌐 Gemini 2.0 Flash (Online API)  │
-                        └─────────────────┬─────────────────┘
-                                          │  (If Offline / Connection Fails)
-                        ┌─────────────────▼─────────────────┐
-                        │ 🦙 Specialized Local Ollama LLMs  │
-                        │ • Translation -> Qwen 2.5 (7B)    │
-                        │ • Lessons     -> Mistral (7B)     │
-                        │ • Quizzes     -> Llama 3.1 (8B)   │
-                        │ • Flashcards  -> Llama 3.2 (3B)   │
-                        └─────────────────┬─────────────────┘
-                                          │  (If Ollama Unreachable)
-                        ┌─────────────────▼─────────────────┐
-                        │ ⚙️ Built-in Local Templates        │
-                        └───────────────────────────────────┘
-```
 
 - **Online Mode (Default):** Uses **Google Gemini 2.0 Flash** for fast, high-quality generation.
 - **Automatic Offline Failover:** If the internet connection drops or Gemini times out (15s limit), the system **automatically failovers** to your local **Ollama** specialized models without throwing errors.
@@ -131,7 +127,7 @@ EduSense features an **Intelligent Automatic Failover & Task Routing System**:
   - 🎴 **Flashcards & General:** Uses `llama3.2` (Lightweight 3B model for fast card generation).
 
 
-- **Template Fallback:** If Ollama is also unreachable, built-in deterministic templates prevent application crashes.
+- **Template Fallback:** If Ollama is also unreachable, built-in deterministic templates prevent application crashes. The offline template path still applies the same scope guardrail as the online tiers.
 
 ---
 
@@ -149,6 +145,19 @@ Our custom trained **v7 PyTorch EfficientNet-B0** model achieves **90.9% overall
 | **Sad** | **94.3%** | n=297 | 🏆 **v7** |
 | **Surprise** | **96.4%** | n=193 | 🏆 **v7** |
 | **Overall Model** | **90.9%** | **Total Benchmark** | 🏆 **v7 EfficientNet-B0** |
+
+---
+
+## 🔒 Privacy & Consent
+
+Before any webcam capture starts, students must explicitly opt in — consent is tracked **separately per purpose**:
+
+- **`emotion_detection`** — real-time emotion analysis during live sessions.
+- **`quiz_anti_cheat`** — camera-based proctoring during timed quizzes.
+
+Consent is enforced **server-side** (not just hidden by the UI), declining never blocks access to the rest of the platform, and users can withdraw consent at any time. See [`docs/PRIVACY_POLICY.md`](docs/PRIVACY_POLICY.md) and [`docs/TERMS_OF_SERVICE.md`](docs/TERMS_OF_SERVICE.md).
+
+> ⚠️ These are **draft policies** and must be reviewed by a lawyer before production use, particularly given the involvement of minors.
 
 ---
 
@@ -178,6 +187,8 @@ Open `http://localhost:5173` in your browser.
 **Default Test Credentials:**
 - **Instructor:** `instructor@edusense.local` / `Password123`
 - **Student:** `student@edusense.local` / `Password123`
+
+> ⚠️ **Production note:** set `EDUSENSE_DISABLE_DEFAULT_ACCOUNTS=true` in `.env` to prevent these default accounts from being created in a production deployment.
 
 ---
 
@@ -244,11 +255,11 @@ EDUSENSE_SMTP_PASSWORD=your-16-character-app-password
 frontend/     React + Vite frontend, interactive dashboards, webcam capture
 backend/      FastAPI REST backend, PostgreSQL / SQLite ORM, JWT auth
   app/
-    agents/   7 Specialized AI agents + EduSenseAgentWorkflow orchestrator
-    api/      REST API route definitions (auth, sessions, AI tools, reports)
-    core/     Settings, scheduler, security
+    agents/   7 Specialized AI agents + EduSenseAgentWorkflow orchestrator + shared scope guardrail
+    api/      REST API route definitions (auth, sessions, AI tools, quizzes, reports, RAG, consent, admin)
+    core/     Settings, scheduler, security, audit logging
     services/ Gemini API client, Ollama runner, PDF/Word/PPTX export services
-docs/         Architecture blueprints and workflow flowcharts
+docs/         Architecture blueprints, workflow flowcharts, Privacy Policy, Terms of Service, HTTPS/TLS setup
 ```
 
 ---
@@ -257,4 +268,7 @@ docs/         Architecture blueprints and workflow flowcharts
 
 Developed by **[Adel Mohamed Noufal](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)**  
 🔗 **LinkedIn:** [https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)  
-🐙 **GitHub:** [https://github.com/adel-noufal](https://github.com/adel-noufal)  
+🐙 **GitHub:** [https://github.com/adel-noufal](https://github.com/adel-noufal)
+## ⚡ Smart Multi-Tier AI System (Online + Multi-Model Offline)
+
+EduSense features an **Intelligent Automatic Failover & Task Routing System**:
