@@ -1,10 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database } from 'lucide-react'
+import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X } from 'lucide-react'
 import { api, downloadAuthenticatedRequest, staticUrl } from '../services/api'
 import { downloadBlob, downloadText, flashcardsToHtml, lessonToMarkdown, downloadLessonAsDoc, downloadLessonAsHtml, downloadLessonAsPdf, downloadLessonAsPptxHtml, downloadQuizAsDoc, downloadQuizAsHtml, downloadQuizAsPdf, downloadFlashcardsAsDoc, downloadFlashcardsAsPdf } from '../utils/download'
 import { useLanguage } from '../context/LanguageContext'
 import { useGenerationJobs } from '../context/GenerationJobContext'
-import { SessionPickerFields } from '../components/SessionPickerFields'
+import { SessionPickerFields, useInstructorSessions } from '../components/SessionPickerFields'
+import { useToast } from '../context/ToastContext'
 
 const languages = ['English', 'Arabic', 'French', 'Spanish']
 const styles = ['Formal', 'Friendly', 'Interactive', 'Storytelling', 'Professional']
@@ -205,6 +206,19 @@ export function LessonGenerator() {
           {!history.length && <p className="text-sm text-slate-500">No lessons generated yet.</p>}
         </div>
       </div>
+
+      {publishModalQuiz && (
+        <PublishExamModal
+          quiz={publishModalQuiz}
+          onClose={() => setPublishModalQuiz(null)}
+          onPublished={(updated) => {
+            if (result && result.id === updated.id) {
+              setResult({ ...result, ...updated })
+            }
+            loadHistory()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -338,6 +352,7 @@ export function QuizGenerator() {
   const [answers, setAnswers] = useState({})
   const [revealed, setRevealed] = useState({})
   const [history, setHistory] = useState([])
+  const [publishModalQuiz, setPublishModalQuiz] = useState(null)
   const { loading, error, setError, queue, job, clearCompletedJob } = useBackgroundGeneration('quiz')
 
   async function loadHistory() {
@@ -397,7 +412,7 @@ export function QuizGenerator() {
           </div>
           <button className="btn-primary" disabled={loading}>{loading ? t('ai.generatingLesson') : t('ai.generateQuiz')}</button>
         </ToolShell>
-        {result && <QuizResult result={result} answers={answers} revealed={revealed} onAnswer={setAnswers} onReveal={setRevealed} />}
+        {result && <QuizResult result={result} answers={answers} revealed={revealed} onAnswer={setAnswers} onReveal={setRevealed} onPublishExam={setPublishModalQuiz} />}
       </div>
 
       <div className="panel space-y-4">
@@ -423,13 +438,30 @@ export function QuizGenerator() {
               className="group cursor-pointer rounded-2xl border border-slate-200 p-4 hover:bg-slate-50/50 transition dark:border-slate-700 dark:hover:bg-slate-800/50"
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="font-bold text-sm truncate block max-w-[180px]">{h.title}</span>
-                <button 
-                  onClick={(e) => deleteHistory(h.id, e)}
-                  className="text-slate-400 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
-                >
-                  <Trash2 size={16} />
-                </button>
+                <div className="min-w-0">
+                  <span className="font-bold text-sm truncate block max-w-[180px]">{h.title}</span>
+                  {h.is_exam && (
+                    <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                      <Shield size={9} /> Published Exam
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setPublishModalQuiz(h) }}
+                    className="rounded-lg p-1 text-slate-400 hover:bg-purple-50 hover:text-purple-600 transition"
+                    title="Publish as Exam"
+                  >
+                    <Shield size={14} />
+                  </button>
+                  <button 
+                    onClick={(e) => deleteHistory(h.id, e)}
+                    className="text-slate-400 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
               <p className="text-xs text-slate-500 mt-1">{new Date(h.created_at).toLocaleDateString()}</p>
             </div>
@@ -687,19 +719,161 @@ function LessonResult({ result, request }) {
   )
 }
 
-function QuizResult({ result, answers, revealed, onAnswer, onReveal }) {
+
+function PublishExamModal({ quiz, onClose, onPublished }) {
+  const { sessions, loading: loadingSessions } = useInstructorSessions()
+  const toast = useToast()
+  const [sessionId, setSessionId] = useState(quiz.session_id ? String(quiz.session_id) : '')
+  const [timeLimitMins, setTimeLimitMins] = useState(quiz.time_limit_seconds ? String(Math.floor(quiz.time_limit_seconds / 60)) : '30')
+  const [perQuestionSecs, setPerQuestionSecs] = useState(quiz.time_limit_per_question_seconds ? String(quiz.time_limit_per_question_seconds) : '')
+  const [lockBackNavigation, setLockBackNavigation] = useState(quiz.lock_back_navigation ?? true)
+  const [fullscreenLock, setFullscreenLock] = useState(quiz.fullscreen_lock ?? true)
+  const [cameraMonitoring, setCameraMonitoring] = useState(quiz.camera_monitoring ?? false)
+  const [dueDate, setDueDate] = useState(quiz.due_date ? quiz.due_date.substring(0, 16) : '')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  async function handlePublish(e) {
+    e.preventDefault()
+    if (!sessionId) {
+      setError('Please select a target session to publish this exam to.')
+      return
+    }
+    setSubmitting(true)
+    setError('')
+    try {
+      const payload = {
+        session_id: Number(sessionId),
+        time_limit_seconds: timeLimitMins ? Number(timeLimitMins) * 60 : null,
+        time_limit_per_question_seconds: perQuestionSecs ? Number(perQuestionSecs) : null,
+        lock_back_navigation: lockBackNavigation,
+        fullscreen_lock: fullscreenLock,
+        camera_monitoring: cameraMonitoring,
+        due_date: dueDate ? new Date(dueDate).toISOString() : null,
+      }
+      const updated = await api(`/quizzes/${quiz.id}/publish-as-exam`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      toast.success('Exam published successfully! Enrolled students can now take it from their Exams tab.')
+      onPublished(updated)
+      onClose()
+    } catch (err) {
+      setError(err.message || 'Failed to publish exam')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900" style={{ animation: 'modalRise .25s ease-out' }}>
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+              <Shield size={18} />
+            </div>
+            <h2 className="text-lg font-bold">Publish as Exam</h2>
+          </div>
+          <button type="button" className="btn-soft p-1.5" onClick={onClose}><X size={18} /></button>
+        </div>
+
+        <form onSubmit={handlePublish} className="mt-4 space-y-4 text-sm">
+          {error && <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Target Session *</label>
+            <select className="input mt-1 w-full" value={sessionId} onChange={(e) => setSessionId(e.target.value)}>
+              <option value="">Select a session...</option>
+              {sessions.map((s) => (
+                <option key={s.id} value={s.id}>{s.title} ({s.date})</option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-slate-500">Only students enrolled in this session can take the exam.</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Overall Time Limit (mins)</label>
+              <input type="number" min="1" max="300" className="input mt-1 w-full" value={timeLimitMins} onChange={(e) => setTimeLimitMins(e.target.value)} placeholder="e.g. 30" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Per-Question Time (sec)</label>
+              <input type="number" min="5" max="600" className="input mt-1 w-full" value={perQuestionSecs} onChange={(e) => setPerQuestionSecs(e.target.value)} placeholder="Optional (e.g. 60)" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Exam Due Date & Time</label>
+            <input type="datetime-local" className="input mt-1 w-full" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          </div>
+
+          <div className="space-y-2 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3.5 dark:border-slate-800 dark:bg-slate-800/40">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Security & Navigation Lockdown</p>
+
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input type="checkbox" className="mt-0.5 rounded border-slate-300 text-ocean focus:ring-ocean" checked={lockBackNavigation} onChange={(e) => setLockBackNavigation(e.target.checked)} />
+              <div>
+                <span className="font-semibold text-xs flex items-center gap-1"><Lock size={12} /> Lock Back Navigation</span>
+                <p className="text-[11px] text-slate-500">Answers are permanently locked once moved past. Student cannot go back to previous questions.</p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input type="checkbox" className="mt-0.5 rounded border-slate-300 text-ocean focus:ring-ocean" checked={fullscreenLock} onChange={(e) => setFullscreenLock(e.target.checked)} />
+              <div>
+                <span className="font-semibold text-xs flex items-center gap-1"><Shield size={12} /> Fullscreen Lockdown</span>
+                <p className="text-[11px] text-slate-500">Enforces fullscreen mode. Tab switches or exits trigger anti-cheat violations and lock attempts.</p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input type="checkbox" className="mt-0.5 rounded border-slate-300 text-ocean focus:ring-ocean" checked={cameraMonitoring} onChange={(e) => setCameraMonitoring(e.target.checked)} />
+              <div>
+                <span className="font-semibold text-xs flex items-center gap-1"><Camera size={12} /> Camera Monitoring</span>
+                <p className="text-[11px] text-slate-500">Prompts for anti-cheat webcam consent to detect presence and second screen activity.</p>
+              </div>
+            </label>
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button type="submit" disabled={submitting} className="btn-primary flex-1 justify-center gap-2">
+              {submitting ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
+              {submitting ? 'Publishing Exam...' : 'Confirm & Publish Exam'}
+            </button>
+            <button type="button" className="btn-soft" onClick={onClose} disabled={submitting}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function QuizResult({ result, answers, revealed, onAnswer, onReveal, onPublishExam }) {
   const { t } = useLanguage()
   const slug = (result.title || 'quiz').replace(/\s+/g, '-').toLowerCase()
   return (
     <div className="space-y-4 rounded-md border border-slate-200 p-4 dark:border-slate-700">
       <ResultHeader title={result.title} subtitle={result.difficulty} sources={result.sources} unverified={result.unverified} />
-      <DownloadBar
-        items={[
-          { label: 'Word (.doc)', onClick: () => downloadQuizAsDoc(result, `${slug}.doc`) },
-          { label: 'PDF Document (.pdf)', onClick: () => downloadQuizAsPdf(result, slug) },
-          { label: 'HTML (.html)', onClick: () => downloadQuizAsHtml(result, `${slug}.html`) },
-        ]}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
+        <DownloadBar
+          items={[
+            { label: 'Word (.doc)', onClick: () => downloadQuizAsDoc(result, `${slug}.doc`) },
+            { label: 'PDF Document (.pdf)', onClick: () => downloadQuizAsPdf(result, slug) },
+            { label: 'HTML (.html)', onClick: () => downloadQuizAsHtml(result, `${slug}.html`) },
+          ]}
+        />
+        {result.id && (
+          <button
+            type="button"
+            onClick={() => onPublishExam?.(result)}
+            className="btn-primary gap-1.5 text-xs py-1.5 px-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white"
+          >
+            <Shield size={14} />
+            {result.is_exam ? 'Update Exam Settings' : 'Publish as Exam'}
+          </button>
+        )}
+      </div>
       <div className="space-y-4">
         {result.questions?.map((question, index) => {
           const selected = answers[index]

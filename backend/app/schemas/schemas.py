@@ -140,6 +140,16 @@ class FlashcardRequest(BaseModel):
 
 
 # Task 10 & 11 & Quiz Anti-Cheat: Quiz schemas
+class PublishExamRequest(BaseModel):
+    session_id: int
+    time_limit_seconds: int | None = None
+    time_limit_per_question_seconds: int | None = None
+    lock_back_navigation: bool = False
+    fullscreen_lock: bool = True
+    camera_monitoring: bool = False
+    due_date: datetime | None = None
+
+
 class QuizOut(BaseModel):
     id: int
     session_id: int | None = None

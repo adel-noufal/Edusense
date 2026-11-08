@@ -25,6 +25,7 @@ export default function Quiz() {
   const [timeRemaining, setTimeRemaining] = useState(null)
   const [timeLimit, setTimeLimit] = useState(null)
   const [perQuestionLimit, setPerQuestionLimit] = useState(null)
+  const [expiredQuestions, setExpiredQuestions] = useState({})
   const [questionStartTime, setQuestionStartTime] = useState(Date.now())
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -164,24 +165,34 @@ export default function Quiz() {
     }
   }, [quiz, attempt, showResults, timeLimit])
 
-  // Per-question timer
+  // Per-question timer (locks question permanently once expired)
   useEffect(() => {
-    if (!perQuestionLimit || showResults) return
+    if (!perQuestionLimit || showResults || !quiz) return
 
     setQuestionStartTime(Date.now())
 
     questionTimerRef.current = setInterval(() => {
       const elapsed = Math.floor((Date.now() - questionStartTime) / 1000)
       if (elapsed >= perQuestionLimit) {
-        // Auto-advance or flag - for now just flag as violation
+        if (questionTimerRef.current) clearInterval(questionTimerRef.current)
+        toast.warning(`Question ${currentQuestion + 1} time limit reached!`)
         logViolation('per_question_time_exceeded', { questionIndex: currentQuestion, elapsed })
+        setExpiredQuestions(prev => ({ ...prev, [currentQuestion]: true }))
+
+        // Auto-advance or submit if on last question
+        if (currentQuestion < quiz.questions.length - 1) {
+          setCurrentQuestion(prev => prev + 1)
+          setQuestionStartTime(Date.now())
+        } else {
+          handleSubmit()
+        }
       }
     }, 1000)
 
     return () => {
       if (questionTimerRef.current) clearInterval(questionTimerRef.current)
     }
-  }, [currentQuestion, perQuestionLimit, showResults])
+  }, [currentQuestion, perQuestionLimit, showResults, quiz])
 
   // Fullscreen handling
   async function enterFullscreen() {
@@ -744,7 +755,7 @@ export default function Quiz() {
           {/* Navigation */}
           <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-700">
             <div className="flex gap-2">
-              {currentQuestion > 0 && (
+              {currentQuestion > 0 && !quiz?.lock_back_navigation && (
                 <button
                   onClick={prevQuestion}
                   className="btn-soft flex items-center gap-2"
@@ -759,22 +770,30 @@ export default function Quiz() {
             <div className="flex items-center gap-3">
               {/* Question indicators */}
               <div className="hidden md:flex gap-1">
-                {quiz.questions.map((_, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => { setCurrentQuestion(idx); setQuestionStartTime(Date.now()) }}
-                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-all ${
-                      idx === currentQuestion
-                        ? 'bg-ocean text-white'
-                        : answers[idx] !== undefined
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
-                    }`}
-                    disabled={submitting}
-                  >
-                    {idx + 1}
-                  </button>
-                ))}
+                {quiz.questions.map((_, idx) => {
+                  const isBlockedBack = quiz?.lock_back_navigation && idx < currentQuestion
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        if (isBlockedBack) return
+                        setCurrentQuestion(idx)
+                        setQuestionStartTime(Date.now())
+                      }}
+                      className={`w-8 h-8 rounded-lg text-xs font-medium transition-all ${
+                        idx === currentQuestion
+                          ? 'bg-ocean text-white'
+                          : answers[idx] !== undefined
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
+                      } ${isBlockedBack ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      disabled={submitting || isBlockedBack}
+                      title={isBlockedBack ? 'Back navigation is locked for this exam' : `Question ${idx + 1}`}
+                    >
+                      {idx + 1}
+                    </button>
+                  )
+                })}
               </div>
 
               {currentQuestion < quiz.questions.length - 1 ? (

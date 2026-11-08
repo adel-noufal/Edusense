@@ -15,7 +15,7 @@ from app.core.audit import log_audit_event, log_student_data_access
 from app.db.session import get_db
 from app.models.models import Quiz, QuizAttempt, QuizViolation, User, Session as ClassSession
 from app.schemas.schemas import (
-    QuizOut, QuizAttemptOut, QuizSubmitRequest, QuizSubmitResponse,
+    QuizOut, PublishExamRequest, QuizAttemptOut, QuizSubmitRequest, QuizSubmitResponse,
     QuizViolationOut, QuizAgentConfigCreate, QuizAgentConfigOut, QuizAgentConfigUpdate
 )
 from app.models.models import SessionRegistration
@@ -185,6 +185,73 @@ def list_student_exams(
             due_date=quiz.due_date,
         ))
     return result
+
+
+@router.post("/{quiz_id}/publish-as-exam", response_model=QuizOut)
+def publish_quiz_as_exam(
+    quiz_id: int,
+    payload: PublishExamRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """
+    Publish a quiz as an Exam for a specific session.
+    Sets is_exam=True, is_published=True, and configures anti-cheat + navigation locks.
+    """
+    quiz = db.query(Quiz).filter_by(id=quiz_id).first()
+    if not quiz:
+        raise HTTPException(404, "Quiz not found")
+
+    session = db.query(ClassSession).filter_by(id=payload.session_id).first()
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if session.instructor_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Not your session")
+
+    quiz.is_exam = True
+    quiz.is_published = True
+    quiz.session_id = payload.session_id
+    quiz.time_limit_seconds = payload.time_limit_seconds
+    quiz.time_limit_per_question_seconds = payload.time_limit_per_question_seconds
+    quiz.lock_back_navigation = payload.lock_back_navigation
+    quiz.fullscreen_lock = payload.fullscreen_lock
+    quiz.camera_monitoring = payload.camera_monitoring
+    quiz.due_date = payload.due_date
+
+    db.commit()
+    db.refresh(quiz)
+
+    log_audit_event(
+        db, action="publish_quiz_as_exam", user=user,
+        resource_type="quiz", resource_id=str(quiz.id), request=request,
+        details={
+            "session_id": payload.session_id,
+            "time_limit_seconds": payload.time_limit_seconds,
+            "time_limit_per_question_seconds": payload.time_limit_per_question_seconds,
+            "lock_back_navigation": payload.lock_back_navigation,
+            "fullscreen_lock": payload.fullscreen_lock,
+            "camera_monitoring": payload.camera_monitoring,
+        }
+    )
+
+    questions = json.loads(quiz.questions_json)
+    return QuizOut(
+        id=quiz.id,
+        session_id=quiz.session_id,
+        title=quiz.title,
+        difficulty=quiz.difficulty,
+        questions=questions,
+        created_at=quiz.created_at,
+        time_limit_seconds=quiz.time_limit_seconds,
+        time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
+        fullscreen_lock=quiz.fullscreen_lock,
+        camera_monitoring=quiz.camera_monitoring,
+        is_published=quiz.is_published,
+        is_exam=quiz.is_exam,
+        lock_back_navigation=quiz.lock_back_navigation,
+        due_date=quiz.due_date,
+    )
 
 
 @router.post("/{quiz_id}/start", response_model=QuizAttemptOut)

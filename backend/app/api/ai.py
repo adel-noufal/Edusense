@@ -551,7 +551,15 @@ def list_quizzes(db: Session = Depends(get_db), _: User = Depends(require_role("
             "title": q.title,
             "difficulty": q.difficulty,
             "created_at": q.created_at,
-            "questions": json.loads(q.questions_json)
+            "questions": json.loads(q.questions_json),
+            "is_published": getattr(q, "is_published", True),
+            "is_exam": getattr(q, "is_exam", False),
+            "lock_back_navigation": getattr(q, "lock_back_navigation", False),
+            "fullscreen_lock": getattr(q, "fullscreen_lock", False),
+            "camera_monitoring": getattr(q, "camera_monitoring", False),
+            "time_limit_seconds": q.time_limit_seconds,
+            "time_limit_per_question_seconds": q.time_limit_per_question_seconds,
+            "due_date": q.due_date,
         }
         for q in quizzes_list
     ]
