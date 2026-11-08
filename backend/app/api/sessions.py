@@ -8,7 +8,7 @@ import base64
 from pathlib import Path
 from collections import Counter
 from app.api.deps import get_current_user, require_role
-from app.core.audit import log_session_access, log_student_data_access, log_admin_action
+from app.core.audit import log_audit_event, log_session_access, log_student_data_access, log_admin_action
 from app.db.session import get_db
 from app.models.models import (
     AIGeneration,
@@ -23,7 +23,8 @@ from app.models.models import (
 )
 from app.schemas.schemas import SessionIn, SessionOut, NoteCreate
 from app.services.status import session_status
-from app.services.email import _send_email_sync
+from app.services.email import _send_email_sync, send_session_live_email
+from app.core.config import get_settings
 from app.services.ingestion import ingest_file
 from app.services.vector_store import delete_by_source, init_collection
 import json
@@ -55,11 +56,8 @@ def refresh_status(item: Session, db: DbSession):
             item.status = "ongoing"
             db.add(item)
             return
-    # Only auto-move from pending → ongoing when it's time, never auto-end
-    computed = session_status(item.date, item.start_time, item.duration)
-    if computed == "ongoing" and item.status == "pending":
-        item.status = "ongoing"
-        db.add(item)
+    # Sessions only move to ongoing when explicitly started by instructor via POST /{id}/start
+    pass
 
 
 def serialize_browse_session(item: Session, user: User, registrations: list[SessionRegistration], db: DbSession = None) -> dict:
@@ -288,7 +286,9 @@ def mark_attendance(session_id: int, request: Request, db: DbSession = Depends(g
         raise HTTPException(404, "Session not found")
     reg = db.query(SessionRegistration).filter_by(session_id=session_id, student_id=user.id).first()
     if not reg:
-        raise HTTPException(400, "You are not registered for this session")
+        raise HTTPException(403, "You are not enrolled in this session")
+    if session.status != "ongoing":
+        raise HTTPException(400, "This session hasn't started yet. You can only join once the instructor starts it.")
     reg.attended = True
     db.commit()
 
@@ -312,6 +312,16 @@ def start_session(session_id: int, request: Request, background_tasks: Backgroun
     if force_go_live or item.status == "preparing":
         item.status = "ongoing"
         db.commit()
+
+        # Section 1.6: Send direct join link email to all enrolled students
+        regs = db.query(SessionRegistration).filter_by(session_id=session_id).all()
+        student_ids = [r.student_id for r in regs]
+        students = db.query(User).filter(User.id.in_(student_ids)).all() if student_ids else []
+        settings = get_settings()
+        join_link = f"{settings.frontend_url}/student/sessions/{item.id}/live"
+        for st in students:
+            if st.email:
+                background_tasks.add_task(send_session_live_email, st.email, st.name, item.title, user.name, join_link)
     else:
         # Start 15-minute prep mode automatically if started before time
         item.status = "preparing"
@@ -359,6 +369,10 @@ def get_live_session(session_id: int, db: DbSession = Depends(get_db), user: Use
         raise HTTPException(404, "Session not found")
     if user.role == "instructor" and item.instructor_id != user.id:
         raise HTTPException(403, "Not your session")
+    if user.role == "student":
+        reg = db.query(SessionRegistration).filter_by(session_id=session_id, student_id=user.id).first()
+        if not reg:
+            raise HTTPException(403, "You are not enrolled in this session. Please enroll first from Browse.")
     refresh_status(item, db)
     db.commit()
     res = SessionOut.model_validate(item)

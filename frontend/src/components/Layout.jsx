@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { BarChart3, BookOpen, Brain, Bot, Clapperboard, Compass, Database, FileText, FolderOpen, GraduationCap, Globe, Home, Layers, LogOut, Menu, MessageCircle, Moon, Sun, UserRound, Video, X } from 'lucide-react'
+import { BarChart3, BookOpen, Brain, Bot, Clapperboard, ClipboardList, Compass, Database, FileText, FolderOpen, GraduationCap, Globe, Home, Layers, LogOut, Menu, MessageCircle, Moon, Sun, UserRound, Video, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import AnimatedBackground from './AnimatedBackground'
 import PageTransition from './PageTransition'
@@ -46,6 +46,8 @@ export default function Layout() {
     { label: t('nav.browse'), path: '/student/browse', Icon: Compass },
     { label: t('nav.history'), path: '/student/history', Icon: BarChart3 },
     { label: 'My Resources', path: '/student/resources', Icon: FolderOpen },
+    { label: 'Exams', path: '/student/exams', Icon: FileText },
+    { label: 'Assignments', path: '/student/assignments', Icon: ClipboardList },
     { label: t('nav.profile'), path: '/student/profile', Icon: UserRound },
   ]
   const instructorNav = [

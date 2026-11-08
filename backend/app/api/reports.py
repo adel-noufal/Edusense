@@ -8,7 +8,7 @@ from app.agents.emotion_agent import EmotionAnalysisAgent
 from app.agents.engagement_agent import StudentEngagementAgent
 from app.agents.workflow import EduSenseAgentWorkflow
 from app.api.deps import get_current_user, require_role
-from app.core.audit import log_report_access, log_student_data_access, log_session_access
+from app.core.audit import log_audit_event, log_report_access, log_student_data_access, log_session_access
 from app.db.session import get_db
 from app.models.models import EmotionLog, Feedback, Profile, Quiz, Report, Session as ClassSession, SessionRegistration, User
 from app.schemas.schemas import FeedbackIn

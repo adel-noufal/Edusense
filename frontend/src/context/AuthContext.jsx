@@ -15,6 +15,29 @@ export function AuthProvider({ children }) {
     localStorage.setItem('edusense_consents', JSON.stringify(consents))
   }, [consents])
 
+  // Sync fresh user information on load
+  useEffect(() => {
+    const token = localStorage.getItem('edusense_token')
+    if (token) {
+      api('/users/me')
+        .then((freshUser) => {
+          if (freshUser && freshUser.id) {
+            setUser(freshUser)
+            localStorage.setItem('edusense_user', JSON.stringify(freshUser))
+          }
+        })
+        .catch(() => {})
+    }
+  }, [])
+
+  function updateUser(partial) {
+    setUser((prev) => {
+      const next = { ...prev, ...partial }
+      localStorage.setItem('edusense_user', JSON.stringify(next))
+      return next
+    })
+  }
+
   async function login(email, password) {
     const result = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
     localStorage.setItem('edusense_token', result.access_token)
@@ -79,6 +102,7 @@ export function AuthProvider({ children }) {
     login,
     register,
     logout,
+    updateUser,
     fetchConsents,
     giveConsent,
     withdrawConsent,

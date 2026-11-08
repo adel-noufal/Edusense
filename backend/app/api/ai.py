@@ -23,6 +23,7 @@ from app.services.export import build_json_bytes, build_video_zip, build_word_do
 from app.services.generation_jobs import create_job, get_job_payload, list_pending_jobs, set_job_status
 from app.services.source_extractor import build_session_source_context
 from app.services.video import generate_educational_video
+from app.core.audit import log_audit_event
 
 VIDEO_STATIC_DIR = Path(__file__).resolve().parents[1] / "static" / "videos"
 
@@ -597,7 +598,6 @@ def create_quiz_config(
     db.refresh(config)
 
     # Audit
-    from app.core.audit import log_audit_event
     log_audit_event(db, action="create_quiz_config", user=user, resource_type="quiz_config", resource_id=str(config.id), request=request, details={"name": config.name})
 
     return QuizAgentConfigOut.model_validate(config)
@@ -655,7 +655,6 @@ def update_quiz_config(
     db.refresh(config)
 
     # Audit
-    from app.core.audit import log_audit_event
     log_audit_event(db, action="update_quiz_config", user=user, resource_type="quiz_config", resource_id=str(config.id), request=request, details={"name": config.name})
 
     return QuizAgentConfigOut.model_validate(config)
@@ -678,7 +677,6 @@ def delete_quiz_config(
     db.commit()
 
     # Audit
-    from app.core.audit import log_audit_event
     log_audit_event(db, action="delete_quiz_config", user=user, resource_type="quiz_config", resource_id=str(config_id), request=request, details={"name": config_name})
 
     return {"message": "Quiz config deleted"}

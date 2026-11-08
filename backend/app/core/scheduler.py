@@ -90,10 +90,17 @@ async def check_upcoming_sessions():
         db.close()
 
 def start_scheduler():
-    scheduler.add_job(check_upcoming_sessions, 'interval', minutes=1)
-    scheduler.start()
-    print("APScheduler background task started.")
+    try:
+        scheduler.add_job(check_upcoming_sessions, 'interval', minutes=1)
+        scheduler.start()
+        print("APScheduler background task started.")
+    except Exception as e:
+        print(f"APScheduler note: {e}")
 
 def shutdown_scheduler():
-    scheduler.shutdown()
-    print("APScheduler shutdown.")
+    try:
+        if scheduler.running:
+            scheduler.shutdown()
+            print("APScheduler shutdown.")
+    except Exception:
+        pass

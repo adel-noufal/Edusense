@@ -13,7 +13,14 @@ class StudentEngagementAgent:
     def calculate(self, db: Session, session_id: int) -> AgentResult:
         logs = db.query(EmotionLog).filter(EmotionLog.session_id == session_id).order_by(EmotionLog.timestamp).all()
         if not logs:
-            return AgentResult(self.name, {"engagement_percentage": 0, "attention_timeline": [], "participation": {}, "disengaged": True})
+            return AgentResult(self.name, {
+                "engagement_percentage": None,
+                "attention_timeline": [],
+                "participation": {},
+                "disengaged": False,
+                "has_data": False,
+                "message": "No camera frames captured for this session."
+            })
         scores = [POSITIVE.get(log.emotion, 0.55) * max(log.confidence, 0.2) for log in logs]
         engagement = round(sum(scores) / len(scores) * 100, 2)
         by_student = defaultdict(list)

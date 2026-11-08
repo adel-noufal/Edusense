@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Calendar, Clock, Info, Mic, MicOff, MonitorUp, PhoneOff, Play, Users, Video, VideoOff, XCircle } from 'lucide-react'
+import { Calendar, Camera, Clock, Info, Mic, MicOff, MonitorUp, PhoneOff, Play, Users, Video, VideoOff, XCircle } from 'lucide-react'
 import { api, staticUrl } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
@@ -24,6 +24,9 @@ export default function LiveSessionRoom() {
   const [attendees, setAttendees] = useState([])
   const [cancelling, setCancelling] = useState(false)
   const [prepSeconds, setPrepSeconds] = useState(null)
+  const [captureMode, setCaptureMode] = useState('continuous') // 'continuous' | 'single'
+  const [isCapturing, setIsCapturing] = useState(false)
+  const lastUiUpdateRef = useRef(0)
 
   const localVideo = useRef(null)
   const shareVideo = useRef(null)
@@ -58,19 +61,22 @@ export default function LiveSessionRoom() {
         clearInterval(poll)
         clearInterval(sessionPoll)
       }
-    } else {
+    } else if (session?.status === 'ongoing') {
       api(`/sessions/${sessionId}/join-live`).catch(() => {})
     }
 
-    const pollShare = setInterval(() => {
-      setSharePreview(`${staticUrl(`/static/live/session-${sessionId}.jpg`)}?t=${Date.now()}`)
-    }, 2000)
+    let pollShare = null
+    if (session?.status === 'ongoing') {
+      pollShare = setInterval(() => {
+        setSharePreview(`${staticUrl(`/static/live/session-${sessionId}.jpg`)}?t=${Date.now()}`)
+      }, 2000)
+    }
 
     return () => {
-      clearInterval(pollShare)
+      if (pollShare) clearInterval(pollShare)
       clearInterval(sessionPoll)
     }
-  }, [sessionId, isInstructor])
+  }, [sessionId, isInstructor, session?.status])
 
   // Countdown timer for 15-minute preparation window
   useEffect(() => {
@@ -135,34 +141,90 @@ export default function LiveSessionRoom() {
     setSharing(false)
   }
 
+  function startEmotionMonitoring(mode = captureMode) {
+    if (emotionInterval.current) {
+      clearInterval(emotionInterval.current)
+      emotionInterval.current = null
+    }
+    if (isInstructor || mode !== 'continuous') return
+
+    lastUiUpdateRef.current = 0
+    emotionInterval.current = setInterval(async () => {
+      if (!localVideo.current || !camStream.current) return
+      try {
+        const now = Date.now()
+        const shouldUpdateUi = (now - lastUiUpdateRef.current >= 4900)
+        const res = await performFrameAnalysis()
+        if (shouldUpdateUi && res) {
+          lastUiUpdateRef.current = now
+          setLastEmotion(res)
+        }
+      } catch (err) {
+        // silent continuous capture error
+      }
+    }, 1000)
+
+    // Initial frame
+    performFrameAnalysis().then((res) => {
+      if (res) {
+        lastUiUpdateRef.current = Date.now()
+        setLastEmotion(res)
+      }
+    }).catch(() => {})
+  }
+
+  async function performFrameAnalysis() {
+    if (!localVideo.current || !camStream.current) return null
+    const canvas = document.createElement('canvas')
+    canvas.width = 480
+    canvas.height = 360
+    canvas.getContext('2d').drawImage(localVideo.current, 0, 0, 480, 360)
+    return await api('/emotions/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ session_id: Number(sessionId), image: canvas.toDataURL('image/jpeg') }),
+    })
+  }
+
+  async function captureSinglePhoto() {
+    if (!localVideo.current || !camStream.current || isCapturing) return
+    setIsCapturing(true)
+    try {
+      const res = await performFrameAnalysis()
+      if (res) {
+        setLastEmotion(res)
+      }
+    } catch (err) {
+      console.warn('Single capture failed:', err)
+    } finally {
+      setIsCapturing(false)
+    }
+  }
+
+  function handleModeChange(newMode) {
+    setCaptureMode(newMode)
+    if (camOn && !isInstructor) {
+      startEmotionMonitoring(newMode)
+    }
+  }
+
   async function toggleCam() {
     if (camOn) {
       camStream.current?.getTracks().forEach((track) => track.stop())
+      camStream.current = null
       setCamOn(false)
-      clearInterval(emotionInterval.current)
+      if (emotionInterval.current) {
+        clearInterval(emotionInterval.current)
+        emotionInterval.current = null
+      }
       return
     }
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
     camStream.current = stream
     if (localVideo.current) localVideo.current.srcObject = stream
     setCamOn(true)
-    if (!isInstructor) {
-      emotionInterval.current = setInterval(analyzeEmotion, 5000)
-      analyzeEmotion()
+    if (!isInstructor && captureMode === 'continuous') {
+      startEmotionMonitoring('continuous')
     }
-  }
-
-  async function analyzeEmotion() {
-    if (!localVideo.current || !camOn) return
-    const canvas = document.createElement('canvas')
-    canvas.width = 480
-    canvas.height = 360
-    canvas.getContext('2d').drawImage(localVideo.current, 0, 0, 480, 360)
-    const result = await api('/emotions/analyze', {
-      method: 'POST',
-      body: JSON.stringify({ session_id: Number(sessionId), image: canvas.toDataURL('image/jpeg') }),
-    })
-    setLastEmotion(result)
   }
 
   async function handleInstructorStartPrep() {
@@ -213,10 +275,18 @@ export default function LiveSessionRoom() {
   }
 
   if (error && !session) {
+    const notEnrolled = error.toLowerCase().includes('not enrolled')
     return (
-      <div className="panel page-shell max-w-lg space-y-4">
-        <p className="text-red-600">{error}</p>
-        <Link className="btn-soft" to={isInstructor ? '/instructor/sessions' : '/student'}>{t('live.back')}</Link>
+      <div className="panel page-shell max-w-lg space-y-4 mx-auto mt-12 text-center">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-6 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
+          <h2 className="text-xl font-bold mb-2">{notEnrolled ? 'Enrollment Required' : 'Session Access Error'}</h2>
+          <p className="text-sm">{error}</p>
+        </div>
+        <div className="flex justify-center gap-3">
+          <Link className="btn-primary" to={notEnrolled ? '/student/browse' : (isInstructor ? '/instructor/sessions' : '/student/upcoming')}>
+            {notEnrolled ? 'Browse Sessions to Enroll' : t('live.back')}
+          </Link>
+        </div>
       </div>
     )
   }
@@ -254,8 +324,8 @@ export default function LiveSessionRoom() {
             <div className="flex items-start gap-3">
               <Info className="shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" size={20} />
               <div>
-                <h3 className="font-bold text-base">The session still didn't start</h3>
-                <p className="mt-1 text-xs leading-5">The instructor has not started the session yet. You can review the details below while you wait, or cancel your enrollment if you cannot make it.</p>
+                <h3 className="font-bold text-base">This session hasn't started yet</h3>
+                <p className="mt-1 text-xs leading-5">The instructor has not started the session yet. When the instructor starts the session, you will be notified and can enter the live room.</p>
               </div>
             </div>
           </div>
@@ -381,10 +451,57 @@ export default function LiveSessionRoom() {
           <div className="panel space-y-3">
             <div className="flex items-center gap-2 font-bold"><Users size={18} />{t('live.participants')}</div>
             <video ref={localVideo} autoPlay muted playsInline className="aspect-video w-full rounded-lg bg-slate-900 object-cover" />
+
+            {!isInstructor && camOn && (
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+                  <span>Capture Mode:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    {captureMode === 'continuous' ? 'Continuous (1s log / 5s UI)' : 'Single Photo'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => handleModeChange('continuous')}
+                    className={`py-1.5 px-2 rounded-lg text-center transition ${captureMode === 'continuous' ? 'bg-white shadow text-ocean dark:bg-slate-700 dark:text-mint' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    Continuous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleModeChange('single')}
+                    className={`py-1.5 px-2 rounded-lg text-center transition ${captureMode === 'single' ? 'bg-white shadow text-ocean dark:bg-slate-700 dark:text-mint' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    Single Photo
+                  </button>
+                </div>
+
+                {captureMode === 'single' && (
+                  <button
+                    type="button"
+                    className="btn-primary w-full py-2 text-xs font-bold flex items-center justify-center gap-1.5"
+                    onClick={captureSinglePhoto}
+                    disabled={isCapturing}
+                  >
+                    <Camera size={14} /> {isCapturing ? 'Analyzing...' : 'Take Photo & Analyze Frame'}
+                  </button>
+                )}
+
+                {captureMode === 'continuous' && (
+                  <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-slate-50 dark:bg-slate-800/60 p-2 rounded-lg">
+                    <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                    <span>1s log for instructor report &bull; Live score updates every 5s</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {!isInstructor && lastEmotion && (
-              <p className="rounded-md bg-teal-50 p-2 text-sm text-ocean dark:bg-slate-800 dark:text-mint">
-                {lastEmotion.emotion} · {(lastEmotion.confidence * 100).toFixed(0)}%
-              </p>
+              <div className="rounded-md bg-teal-50 p-2 text-sm text-ocean dark:bg-slate-800 dark:text-mint flex items-center justify-between">
+                <span className="capitalize font-semibold">{lastEmotion.emotion}</span>
+                <span className="text-xs">Confidence {(lastEmotion.confidence * 100).toFixed(0)}%</span>
+              </div>
             )}
             {!isInstructor && <p className="text-xs text-slate-500">{t('live.studentHint')}</p>}
           </div>

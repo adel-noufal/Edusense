@@ -66,33 +66,39 @@ class ReportGenerationAgent:
                 },
             )
 
-        engagement_pct = engagement.get("engagement_percentage", 0)
+        engagement_pct = engagement.get("engagement_percentage")
         dominant_emotions = recommendations.get("dominant_emotions", [])
         recs = recommendations.get("recommendations", ["Review pacing"])
 
-        # Personalised engagement verdict
-        if engagement_pct >= 80:
-            verdict = f"Excellent engagement in '{session_title}', {instructor_name}!"
-        elif engagement_pct >= 60:
-            verdict = (
-                f"Moderate engagement in '{session_title}', {instructor_name}. "
-                "A few improvements are recommended below."
+        if engagement_pct is None:
+            verdict = f"No emotion or engagement data was recorded for '{session_title}', {instructor_name}."
+            summary = (
+                f"{verdict} Students did not activate their webcams or no frames were captured during the session."
             )
         else:
-            verdict = (
-                f"Low engagement detected in '{session_title}', {instructor_name}. "
-                "Immediate instructional adjustments are advised."
+            # Personalised engagement verdict
+            if engagement_pct >= 80:
+                verdict = f"Excellent engagement in '{session_title}', {instructor_name}!"
+            elif engagement_pct >= 60:
+                verdict = (
+                    f"Moderate engagement in '{session_title}', {instructor_name}. "
+                    "A few improvements are recommended below."
+                )
+            else:
+                verdict = (
+                    f"Low engagement detected in '{session_title}', {instructor_name}. "
+                    "Immediate instructional adjustments are advised."
+                )
+
+            # Human-readable dominant emotions
+            emotion_labels = [EMOTION_LABELS.get(e, e.capitalize()) for e in dominant_emotions]
+
+            summary = (
+                f"{verdict} "
+                f"Overall engagement: {engagement_pct}%. "
+                f"Dominant emotions observed: {', '.join(emotion_labels) if emotion_labels else 'None recorded'}. "
+                f"Top recommendation: {recs[0]}."
             )
-
-        # Human-readable dominant emotions
-        emotion_labels = [EMOTION_LABELS.get(e, e.capitalize()) for e in dominant_emotions]
-
-        summary = (
-            f"{verdict} "
-            f"Overall engagement: {engagement_pct}%. "
-            f"Dominant emotions observed: {', '.join(emotion_labels) if emotion_labels else 'None recorded'}. "
-            f"Top recommendation: {recs[0]}."
-        )
 
         pdf_path = self._pdf(
             session_id,

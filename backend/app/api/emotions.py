@@ -14,7 +14,7 @@ agent = EmotionAnalysisAgent()
 
 # --- Simple in-memory rate limiter (per user, max 1 frame per 1.5 seconds) ---
 _last_call: dict[int, float] = defaultdict(float)
-_RATE_LIMIT_SECONDS = 1.5
+_RATE_LIMIT_SECONDS = 0.9
 
 
 def _check_rate_limit(user_id: int):

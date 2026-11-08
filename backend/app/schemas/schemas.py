@@ -153,6 +153,11 @@ class QuizOut(BaseModel):
     # Anti-cheat settings
     fullscreen_lock: bool = False
     camera_monitoring: bool = False
+    # Section 3 / Section 5: Exam publishing fields
+    is_published: bool = True
+    is_exam: bool = False
+    lock_back_navigation: bool = False
+    due_date: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -299,3 +304,39 @@ class ConsentCheckResponse(BaseModel):
     consent_type: str
     version: str | None = None
     timestamp: datetime | None = None
+
+
+# ─── Section 3: Assignment schemas ───────────────────────────────────────────
+
+class AssignmentIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    due_date: datetime | None = None
+    max_points: float = Field(default=100.0, ge=0)
+    session_id: int
+
+
+class AssignmentOut(BaseModel):
+    id: int
+    session_id: int
+    instructor_id: int
+    title: str
+    description: str | None = None
+    due_date: datetime | None = None
+    max_points: float
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AssignmentSubmissionOut(BaseModel):
+    id: int
+    assignment_id: int
+    student_id: int
+    file_name: str
+    file_size: int
+    submitted_at: datetime
+    score: float | None = None
+    feedback: str | None = None
+
+    model_config = {"from_attributes": True}

@@ -113,6 +113,11 @@ class Quiz(Base):
     # Quiz Anti-Cheat / Fullscreen Lockdown settings
     fullscreen_lock: Mapped[bool] = mapped_column(Boolean, default=False)
     camera_monitoring: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Section 3 & 5: Exam publishing and question navigation lock
+    is_published: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_exam: Mapped[bool] = mapped_column(Boolean, default=False)
+    lock_back_navigation: Mapped[bool] = mapped_column(Boolean, default=False)
+    due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class QuizAttempt(Base):
@@ -265,3 +270,28 @@ class ConsentRecord(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+
+
+class Assignment(Base):
+    __tablename__ = "assignments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
+    instructor_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    max_points: Mapped[float] = mapped_column(Float, default=100.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AssignmentSubmission(Base):
+    __tablename__ = "assignment_submissions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    assignment_id: Mapped[int] = mapped_column(ForeignKey("assignments.id", ondelete="CASCADE"), index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    file_name: Mapped[str] = mapped_column(String(255))
+    file_path: Mapped[str] = mapped_column(String(500))
+    file_size: Mapped[int] = mapped_column(Integer, default=0)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Activity, BellRing, BookMarked, BookOpen, Clock3, Eye, Palette, Search, Sparkles, Users, Video } from 'lucide-react'
+import { Activity, BellRing, BookMarked, BookOpen, CheckCircle2, Clock3, Download, Eye, FileText, FolderOpen, Palette, Search, Sparkles, Users, Video, XCircle } from 'lucide-react'
 import { EmotionDistribution, EngagementLine } from '../components/Charts'
-import WebcamEmotion from '../components/WebcamEmotion'
-import { api } from '../services/api'
+import { api, staticUrl } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 
@@ -13,7 +12,6 @@ export function StudentDashboard() {
   const mode = location.pathname.includes('/history') ? 'history' : location.pathname.includes('/upcoming') ? 'upcoming' : location.pathname.includes('/browse') ? 'browse' : 'all'
   const [enrolledSessions, setEnrolledSessions] = useState([])
   const [browseData, setBrowseData] = useState({ sessions: [], summary: null })
-  const [analytics, setAnalytics] = useState(null)
   const [error, setError] = useState('')
 
   async function loadSessions() {
@@ -36,7 +34,7 @@ export function StudentDashboard() {
 
   const filtered = enrolledSessions.filter((session) => {
     if (mode === 'upcoming') return ['pending', 'ongoing', 'preparing', 'scheduled', 'upcoming'].includes(session.status)
-    if (mode === 'history') return ['ended', 'cancelled'].includes(session.status)
+    if (mode === 'history') return true
     return true
   })
 
@@ -48,16 +46,10 @@ export function StudentDashboard() {
     () => browseData.sessions.filter((session) => !session.is_registered),
     [browseData.sessions],
   )
-  const firstLive = enrolledSessions.find((session) => session.status === 'ongoing') || filtered[0]
-  const trialSessionId = upcomingSessions[0]?.id || openCatalog[0]?.id || filtered[0]?.id || null
-
-  useEffect(() => {
-    if (firstLive) api(`/ai/engagement/${firstLive.id}`).then(setAnalytics).catch(() => setAnalytics(null))
-  }, [firstLive])
 
   const titles = { all: t('dashboard.student'), upcoming: t('dashboard.upcoming'), history: t('dashboard.historyTitle'), browse: t('nav.browse') }
   const upcomingCount = upcomingSessions.length
-  const completedCount = enrolledSessions.filter((session) => ['ended', 'cancelled'].includes(session.status)).length
+  const completedCount = enrolledSessions.filter((session) => session.attended || ['ended', 'cancelled'].includes(session.status)).length
   const liveCount = enrolledSessions.filter((session) => session.status === 'ongoing').length
 
   return (
@@ -72,73 +64,224 @@ export function StudentDashboard() {
         </div>
       )}
       {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">{error}</p>}
-      <div className="grid gap-6 xl:grid-cols-2">
-        <div className="panel">
-          <h2 className="mb-4 text-lg font-bold">{mode === 'upcoming' ? 'Your Registered Sessions' : titles[mode]}</h2>
-          {mode !== 'browse' && (
-            <SessionList sessions={mode === 'upcoming' ? upcomingSessions : filtered} join={mode !== 'history'} showUnregister={mode === 'upcoming'} emptyLabel={mode === 'history' ? t('dashboard.noHistory') : 'You have not registered for any sessions yet.'} onReload={loadSessions} />
-          )}
-          {mode === 'browse' && (
-            <SessionCatalog sessions={openCatalog} onReload={loadSessions} />
-          )}
-        </div>
-        {mode === 'upcoming' ? (
+
+      {mode === 'history' ? (
+        <StudentHistoryView sessions={enrolledSessions} />
+      ) : (
+        <div className="grid gap-6 xl:grid-cols-2">
           <div className="panel">
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <h2 className="text-lg font-bold">Recommended for you</h2>
-              <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-ocean dark:bg-slate-800 dark:text-mint">Course-style registration</span>
-            </div>
-            <SessionCatalog sessions={openCatalog.slice(0, 3)} onReload={loadSessions} />
+            <h2 className="mb-4 text-lg font-bold">{mode === 'upcoming' ? 'Your Registered Sessions' : titles[mode]}</h2>
+            {mode !== 'browse' && (
+              <SessionList sessions={mode === 'upcoming' ? upcomingSessions : filtered} join={mode !== 'history'} showUnregister={mode === 'upcoming'} emptyLabel="You have not registered for any sessions yet." onReload={loadSessions} />
+            )}
+            {mode === 'browse' && (
+              <SessionCatalog sessions={openCatalog} onReload={loadSessions} />
+            )}
           </div>
-        ) : mode === 'browse' ? (
-          <div className="panel space-y-4">
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <h2 className="text-lg font-bold">Browse sessions</h2>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">Open opportunities</span>
+          {mode === 'upcoming' ? (
+            <div className="panel">
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <h2 className="text-lg font-bold">Recommended for you</h2>
+                <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-ocean dark:bg-slate-800 dark:text-mint">Course-style registration</span>
+              </div>
+              <SessionCatalog sessions={openCatalog.slice(0, 3)} onReload={loadSessions} />
             </div>
-            <p className="text-sm text-slate-500">Explore available sessions and join the ones that fit your schedule. Enrolled sessions appear in Upcoming.</p>
-            <div className="grid gap-3">
-              {openCatalog.length === 0 ? (
-                <p className="text-sm text-slate-500">No open sessions are available for registration right now.</p>
-              ) : (
-                openCatalog.map((session) => (
-                  <article key={session.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900/60">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">{session.title}</h3>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{session.description || 'No description available.'}</p>
-                      </div>
-                      <div className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                        {session.status}
-                      </div>
-                    </div>
-                    <div className="mt-4 grid gap-2 sm:grid-cols-3 text-sm text-slate-500 dark:text-slate-400">
-                      <span>{session.date}</span>
-                      <span>{session.start_time}</span>
-                      <span>{session.available_seats != null ? `${session.available_seats} seats left` : 'Open seating'}</span>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      <button className="btn-primary text-sm py-2 px-3" type="button" onClick={async () => { await api(`/sessions/${session.id}/join`, { method: 'POST' }); loadSessions() }}>
-                        Join Session
-                      </button>
-                      <button className="btn-soft text-sm py-2 px-3" type="button" onClick={() => navigate(`/student/sessions/${session.id}/live`)}>
-                        Preview Room
-                      </button>
-                    </div>
-                  </article>
-                ))
-              )}
+          ) : mode === 'browse' ? (
+            <div className="panel space-y-4">
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <h2 className="text-lg font-bold">Enrollment Guidelines</h2>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">How It Works</span>
+              </div>
+              <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                <div className="rounded-xl bg-slate-50 p-3.5 dark:bg-slate-800/60">
+                  <p className="font-bold text-slate-800 dark:text-slate-200">1. Browse &amp; Select</p>
+                  <p className="text-xs text-slate-500 mt-1">Review upcoming scheduled sessions by instructors. Check topics, date, and seat availability.</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3.5 dark:bg-slate-800/60">
+                  <p className="font-bold text-slate-800 dark:text-slate-200">2. Explicit Enrollment</p>
+                  <p className="text-xs text-slate-500 mt-1">Click &quot;Enroll in Session&quot; to register. Sessions will only appear in your Upcoming schedule after you enroll.</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3.5 dark:bg-slate-800/60">
+                  <p className="font-bold text-slate-800 dark:text-slate-200">3. Live Join Notification</p>
+                  <p className="text-xs text-slate-500 mt-1">When the instructor starts the session, you will receive an email with a direct join link, and a &quot;Join Live Now&quot; button will activate in Upcoming.</p>
+                </div>
+              </div>
             </div>
-          </div>
-        ) : null}
-      </div>
-      {mode !== 'history' && <WebcamEmotion sessionId={trialSessionId} title="Session Camera Trial" />}
-      {analytics && (
-        <div className="panel">
-          <h2 className="mb-4 text-lg font-bold">{t('dashboard.attention')}</h2>
-          <EngagementLine data={analytics.attention_timeline} />
+          ) : null}
         </div>
       )}
+    </div>
+  )
+}
+
+function StudentHistoryView({ sessions }) {
+  const [selectedSession, setSelectedSession] = useState(null)
+  const [resources, setResources] = useState([])
+  const [loadingResources, setLoadingResources] = useState(false)
+  const [filterAttended, setFilterAttended] = useState('all')
+
+  const filtered = useMemo(() => {
+    if (filterAttended === 'attended') return sessions.filter((s) => s.attended)
+    if (filterAttended === 'absent') return sessions.filter((s) => !s.attended)
+    return sessions
+  }, [sessions, filterAttended])
+
+  async function openSessionResources(session) {
+    if (selectedSession?.id === session.id) {
+      setSelectedSession(null)
+      return
+    }
+    setSelectedSession(session)
+    setLoadingResources(true)
+    try {
+      const data = await api(`/sessions/${session.id}/resources`)
+      setResources(Array.isArray(data) ? data : [])
+    } catch (err) {
+      setResources([])
+    } finally {
+      setLoadingResources(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="panel space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold">Enrolled Session History</h2>
+            <p className="text-sm text-slate-500">Track your attendance and access class materials &amp; resources.</p>
+          </div>
+          <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setFilterAttended('all')}
+              className={`py-1.5 px-3 rounded-lg transition ${filterAttended === 'all' ? 'bg-white shadow text-ocean dark:bg-slate-700 dark:text-mint' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              All ({sessions.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterAttended('attended')}
+              className={`py-1.5 px-3 rounded-lg transition ${filterAttended === 'attended' ? 'bg-white shadow text-emerald-700 dark:bg-slate-700 dark:text-emerald-400' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Attended ({sessions.filter(s => s.attended).length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterAttended('absent')}
+              className={`py-1.5 px-3 rounded-lg transition ${filterAttended === 'absent' ? 'bg-white shadow text-slate-700 dark:bg-slate-700 dark:text-slate-300' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Absent ({sessions.filter(s => !s.attended).length})
+            </button>
+          </div>
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-8 text-center text-slate-400">
+            No enrolled sessions found matching this filter.
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {filtered.map((s) => {
+              const isSelected = selectedSession?.id === s.id
+              return (
+                <div
+                  key={s.id}
+                  className={`rounded-2xl border p-4 transition ${isSelected ? 'border-ocean/40 bg-teal-50/20 shadow dark:border-mint/30 dark:bg-slate-800/40' : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900/60'}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">{s.title}</h3>
+                        {s.attended ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                            <CheckCircle2 size={13} /> Attended
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                            <XCircle size={13} /> Absent
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Instructor: <span className="font-medium text-slate-700 dark:text-slate-300">{s.instructor_name || 'Assigned Instructor'}</span> &bull; Status: <span className="capitalize">{s.status}</span>
+                      </p>
+                      {s.description && (
+                        <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">{s.description}</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openSessionResources(s)}
+                      className={`btn-soft text-xs py-2 px-3 flex items-center gap-1.5 font-semibold ${isSelected ? 'bg-ocean text-white hover:bg-ocean/90 dark:bg-mint dark:text-slate-950' : ''}`}
+                    >
+                      <FolderOpen size={15} />
+                      {isSelected ? 'Hide Resources' : 'Session Resources'}
+                    </button>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800/80 pt-2.5">
+                    <span>Date: <strong className="text-slate-700 dark:text-slate-200">{s.date}</strong></span>
+                    <span>Time: <strong className="text-slate-700 dark:text-slate-200">{s.start_time}</strong></span>
+                    <span>Duration: <strong className="text-slate-700 dark:text-slate-200">{s.duration} min</strong></span>
+                  </div>
+
+                  {/* Expanded Resources Drawer */}
+                  {isSelected && (
+                    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700/60 dark:bg-slate-950/60 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-bold flex items-center gap-2 text-slate-800 dark:text-slate-200">
+                          <FolderOpen size={16} className="text-ocean dark:text-mint" />
+                          Session Attached Resources &amp; Downloads
+                        </h4>
+                        <span className="text-xs text-slate-400">
+                          {loadingResources ? 'Loading...' : `${resources.length} file${resources.length === 1 ? '' : 's'}`}
+                        </span>
+                      </div>
+
+                      {loadingResources ? (
+                        <p className="text-xs text-slate-500 py-3 text-center">Loading resources for this session...</p>
+                      ) : resources.length === 0 ? (
+                        <p className="text-xs text-slate-500 py-2">
+                          No downloadable materials or presentations were attached to this session by the instructor.
+                        </p>
+                      ) : (
+                        <div className="grid gap-2">
+                          {resources.map((res) => (
+                            <div
+                              key={res.id}
+                              className="flex items-center justify-between rounded-lg bg-white p-3 border border-slate-200/80 dark:bg-slate-900 dark:border-slate-800 text-xs"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <FileText size={16} className="text-ocean dark:text-mint shrink-0" />
+                                <div className="truncate">
+                                  <p className="font-semibold text-slate-800 dark:text-slate-100 truncate">{res.name}</p>
+                                  <p className="text-[11px] text-slate-400">
+                                    {res.file_size ? `${(res.file_size / 1024).toFixed(1)} KB` : 'Resource File'} &bull; Uploaded {res.uploaded_at?.slice(0, 10)}
+                                  </p>
+                                </div>
+                              </div>
+                              <a
+                                href={staticUrl(res.url)}
+                                target="_blank"
+                                rel="noreferrer"
+                                download
+                                className="btn-soft text-xs py-1.5 px-3 flex items-center gap-1 shrink-0 font-medium"
+                              >
+                                <Download size={13} /> Download
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -363,10 +506,17 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
               <button className="btn-soft" type="button" onClick={(e) => handleEdit(e, session)}>Edit</button>
             )}
             {showUnregister && session.status !== 'ongoing' && (
-              <button className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={() => unregister(session.id)}>Unregister</button>
+              <button className="btn-soft text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={() => unregister(session.id)}>Unenroll</button>
             )}
-            {join && ['ongoing', 'pending', 'preparing'].includes(session.status) && (
-              <button className="btn-soft" type="button" onClick={() => joinSession(session.id)}>{t('dashboard.join')}</button>
+            {join && session.status === 'ongoing' && (
+              <button className="btn-primary text-xs flex items-center gap-1.5 py-1.5 px-3 font-bold" type="button" onClick={() => joinSession(session.id)}>
+                <Video size={14} /> Join Live Now
+              </button>
+            )}
+            {join && session.status !== 'ongoing' && (
+              <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-500">
+                Not Started Yet
+              </span>
             )}
           </div>
         </div>
@@ -396,10 +546,9 @@ function SessionCatalog({ sessions, onReload }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
 
-  async function register(sessionId, isLive) {
+  async function enroll(sessionId) {
     await api(`/sessions/${sessionId}/join`, { method: 'POST' })
     await onReload?.()
-    if (isLive) navigate(`/student/sessions/${sessionId}/live`)
   }
 
   const filtered = sessions.filter(s => 
@@ -445,13 +594,11 @@ function SessionCatalog({ sessions, onReload }) {
             <span>{session.duration} min</span>
             <span>{session.registration_count} registered</span>
           </div>
-          <div className="mt-5 flex flex-wrap gap-3">
-            <button className="btn-primary" type="button" onClick={() => register(session.id, session.status === 'ongoing')}>
-              {session.status === 'ongoing' ? 'Join Live Now' : 'Register Session'}
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <button className="btn-primary flex items-center gap-2 py-2 px-4 text-sm font-bold" type="button" onClick={() => enroll(session.id)}>
+              <BookOpen size={16} /> Enroll in Session
             </button>
-            <button className="btn-soft" type="button" onClick={() => navigate(`/student/sessions/${session.id}/live`)}>
-              <Eye size={16} />Preview Room
-            </button>
+            <span className="text-xs text-slate-500">Clicking enroll adds this session to your Upcoming list</span>
           </div>
         </article>
       )))}

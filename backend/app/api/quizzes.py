@@ -18,6 +18,7 @@ from app.schemas.schemas import (
     QuizOut, QuizAttemptOut, QuizSubmitRequest, QuizSubmitResponse,
     QuizViolationOut, QuizAgentConfigCreate, QuizAgentConfigOut, QuizAgentConfigUpdate
 )
+from app.models.models import SessionRegistration
 
 router = APIRouter(prefix="/quizzes", tags=["Quiz Attempts"])
 
@@ -69,6 +70,10 @@ def get_quiz_for_student(
         time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
         fullscreen_lock=quiz.fullscreen_lock,
         camera_monitoring=quiz.camera_monitoring,
+        is_published=quiz.is_published,
+        is_exam=quiz.is_exam,
+        lock_back_navigation=quiz.lock_back_navigation,
+        due_date=quiz.due_date,
     )
 
 
@@ -115,8 +120,70 @@ def list_quizzes_for_session(
             time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
             fullscreen_lock=quiz.fullscreen_lock,
             camera_monitoring=quiz.camera_monitoring,
+            is_published=quiz.is_published,
+            is_exam=quiz.is_exam,
+            lock_back_navigation=quiz.lock_back_navigation,
+            due_date=quiz.due_date,
         ))
 
+    return result
+
+
+@router.get("/student/exams", response_model=list[QuizOut])
+def list_student_exams(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("student"))
+):
+    """
+    List all published exams (is_exam=True, is_published=True) for sessions
+    the student is enrolled in.  Returns questions WITHOUT correct answers.
+    """
+    # Get all session IDs the student is enrolled in
+    enrolled_session_ids = [
+        r.session_id for r in
+        db.query(SessionRegistration).filter_by(student_id=user.id).all()
+    ]
+
+    if not enrolled_session_ids:
+        return []
+
+    quizzes = (
+        db.query(Quiz)
+        .filter(
+            Quiz.session_id.in_(enrolled_session_ids),
+            Quiz.is_exam == True,
+            Quiz.is_published == True,
+        )
+        .order_by(Quiz.created_at.desc())
+        .all()
+    )
+
+    # Audit
+    log_audit_event(db, action="list_student_exams", user=user,
+                    resource_type="quiz", resource_id="all", request=request)
+
+    result = []
+    for quiz in quizzes:
+        import json as _json
+        questions = _json.loads(quiz.questions_json)
+        safe_questions = [{k: v for k, v in q.items() if k != "answer"} for q in questions]
+        result.append(QuizOut(
+            id=quiz.id,
+            session_id=quiz.session_id,
+            title=quiz.title,
+            difficulty=quiz.difficulty,
+            questions=safe_questions,
+            created_at=quiz.created_at,
+            time_limit_seconds=quiz.time_limit_seconds,
+            time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
+            fullscreen_lock=quiz.fullscreen_lock,
+            camera_monitoring=quiz.camera_monitoring,
+            is_published=quiz.is_published,
+            is_exam=quiz.is_exam,
+            lock_back_navigation=quiz.lock_back_navigation,
+            due_date=quiz.due_date,
+        ))
     return result
 
 

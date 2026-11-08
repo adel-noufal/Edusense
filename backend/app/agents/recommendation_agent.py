@@ -8,7 +8,9 @@ class RecommendationAgent:
     name = "Recommendation Agent"
 
     def recommend(self, engagement: dict, emotions: dict) -> AgentResult:
-        score = engagement.get("engagement_percentage", 0)
+        score = engagement.get("engagement_percentage")
+        if score is None:
+            score = 0
         dominant_low = sorted(emotions.get("distribution", {}).items(), key=lambda item: item[1], reverse=True)[:2]
         recommendations = []
         if score < get_settings().engagement_threshold:

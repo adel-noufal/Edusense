@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext'
 
 export default function Profile() {
   const { t, lang, setLang } = useLanguage()
-  const { user } = useAuth()
+  const { user, updateUser } = useAuth()
   const [accountForm, setAccountForm] = useState({ name: '', email: '', current_password: '', new_password: '' })
   const [profileForm, setProfileForm] = useState({ phone: '', university: '', department: '', avatar: '' })
   const [saving, setSaving] = useState(false)
@@ -54,7 +54,8 @@ export default function Profile() {
       }
 
       if (Object.keys(accountPayload).length > 0) {
-        await api('/users/me', { method: 'PUT', body: JSON.stringify(accountPayload) })
+        const updated = await api('/users/me', { method: 'PUT', body: JSON.stringify(accountPayload) })
+        if (updated && updateUser) updateUser(updated)
       }
 
       // 2. Update profile details
