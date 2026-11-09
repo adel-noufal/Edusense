@@ -151,3 +151,11 @@ backend/data/chroma/
 *.db
 backend/*.db
 
+# Uploaded resources, submissions, and generated static files
+backend/app/static/resources/*
+!backend/app/static/resources/.gitkeep
+backend/app/static/submissions/*
+!backend/app/static/submissions/.gitkeep
+backend/static/
+
+
