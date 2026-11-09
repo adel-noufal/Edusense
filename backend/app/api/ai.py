@@ -17,7 +17,7 @@ from app.agents.workflow import EduSenseAgentWorkflow
 from app.agents.orchestrator import AgentOrchestrator
 from app.api.deps import get_current_user, require_role
 from app.db.session import get_db, SessionLocal
-from app.models.models import AIGeneration, ChatMessage as ChatMessageModel, Quiz, QuizAgentConfig, Report, SessionResource, User, VideoProject
+from app.models.models import AIGeneration, ChatMessage as ChatMessageModel, Quiz, QuizAgentConfig, Report, Session as ClassSession, SessionResource, User, VideoProject
 from app.schemas.schemas import FlashcardRequest, LessonRequest, QuizRequest, QuizAgentConfigCreate, QuizAgentConfigUpdate, QuizAgentConfigOut, RecommendationDecision, VideoRequest
 from app.services.export import build_json_bytes, build_video_zip, build_word_document_bytes, lesson_to_markdown, build_true_docx_bytes, build_pptx_bytes
 from app.services.generation_jobs import create_job, get_job_payload, list_pending_jobs, set_job_status
@@ -87,9 +87,25 @@ class ChatRequest(BaseModel):
     stream: bool = False
 
 
-def _cache_job(job_id: str, status: str, result=None, error: str | None = None):
+_analytics_cache: dict[str, dict] = {}
+
+
+def _cache_job(job_id: str, status: str, result=None, error: str | None = None, progress: int = 0, message: str = ""):
     with _jobs_lock:
-        _jobs[job_id] = {"status": status, "result": result, "error": error}
+        _jobs[job_id] = {
+            "status": status,
+            "result": result,
+            "error": error,
+            "progress": progress,
+            "message": message,
+        }
+
+
+def _update_job_progress(job_id: str, progress: int, message: str):
+    with _jobs_lock:
+        if job_id in _jobs:
+            _jobs[job_id]["progress"] = progress
+            _jobs[job_id]["message"] = message
 
 
 def _persist_job(job_id: str, instructor_id: int, job_type: str, label: str):
@@ -693,20 +709,34 @@ def delete_quiz_config(
 @router.get("/generations")
 def list_generations(type: str | None = None, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
     query = db.query(AIGeneration).filter_by(instructor_id=user.id)
-    if type:
+    if type and type != "quiz":
         query = query.filter_by(type=type)
     generations = query.order_by(AIGeneration.created_at.desc()).all()
-    return [
+    out = [
         {
             "id": g.id,
             "type": g.type,
             "topic": g.topic,
             "prompt": g.prompt,
+            "session_id": g.session_id,
             "created_at": g.created_at,
-            "data": json.loads(g.data_json)
+            "data": json.loads(g.data_json) if g.data_json else {}
         }
         for g in generations
     ]
+    if type is None or type == "quiz":
+        quizzes = db.query(Quiz).order_by(Quiz.created_at.desc()).all()
+        for q in quizzes:
+            out.append({
+                "id": q.id,
+                "type": "quiz",
+                "topic": q.title,
+                "prompt": f"Quiz · {q.difficulty}",
+                "session_id": q.session_id,
+                "created_at": q.created_at,
+                "data": {"title": q.title, "difficulty": q.difficulty}
+            })
+    return out
 
 
 @router.get("/generations/{gen_id}")
@@ -796,13 +826,13 @@ def pending_jobs(db: Session = Depends(get_db), user: User = Depends(require_rol
 @router.get("/job/{job_id}")
 def poll_job(job_id: str, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
     """Poll the status of a background generation job."""
-    payload = get_job_payload(db, job_id, user.id)
-    if payload:
-        return payload
     with _jobs_lock:
         cached = _jobs.get(job_id)
     if cached:
         return cached
+    payload = get_job_payload(db, job_id, user.id)
+    if payload:
+        return payload
     raise HTTPException(404, "Job not found")
 
 
@@ -811,12 +841,117 @@ def get_engagement(session_id: int, db: Session = Depends(get_db), _: User = Dep
     return engagement.calculate(db, session_id).data
 
 
+class RecommendationsQueueRequest(BaseModel):
+    session_id: str | int = "all"
+
+
+def _run_recommendations_bg(job_id: str, session_id_arg: str | int, instructor_id: int):
+    """Runs feedback loop analysis in background thread so it survives tab closes."""
+    db = SessionLocal()
+    try:
+        cache_key = f"{instructor_id}:{session_id_arg}"
+        _update_job_progress(job_id, progress=15, message="Finding ended sessions...")
+
+        query = db.query(ClassSession).filter(ClassSession.status == "ended")
+        if str(session_id_arg) != "all":
+            query = query.filter(ClassSession.id == int(session_id_arg))
+        else:
+            query = query.filter(ClassSession.instructor_id == instructor_id)
+
+        ended = query.all()
+        if not ended:
+            _finish_job(job_id, "error", error="No ended sessions found to analyze.")
+            return
+
+        _update_job_progress(job_id, progress=35, message="Computing student emotion telemetry...")
+
+        results = []
+        for i, s in enumerate(ended):
+            single_cache_key = f"{instructor_id}:{s.id}"
+            if single_cache_key in _analytics_cache:
+                results.append(_analytics_cache[single_cache_key])
+                continue
+
+            pct = 35 + int(((i + 1) / max(len(ended), 1)) * 40)
+            _update_job_progress(job_id, progress=pct, message=f"Analyzing session: {s.title}...")
+
+            emotion_report = workflow.emotions.distributions(db, s.id).data
+            engagement_report = workflow.engagement.calculate(db, s.id).data
+            rec_report = workflow.recommendations.recommend(engagement_report, emotion_report).data
+
+            res_item = {
+                "session_id": s.id,
+                "session_title": s.title,
+                "emotion_report": emotion_report,
+                "engagement_report": engagement_report,
+                "recommendations": rec_report,
+            }
+            _analytics_cache[single_cache_key] = res_item
+            results.append(res_item)
+
+        _update_job_progress(job_id, progress=85, message="Synthesizing pedagogical recommendations...")
+
+        rec_list = list(dict.fromkeys(r for res in results for r in res.get("recommendations", {}).get("recommendations", [])))
+        aggregate_dist = {}
+        for res in results:
+            dist = res.get("emotion_report", {}).get("distribution", {})
+            for emo, val in dist.items():
+                aggregate_dist[emo] = aggregate_dist.get(emo, 0) + val
+
+        final_result = {
+            "session_id": session_id_arg,
+            "recommendations": {
+                "recommendations": rec_list if rec_list else [
+                    "Maintain active student engagement with periodic concept checks.",
+                    "Incorporate interactive discussions and problem-solving exercises."
+                ]
+            },
+            "emotion_report": {"distribution": aggregate_dist},
+            "engagement_report": results[0].get("engagement_report", {"attention_timeline": []}) if results else {"attention_timeline": []},
+        }
+
+        _analytics_cache[cache_key] = final_result
+        _update_job_progress(job_id, progress=100, message="Analysis complete!")
+        _finish_job(job_id, "done", final_result)
+    except Exception as exc:
+        _finish_job(job_id, "error", error=str(exc))
+    finally:
+        db.close()
+
+
+@router.post("/recommendations/queue")
+def queue_recommendations(
+    payload: RecommendationsQueueRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """Starts dashboard feedback loop analysis in background. Returns job_id immediately."""
+    # Quick check if cached
+    cache_key = f"{user.id}:{payload.session_id}"
+    if cache_key in _analytics_cache:
+        job_id = str(uuid.uuid4())
+        _persist_job(job_id, user.id, "analytics", "Dashboard Analysis")
+        _finish_job(job_id, "done", _analytics_cache[cache_key])
+        return {"job_id": job_id, "status": "done", "result": _analytics_cache[cache_key]}
+
+    job_id = str(uuid.uuid4())
+    _persist_job(job_id, user.id, "analytics", "Dashboard Analysis")
+    t = threading.Thread(target=_run_recommendations_bg, args=(job_id, payload.session_id, user.id), daemon=True)
+    t.start()
+    return {"job_id": job_id, "status": "pending"}
+
+
 @router.get("/recommendations/{session_id}")
-def get_recommendations(session_id: int, db: Session = Depends(get_db), _: User = Depends(require_role("instructor"))):
+def get_recommendations(session_id: int, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
+    cache_key = f"{user.id}:{session_id}"
+    if cache_key in _analytics_cache:
+        return _analytics_cache[cache_key]
+
     loop = workflow.improvement_loop(db, session_id)
     report = Report(session_id=session_id, summary=loop["report"]["summary"], pdf_path=loop["report"]["pdf_path"])
     db.add(report)
     db.commit()
+    _analytics_cache[cache_key] = loop
     return loop
 
 

@@ -112,6 +112,8 @@ export default function Sessions() {
       duration: session.duration,
       max_students: session.max_students || '',
     })
+    const currentlyLinked = session.linked_content?.[0]
+    setSelectedGenerationId(currentlyLinked ? String(currentlyLinked.id) : '')
   }
 
   async function saveEdit(e) {
@@ -227,14 +229,42 @@ export default function Sessions() {
     }
   }
 
-  async function linkGeneration(genId) {
+  async function linkGeneration(genId, type) {
     if (!linkPanel) return
     setLinkingId(genId)
     try {
-      await api(`/sessions/${linkPanel.session.id}/link-generation/${genId}`, { method: 'POST' })
+      const query = type ? `?type=${type}` : ''
+      await api(`/sessions/${linkPanel.session.id}/link-generation/${genId}${query}`, { method: 'POST' })
       toast.success('Content linked to session — students can access it after enrolling.')
+      setLinkPanel((prev) => ({
+        ...prev,
+        generations: prev.generations.map((g) => (g.id === genId ? { ...g, session_id: prev.session.id } : g)),
+      }))
+      await load()
     } catch (err) {
       setError(err.message || 'Could not link content')
+    } finally {
+      setLinkingId(null)
+    }
+  }
+
+  async function unlinkGeneration(genId, sessionId, type) {
+    const targetSessionId = sessionId || linkPanel?.session?.id
+    if (!targetSessionId) return
+    setLinkingId(genId)
+    try {
+      const query = type ? `?type=${type}` : ''
+      await api(`/sessions/${targetSessionId}/unlink-generation/${genId}${query}`, { method: 'POST' })
+      toast.success('Content unlinked from session.')
+      if (linkPanel) {
+        setLinkPanel((prev) => ({
+          ...prev,
+          generations: prev.generations.map((g) => (g.id === genId ? { ...g, session_id: null } : g)),
+        }))
+      }
+      await load()
+    } catch (err) {
+      setError(err.message || 'Could not unlink content')
     } finally {
       setLinkingId(null)
     }
@@ -315,6 +345,30 @@ export default function Sessions() {
                   </button>
                 </div>
               </div>
+              {session.linked_content && session.linked_content.length > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-teal-50/60 p-2.5 dark:bg-slate-800/50">
+                  <span className="text-xs font-bold text-teal-800 dark:text-mint flex items-center gap-1">
+                    <Link2 size={13} /> Linked AI Content:
+                  </span>
+                  {session.linked_content.map((item) => (
+                    <span
+                      key={`${item.type}-${item.id}`}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    >
+                      <span className="capitalize text-teal-600 dark:text-mint text-[11px] font-bold">[{item.type}]</span>
+                      <span className="max-w-[180px] truncate">{item.topic}</span>
+                      <button
+                        type="button"
+                        title="Unlink"
+                        onClick={() => unlinkGeneration(item.id, session.id, item.type)}
+                        className="text-slate-400 hover:text-red-600 transition"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="mt-4 flex flex-wrap gap-2">
                 <button className="btn-soft" type="button" onClick={() => startEdit(session)}>Edit</button>
                 <button className="btn-soft" type="button" onClick={() => startSession(session.id)}><PlayCircle size={18} />{t('sessions.start')}</button>
@@ -503,22 +557,53 @@ export default function Sessions() {
                 <p className="text-sm text-slate-500">No AI content generated yet. Create lessons, flashcards, or videos first.</p>
               ) : (
                 <ul className="space-y-2">
-                  {linkPanel.generations.map((gen) => (
-                    <li key={gen.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
-                      <div className="min-w-0">
-                        <p className="font-semibold text-sm truncate">{gen.topic}</p>
-                        <p className="text-xs text-slate-500 capitalize">{gen.type} · {new Date(gen.created_at).toLocaleDateString()}</p>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn-soft shrink-0 text-teal-700 dark:text-mint"
-                        disabled={linkingId === gen.id}
-                        onClick={() => linkGeneration(gen.id)}
-                      >
-                        {linkingId === gen.id ? 'Linking...' : 'Link'}
-                      </button>
-                    </li>
-                  ))}
+                  {linkPanel.generations.map((gen) => {
+                    const isLinkedHere = gen.session_id === linkPanel.session.id
+                    return (
+                      <li key={`${gen.type}-${gen.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-teal-800 dark:bg-slate-800 dark:text-mint">
+                              {gen.type}
+                            </span>
+                            <p className="font-semibold text-sm truncate">{gen.topic}</p>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {gen.created_at ? new Date(gen.created_at).toLocaleDateString() : 'Ready'}
+                            {isLinkedHere && (
+                              <span className="ms-2 font-bold text-emerald-600 dark:text-emerald-400">
+                                • Currently attached to this session
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                        {isLinkedHere ? (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                              <CheckCircle2 size={12} /> Linked
+                            </span>
+                            <button
+                              type="button"
+                              className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 text-xs py-1 px-2.5 font-semibold"
+                              disabled={linkingId === gen.id}
+                              onClick={() => unlinkGeneration(gen.id, linkPanel.session.id, gen.type)}
+                            >
+                              {linkingId === gen.id ? 'Unlinking...' : 'Unlink'}
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn-soft shrink-0 text-teal-700 dark:text-mint text-xs py-1 px-3 font-semibold"
+                            disabled={linkingId === gen.id}
+                            onClick={() => linkGeneration(gen.id, gen.type)}
+                          >
+                            {linkingId === gen.id ? 'Linking...' : 'Link'}
+                          </button>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
             </div>

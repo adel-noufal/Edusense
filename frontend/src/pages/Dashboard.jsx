@@ -286,12 +286,24 @@ function StudentHistoryView({ sessions }) {
   )
 }
 
+const DASHBOARD_JOB_KEY = 'edusense_dashboard_analysis_job'
+const DASHBOARD_REPORT_KEY = 'edusense_dashboard_last_report'
+
 export function InstructorDashboard() {
   const { t } = useLanguage()
   const [sessions, setSessions] = useState([])
   const [selectedSessionId, setSelectedSessionId] = useState('all')
-  const [report, setReport] = useState(null)
+  const [report, setReport] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem(DASHBOARD_REPORT_KEY)
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
   const [analyzing, setAnalyzing] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [progressMessage, setProgressMessage] = useState('')
   const [error, setError] = useState('')
 
   async function loadSessions() {
@@ -307,12 +319,70 @@ export function InstructorDashboard() {
 
   const endedSessions = useMemo(() => sessions.filter((s) => s.status === 'ended'), [sessions])
 
+  // Resume polling if an analysis job is running in background
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DASHBOARD_JOB_KEY)
+      if (raw) {
+        const stored = JSON.parse(raw)
+        if (stored?.jobId) {
+          pollAnalysisJob(stored.jobId)
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  async function pollAnalysisJob(jobId) {
+    setAnalyzing(true)
+    setError('')
+
+    const MAX_ATTEMPTS = 120
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await api(`/ai/job/${jobId}`)
+        if (res.progress != null) setProgress(res.progress)
+        if (res.message) setProgressMessage(res.message)
+
+        if (res.status === 'done' && res.result) {
+          setReport(res.result)
+          try {
+            sessionStorage.setItem(DASHBOARD_REPORT_KEY, JSON.stringify(res.result))
+          } catch {}
+          localStorage.removeItem(DASHBOARD_JOB_KEY)
+          setAnalyzing(false)
+          setProgress(100)
+          return
+        }
+        if (res.status === 'error') {
+          setError(res.error || 'Feedback loop analysis failed.')
+          localStorage.removeItem(DASHBOARD_JOB_KEY)
+          setAnalyzing(false)
+          return
+        }
+      } catch (err) {
+        if (attempt > 3) {
+          setError(err.message || 'Error tracking background analysis.')
+          localStorage.removeItem(DASHBOARD_JOB_KEY)
+          setAnalyzing(false)
+          return
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+    }
+
+    setError('Analysis timed out. Please try again.')
+    localStorage.removeItem(DASHBOARD_JOB_KEY)
+    setAnalyzing(false)
+  }
+
   async function analyze() {
     if (!sessions.length) {
       setError('No sessions found to run feedback loop.')
       return
     }
-    
+
     // Enforce rule: feedback loop can ONLY be run on ended sessions
     if (selectedSessionId === 'all') {
       if (!endedSessions.length) {
@@ -328,37 +398,35 @@ export function InstructorDashboard() {
     }
 
     setAnalyzing(true)
+    setProgress(10)
+    setProgressMessage('Initializing background analysis...')
     setError('')
+
     try {
-      if (selectedSessionId === 'all') {
-        const results = await Promise.all(
-          endedSessions.map((s) => api(`/ai/recommendations/${s.id}`).catch(() => null))
-        )
-        const valid = results.filter(Boolean)
-        if (valid.length) {
-          const recList = Array.from(new Set(valid.flatMap((r) => r.recommendations?.recommendations || [])))
-          const aggregateDistribution = {}
-          valid.forEach((r) => {
-            const dist = r.emotion_report?.distribution || {}
-            Object.entries(dist).forEach(([emo, val]) => {
-              aggregateDistribution[emo] = (aggregateDistribution[emo] || 0) + val
-            })
-          })
-          setReport({
-            recommendations: { recommendations: recList.length ? recList : ['Maintain active student engagement', 'Incorporate interactive checks'] },
-            emotion_report: { distribution: aggregateDistribution },
-            engagement_report: valid[0]?.engagement_report || { attention_timeline: [] },
-          })
-        } else {
-          setError('Could not gather feedback data from ended sessions.')
-        }
+      const res = await api('/ai/recommendations/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: selectedSessionId }),
+      })
+
+      if (res.status === 'done' && res.result) {
+        setReport(res.result)
+        try {
+          sessionStorage.setItem(DASHBOARD_REPORT_KEY, JSON.stringify(res.result))
+        } catch {}
+        setAnalyzing(false)
+        setProgress(100)
+        return
+      }
+
+      if (res.job_id) {
+        localStorage.setItem(DASHBOARD_JOB_KEY, JSON.stringify({ jobId: res.job_id, startedAt: Date.now() }))
+        pollAnalysisJob(res.job_id)
       } else {
-        const res = await api(`/ai/recommendations/${selectedSessionId}`)
-        setReport(res)
+        throw new Error('Could not queue feedback loop analysis.')
       }
     } catch (err) {
-      setError(err.message || 'Failed to run feedback loop analysis.')
-    } finally {
+      setError(err.message || 'Failed to start feedback loop analysis.')
       setAnalyzing(false)
     }
   }
@@ -396,7 +464,20 @@ export function InstructorDashboard() {
         </div>
         <div className="panel">
           <h2 className="mb-4 text-lg font-bold">{t('dashboard.recommendations')}</h2>
-          {report ? (
+          {analyzing ? (
+            <div className="space-y-3 rounded-xl border border-teal-200 bg-teal-50/50 p-4 dark:border-teal-900/40 dark:bg-slate-800/40">
+              <div className="flex items-center justify-between text-xs font-semibold text-ocean dark:text-mint">
+                <span className="flex items-center gap-1.5"><Sparkles size={14} className="animate-spin text-teal-600" />{progressMessage || 'Analyzing student telemetry...'}</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                <div className="h-full bg-gradient-to-r from-ocean to-mint transition-all duration-300" style={{ width: `${Math.max(progress, 5)}%` }} />
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Running in background. You can navigate away to other tabs; your report will load automatically.
+              </p>
+            </div>
+          ) : report ? (
             <ul className="space-y-2">
               {report.recommendations.recommendations.map((item) => (
                 <li className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-800" key={item}>{item}</li>

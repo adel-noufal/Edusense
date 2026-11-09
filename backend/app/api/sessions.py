@@ -87,6 +87,29 @@ def serialize_browse_session(item: Session, user: User, registrations: list[Sess
     }
 
 
+def _get_session_linked_content(session_id: int, db: DbSession) -> list[dict]:
+    linked = []
+    gens = db.query(AIGeneration).filter_by(session_id=session_id).order_by(AIGeneration.created_at.desc()).all()
+    for g in gens:
+        linked.append({
+            "id": g.id,
+            "content_id": g.id,
+            "type": g.type,
+            "topic": g.topic,
+            "created_at": g.created_at.isoformat() if g.created_at else None,
+        })
+    quizzes = db.query(Quiz).filter_by(session_id=session_id).order_by(Quiz.created_at.desc()).all()
+    for q in quizzes:
+        linked.append({
+            "id": q.id,
+            "content_id": q.id,
+            "type": "quiz",
+            "topic": q.title,
+            "created_at": q.created_at.isoformat() if q.created_at else None,
+        })
+    return linked
+
+
 @router.get("", response_model=list[SessionOut])
 def list_sessions(request: Request, db: DbSession = Depends(get_db), user: User = Depends(get_current_user)):
     query = db.query(Session)
@@ -100,6 +123,7 @@ def list_sessions(request: Request, db: DbSession = Depends(get_db), user: User 
         inst = db.query(User).filter(User.id == item.instructor_id).first()
         if inst:
             out_item.instructor_name = inst.name
+        out_item.linked_content = _get_session_linked_content(item.id, db)
         out.append(out_item)
     db.commit()
 
@@ -145,6 +169,7 @@ def create_session(payload: SessionIn, request: Request, db: DbSession = Depends
     db.refresh(item)
     res = SessionOut.model_validate(item)
     res.instructor_name = user.name
+    res.linked_content = _get_session_linked_content(item.id, db)
 
     # Audit: instructor creating session
     log_session_access(db, user, item.id, action="create_session", request=request)
@@ -169,6 +194,7 @@ def update_session(session_id: int, payload: SessionIn, request: Request, db: Db
     inst = db.query(User).filter(User.id == item.instructor_id).first()
     if inst:
         res.instructor_name = inst.name
+    res.linked_content = _get_session_linked_content(item.id, db)
 
     # Audit: instructor updating session
     log_session_access(db, user, session_id, action="update_session", request=request)
@@ -624,26 +650,74 @@ def delete_session_resource(resource_id: int, db: DbSession = Depends(get_db), u
 def link_generation_to_session(
     session_id: int,
     gen_id: int,
+    type: str | None = None,
     db: DbSession = Depends(get_db),
     user: User = Depends(require_role("instructor"))
 ):
-    """Link an existing AI generation to a specific session so students can access it."""
+    """Link an existing AI generation or Quiz to a specific session so students can access it."""
     session = db.query(Session).filter(Session.id == session_id).first()
     if not session:
         raise HTTPException(404, "Session not found")
     if session.instructor_id != user.id and user.role != "admin":
         raise HTTPException(403, "Not your session")
-    gen = db.query(AIGeneration).filter_by(id=gen_id, instructor_id=user.id).first()
-    if not gen:
-        raise HTTPException(404, "AI Generation not found")
-    gen.session_id = session_id
+
+    # Try finding in AIGeneration first (unless type=='quiz')
+    if type != "quiz":
+        gen = db.query(AIGeneration).filter_by(id=gen_id, instructor_id=user.id).first()
+        if gen:
+            gen.session_id = session_id
+            db.commit()
+            return {"message": "Generation linked to session", "session_id": session_id, "generation_id": gen_id, "type": gen.type}
+
+    # If not found or type is quiz, try Quiz table
+    quiz = db.query(Quiz).filter_by(id=gen_id).first()
+    if quiz:
+        quiz.session_id = session_id
+        db.commit()
+        return {"message": "Quiz linked to session", "session_id": session_id, "generation_id": gen_id, "type": "quiz"}
+
+    raise HTTPException(404, "AI Content not found")
+
+
+@router.delete("/{session_id}/link-generation/{gen_id}")
+@router.post("/{session_id}/unlink-generation/{gen_id}")
+def unlink_generation_from_session(
+    session_id: int,
+    gen_id: int,
+    type: str | None = None,
+    db: DbSession = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """Unlink an AI generation or Quiz from a session."""
+    session = db.query(Session).filter(Session.id == session_id).first()
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if session.instructor_id != user.id and user.role != "admin":
+        raise HTTPException(403, "Not your session")
+
+    unlinked = False
+    if type != "quiz":
+        gen = db.query(AIGeneration).filter_by(id=gen_id, session_id=session_id).first()
+        if gen:
+            gen.session_id = None
+            unlinked = True
+
+    if not unlinked:
+        quiz = db.query(Quiz).filter_by(id=gen_id, session_id=session_id).first()
+        if quiz:
+            quiz.session_id = None
+            unlinked = True
+
+    if not unlinked:
+        raise HTTPException(404, "Linked content not found for this session")
+
     db.commit()
-    return {"message": "Generation linked to session", "session_id": session_id, "generation_id": gen_id}
+    return {"message": "Content unlinked from session", "session_id": session_id, "generation_id": gen_id}
 
 
 @router.get("/{session_id}/generations")
 def list_session_generations(session_id: int, db: DbSession = Depends(get_db), user: User = Depends(get_current_user)):
-    """List all AI generations linked to this session (for enrolled students and the instructor)."""
+    """List all AI generations and quizzes linked to this session (for enrolled students and the instructor)."""
     session = db.query(Session).filter(Session.id == session_id).first()
     if not session:
         raise HTTPException(404, "Session not found")
@@ -662,8 +736,21 @@ def list_session_generations(session_id: int, db: DbSession = Depends(get_db), u
             "id": g.id,
             "type": g.type,
             "topic": g.topic,
-            "created_at": g.created_at.isoformat(),
+            "created_at": g.created_at.isoformat() if g.created_at else None,
             "data": data,
+        })
+    quizzes = db.query(Quiz).filter_by(session_id=session_id).order_by(Quiz.created_at.desc()).all()
+    for q in quizzes:
+        try:
+            q_data = json.loads(q.questions_json)
+        except Exception:
+            q_data = []
+        result.append({
+            "id": q.id,
+            "type": "quiz",
+            "topic": q.title,
+            "created_at": q.created_at.isoformat() if q.created_at else None,
+            "data": {"title": q.title, "difficulty": q.difficulty, "questions": q_data},
         })
     return result
 

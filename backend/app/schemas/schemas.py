@@ -68,6 +68,7 @@ class SessionOut(SessionIn):
     status: str
     prep_start_time: datetime | None = None
     instructor_name: str | None = None
+    linked_content: list[dict] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
