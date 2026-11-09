@@ -25,8 +25,6 @@ from app.schemas.schemas import SessionIn, SessionOut, NoteCreate
 from app.services.status import session_status
 from app.services.email import _send_email_sync, send_session_live_email
 from app.core.config import get_settings
-from app.services.ingestion import ingest_file
-from app.services.vector_store import delete_by_source, init_collection
 import json
 import logging
 
@@ -501,6 +499,8 @@ async def upload_session_resource(
     db.refresh(resource)
 
     # Ingest document into vector store
+    from app.services.ingestion import ingest_file
+    from app.services.vector_store import delete_by_source, init_collection
     source_id = f"resource_{resource.id}"
     try:
         chunks = ingest_file(
@@ -592,6 +592,7 @@ def delete_session_resource(resource_id: int, db: DbSession = Depends(get_db), u
     # Remove indexed chunks from the vector store after SQL commit.
     # delete_by_source() suppresses internal exceptions and returns None on both
     # success and failure, so we verify by checking for remaining chunks directly.
+    from app.services.vector_store import delete_by_source, init_collection
     source_id = f"resource_{resource_id}"
     vs_cleanup_ok = True
     try:

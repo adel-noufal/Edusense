@@ -1,4 +1,5 @@
 import os
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
 from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 

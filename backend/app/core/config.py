@@ -66,6 +66,33 @@ class Settings(BaseSettings):
 
 
     @property
+    def gemini_api_keys(self) -> list[str]:
+        """
+        Return all configured Gemini API keys in priority order:
+        1. Comma-separated or single key in GEMINI_API_KEY / EDUSENSE_GEMINI_API_KEY
+        2. Numbered environment variables like GEMINI_API_KEY_1, GEMINI_API_KEY_2, etc.
+        """
+        import os
+        keys: list[str] = []
+        if self.gemini_api_key:
+            for k in self.gemini_api_key.split(","):
+                k = k.strip()
+                if k and k not in keys:
+                    keys.append(k)
+
+        numbered_keys = []
+        for env_name in os.environ:
+            upper = env_name.upper()
+            if upper.startswith("GEMINI_API_KEY_") or upper.startswith("EDUSENSE_GEMINI_API_KEY_"):
+                val = os.environ[env_name].strip()
+                if val:
+                    numbered_keys.append((upper, val))
+        for _, val in sorted(numbered_keys):
+            if val not in keys:
+                keys.append(val)
+        return keys
+
+    @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 

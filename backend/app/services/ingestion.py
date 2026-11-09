@@ -18,17 +18,24 @@ from app.services.vector_store import (
     init_collection
 )
 
-# Initialize tiktoken encoder for cl100k_base (OpenAI/standard RAG tokenizer)
-try:
-    _tokenizer = tiktoken.get_encoding("cl100k_base")
-except Exception:
-    _tokenizer = None
+# Lazy tiktoken encoder for cl100k_base (avoids 50s network timeout on module import)
+_tokenizer_cache = "UNINITIALIZED"
+
+def _get_tokenizer():
+    global _tokenizer_cache
+    if _tokenizer_cache == "UNINITIALIZED":
+        try:
+            _tokenizer_cache = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            _tokenizer_cache = None
+    return _tokenizer_cache
 
 
 def _count_tokens(text: str) -> int:
     """Accurately counts tokens in text string using tiktoken."""
-    if _tokenizer:
-        return len(_tokenizer.encode(text))
+    tok = _get_tokenizer()
+    if tok:
+        return len(tok.encode(text))
     # Fallback to word approximation if tiktoken is unavailable
     return len(text.split())
 

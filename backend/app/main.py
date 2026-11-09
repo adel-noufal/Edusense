@@ -78,12 +78,14 @@ def shutdown():
 
 @app.get("/health")
 def health():
+    from app.services.gemini import rotator
+
     settings = get_settings()
-    gemini_ok = bool(settings.gemini_api_key)
+    keys = settings.gemini_api_keys
+    gemini_ok = bool(keys)
     gemini_hint = None
-    key = settings.gemini_api_key or ""
-    valid_format = key.startswith("AIza") or key.startswith("AQ.")
-    if key and not valid_format:
+    has_valid_format = any(k.startswith("AIza") or k.startswith("AQ.") for k in keys) if keys else False
+    if keys and not has_valid_format:
         gemini_hint = "Get a key from aistudio.google.com (starts with AIza or AQ.)"
     db_kind = "postgresql" if "postgresql" in settings.database_url else "sqlite"
 
@@ -104,7 +106,9 @@ def health():
         "database": db_kind,
         "ai_provider": settings.ai_provider,
         "gemini_configured": gemini_ok,
-        "gemini_key_valid_format": valid_format if key else False,
+        "gemini_keys_count": len(keys),
+        "gemini_keys_status": rotator.status(),
+        "gemini_key_valid_format": has_valid_format,
         "ollama_reachable": ollama_reachable if settings.ai_provider == "ollama" else None,
         "ollama_model": settings.ollama_model if settings.ai_provider == "ollama" else None,
         "hint": gemini_hint,
