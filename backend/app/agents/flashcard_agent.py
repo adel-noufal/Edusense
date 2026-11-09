@@ -45,6 +45,35 @@ def _build_rag_context(topic: str, subject: Optional[str], grade_level: Optional
     return "\n\n".join(lines), sources
 
 
+def _build_web_context(topic: str, max_results: int = 3) -> tuple[str, list[dict], list[str]]:
+    """
+    Calls Web_Search_Tool and returns (context_block, raw_results, source_labels).
+    Returns ("", [], []) if unavailable or no results.
+    """
+    try:
+        from app.agents.tools import Web_Search_Tool
+        results = Web_Search_Tool(query=topic, max_results=max_results)
+    except Exception as exc:
+        print(f"[Web Search] Flashcard web lookup failed ({exc}); continuing without web material.")
+        return "", [], []
+
+    if not results:
+        return "", [], []
+
+    lines = []
+    sources: list[str] = []
+    for i, item in enumerate(results):
+        title = item.get("title", "")
+        url = item.get("url", "")
+        content = item.get("content", "")
+        label = f"[Web: {title}]({url})" if url else f"[Web: {title}]"
+        if label not in sources:
+            sources.append(label)
+        lines.append(f"[Web {i+1}: {title}]({url})\n{content}")
+
+    return "\n\n".join(lines), results, sources
+
+
 # ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
@@ -64,16 +93,36 @@ class FlashcardGenerationAgent:
         settings = get_settings()
         instructor_notes = f'\nInstructor guidance: "{prompt}"' if prompt.strip() else ""
 
-        # ── RAG retrieval ───────────────────────────────────────────────────
+        # ── RAG retrieval (curriculum first) ────────────────────────────────
         rag_context, rag_sources = _build_rag_context(topic, subject, grade_level)
 
+        # ── Web retrieval (if curriculum is insufficient) ─────────────────
+        web_context = ""
+        web_results = []
+        web_sources = []
+        if not rag_sources:
+            web_context, web_results, web_sources = _build_web_context(topic)
+
+        source_blocks = []
         if rag_context:
-            source_instruction = (
-                "\n\nIMPORTANT: Base every flashcard strictly on the following source material. "
-                "Do NOT invent facts not present in the sources.\n\n"
-                "=== SOURCE MATERIAL ===\n"
+            source_blocks.append(
+                "=== CURRICULUM SOURCE MATERIAL (RAG) ===\n"
                 f"{rag_context}\n"
-                "=== END SOURCE MATERIAL ==="
+                "=== END CURRICULUM SOURCE MATERIAL ==="
+            )
+        if web_context:
+            source_blocks.append(
+                "=== WEB SEARCH RESULTS ===\n"
+                f"{web_context}\n"
+                "=== END WEB SEARCH RESULTS ==="
+            )
+
+        if source_blocks:
+            source_instruction = (
+                "\n\nIMPORTANT: Base every flashcard on the following source material. "
+                "Prioritize curriculum sources when available; use web results for recent context. "
+                "Cite curriculum sources as [Source: label] and web sources as [Web N: title].\n\n"
+                + "\n\n".join(source_blocks)
             )
         else:
             source_instruction = ""
@@ -85,7 +134,8 @@ class FlashcardGenerationAgent:
                 subject=subject,
                 grade_level=grade_level,
                 agent_name="FlashcardGenerationAgent",
-                has_rag_sources=bool(rag_context),
+                has_rag_sources=bool(rag_sources),
+                has_web_sources=bool(web_sources),
             )
 
             prompt_text = f"""
@@ -121,8 +171,10 @@ Return ONLY valid JSON:
                 subject=subject,
                 grade_level=grade_level,
                 topic=topic,
-                has_rag_sources=bool(rag_context),
+                has_rag_sources=bool(rag_sources),
                 rag_source_count=len(rag_sources),
+                has_web_sources=bool(web_sources),
+                web_source_count=len(web_sources),
             ) as audit_ctx:
                 audit_ctx.set_prompt(prompt_text)
                 data = generate_json_any(prompt_text, task_type="flashcard")
@@ -135,8 +187,9 @@ Return ONLY valid JSON:
                     "language": language,
                     "prompt": prompt,
                     "cards": data["cards"][:count],
-                    "sources": rag_sources,
-                    "unverified": len(rag_sources) == 0,
+                    "sources": rag_sources + web_sources,
+                    "unverified": len(rag_sources + web_sources) == 0,
+                    "web_sources": web_results,
                 })
         except Exception:
             pass
@@ -172,6 +225,7 @@ Return ONLY valid JSON:
             "language": language,
             "prompt": prompt,
             "cards": cards[:count],
-            "sources": rag_sources,
-            "unverified": len(rag_sources) == 0,
+            "sources": rag_sources + web_sources,
+            "unverified": len(rag_sources + web_sources) == 0,
+            "web_sources": web_results,
         })

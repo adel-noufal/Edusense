@@ -283,7 +283,7 @@ Instructions:
                         subject=subject,
                         grade_level=grade_level,
                         topic=query,
-                        has_rag_sources=rag_count > 0,
+                        has_rag_sources=True,
                         rag_source_count=rag_count,
                         has_web_sources=False,
                         web_source_count=0,
@@ -296,8 +296,47 @@ Instructions:
                 except Exception as exc:
                     fallback_reason = f"LLM generation failed: {exc}"
                     # Fall through to offline
+            elif web_count > 0:
+                try:
+                    with LLMAuditContext(
+                        agent_name="AgentOrchestrator",
+                        method_name="run",
+                        subject=subject,
+                        grade_level=grade_level,
+                        topic=query,
+                        has_rag_sources=False,
+                        rag_source_count=0,
+                        has_web_sources=True,
+                        web_source_count=web_count,
+                    ) as audit_ctx:
+                        audit_ctx.set_prompt(prompt)
+                        answer = self.llm.generate(prompt)
+                        audit_ctx.set_response(answer, model_used="gemini", fallback_used=False)
+                    mode = "online_web_only"
+                    model_used = "gemini"
+                except Exception as exc:
+                    fallback_reason = f"LLM generation failed: {exc}"
             else:
-                web_failed = True
+                try:
+                    with LLMAuditContext(
+                        agent_name="AgentOrchestrator",
+                        method_name="run",
+                        subject=subject,
+                        grade_level=grade_level,
+                        topic=query,
+                        has_rag_sources=False,
+                        rag_source_count=0,
+                        has_web_sources=False,
+                        web_source_count=0,
+                    ) as audit_ctx:
+                        audit_ctx.set_prompt(prompt)
+                        answer = self.llm.generate(prompt)
+                        audit_ctx.set_response(answer, model_used="gemini", fallback_used=False)
+                    mode = "online_general_llm"
+                    model_used = "gemini"
+                except Exception as exc:
+                    fallback_reason = f"LLM generation failed: {exc}"
+                    web_failed = True
 
         # Offline path: RAG + Template
         if not answer and rag_count > 0:
@@ -356,7 +395,7 @@ Instructions:
             rag_chunks_used=rag_count,
             web_results_used=web_count,
             fallback_reason=fallback_reason,
-            unverified=rag_count == 0,
+            unverified=(rag_count == 0 and web_count == 0),
         )
 
     async def run_stream(

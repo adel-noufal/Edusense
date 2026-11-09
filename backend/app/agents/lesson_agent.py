@@ -52,6 +52,39 @@ def _build_rag_context(topic: str, subject: Optional[str], grade_level: Optional
     return context_block, sources
 
 
+def _build_web_context(topic: str, max_results: int = 3) -> tuple[str, list[dict], list[str]]:
+    """
+    Calls Web_Search_Tool and returns:
+      - formatted context block string
+      - raw results list
+      - list of source labels ("[Web: Title](URL)")
+    Returns ("", [], []) if Web_Search_Tool is unavailable or returns no results.
+    """
+    try:
+        from app.agents.tools import Web_Search_Tool
+        results = Web_Search_Tool(query=topic, max_results=max_results)
+    except Exception as exc:
+        print(f"[Web Search] Lesson web lookup failed ({exc}); continuing without web material.")
+        return "", [], []
+
+    if not results:
+        return "", [], []
+
+    lines = []
+    sources: list[str] = []
+    for i, item in enumerate(results):
+        title = item.get("title", "")
+        url = item.get("url", "")
+        content = item.get("content", "")
+        label = f"[Web: {title}]({url})" if url else f"[Web: {title}]"
+        if label not in sources:
+            sources.append(label)
+        lines.append(f"[Web {i+1}: {title}]({url})\n{content}")
+
+    context_block = "\n\n".join(lines)
+    return context_block, results, sources
+
+
 # ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
@@ -63,19 +96,39 @@ class LessonGenerationAgent:
         topic = request.topic
         settings = get_settings()
 
-        # ── RAG retrieval ───────────────────────────────────────────────────
+        # ── RAG retrieval (curriculum first) ────────────────────────────────
         subject = getattr(request, "subject", None)
         grade_level = getattr(request, "grade_level", None)
         rag_context, rag_sources = _build_rag_context(topic, subject, grade_level)
 
+        # ── Web retrieval (if curriculum is insufficient or topic needs current info) ─
+        web_context = ""
+        web_results = []
+        web_sources = []
+        if not rag_sources:
+            web_context, web_results, web_sources = _build_web_context(topic)
+
+        source_blocks = []
         if rag_context:
-            source_instruction = (
-                "\n\nIMPORTANT: Use ONLY the following source material as your factual basis. "
-                "Do NOT invent facts not present in the sources. "
-                "If the sources are insufficient for a section, state so explicitly.\n\n"
-                "=== SOURCE MATERIAL ===\n"
+            source_blocks.append(
+                "=== CURRICULUM SOURCE MATERIAL (RAG) ===\n"
                 f"{rag_context}\n"
-                "=== END SOURCE MATERIAL ===\n"
+                "=== END CURRICULUM SOURCE MATERIAL ==="
+            )
+        if web_context:
+            source_blocks.append(
+                "=== WEB SEARCH RESULTS ===\n"
+                f"{web_context}\n"
+                "=== END WEB SEARCH RESULTS ==="
+            )
+
+        if source_blocks:
+            source_instruction = (
+                "\n\nIMPORTANT: Use the following source material as your factual basis. "
+                "Prioritize curriculum sources when available; use web search results for recent or external context. "
+                "Cite curriculum sources as [Source: label] and web sources as [Web N: title]. "
+                "Do NOT invent facts not present in the sources.\n\n"
+                + "\n\n".join(source_blocks) + "\n"
             )
         else:
             source_instruction = ""
@@ -87,7 +140,8 @@ class LessonGenerationAgent:
                 subject=subject,
                 grade_level=grade_level,
                 agent_name="LessonGenerationAgent",
-                has_rag_sources=bool(rag_context),
+                has_rag_sources=bool(rag_sources),
+                has_web_sources=bool(web_sources),
             )
 
             prompt = f"""
@@ -178,8 +232,10 @@ Return ONLY valid JSON matching this structure:
                 subject=subject,
                 grade_level=grade_level,
                 topic=topic,
-                has_rag_sources=bool(rag_context),
+                has_rag_sources=bool(rag_sources),
                 rag_source_count=len(rag_sources),
+                has_web_sources=bool(web_sources),
+                web_source_count=len(web_sources),
             ) as audit_ctx:
                 audit_ctx.set_prompt(prompt)
                 data = generate_json_any(prompt, task_type="lesson")
@@ -213,8 +269,9 @@ Return ONLY valid JSON matching this structure:
                     "summary": data.get("summary", ""),
                     "key_points": data.get("key_points") or [],
                     "images": [],
-                    "sources": rag_sources,
-                    "unverified": len(rag_sources) == 0,
+                    "sources": rag_sources + web_sources,
+                    "unverified": len(rag_sources + web_sources) == 0,
+                    "web_sources": web_results,
                 })
         except Exception:
             pass
@@ -281,8 +338,9 @@ Return ONLY valid JSON matching this structure:
             "summary": f"Learners now possess a thorough understanding of {topic}, spanning theoretical fundamentals, hands-on implementation steps, and production optimization techniques.",
             "key_points": objectives,
             "images": [],
-            "sources": rag_sources,
-            "unverified": len(rag_sources) == 0,
+            "sources": rag_sources + web_sources,
+            "unverified": len(rag_sources + web_sources) == 0,
+            "web_sources": web_results,
         })
 
     def simplify_from_recommendation(self, topic: str, recommendations: list[str]) -> AgentResult:
