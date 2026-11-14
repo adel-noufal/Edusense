@@ -1,10 +1,18 @@
+import os
+import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 
 from app.api.deps import get_current_user, require_role
 from app.models.models import User
 from app.services import ingestion
 from app.services import rag_qa
+from app.services.file_validation import validate_file_signature
+
+KB_STORAGE_DIR = Path(__file__).resolve().parents[1] / "static" / "knowledge_base"
+KB_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter(prefix="/rag", tags=["RAG"])
 
@@ -24,55 +32,158 @@ async def ingest_document(
     """
     Ingest a PDF or text document into the RAG vector store.
     - Multipart file upload + form fields (subject, grade_level, topic).
-    - Restricted to 'instructor' role (and admins).
-    - Runs in background for large files (>1MB) or if is_async=true.
+    - Validates file content signature (magic bytes) to guard against spoofed extensions.
+    - Streams files directly to persistent disk storage to support 100MB+ documents with low memory.
+    - Runs in background for large files (>1MB) or if is_async=true, reporting progress via job_id.
     """
-    content = await file.read()
-    if not content:
+    filename = file.filename or "uploaded_document.pdf"
+    safe_filename = Path(filename).name.replace("..", "").replace("/", "").replace("\\", "")
+    dest_path = KB_STORAGE_DIR / safe_filename
+
+    # Read first chunk (up to 4KB) for signature validation before saving
+    first_chunk = await file.read(4096)
+    if not first_chunk:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Uploaded file is empty."
+            detail="Uploaded file is empty (0 bytes)."
         )
 
-    filename = file.filename or "uploaded_document.pdf"
+    # Magic byte validation
+    is_valid_sig, sig_reason = validate_file_signature(filename, first_chunk)
+    if not is_valid_sig:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File validation failed: {sig_reason}"
+        )
 
-    # For large files (>1MB) or async flag, process as background task
-    if len(content) > 1 * 1024 * 1024 or is_async:
+    # Stream file to disk in 1MB chunks to maintain constant low memory usage even for 100MB+ PDFs
+    file_size = len(first_chunk)
+    with open(dest_path, "wb") as f:
+        f.write(first_chunk)
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            f.write(chunk)
+            file_size += len(chunk)
+
+    # Trigger background ingestion if file > 1MB or is_async requested
+    if file_size > 1 * 1024 * 1024 or is_async:
+        job_id = f"kb-{uuid.uuid4()}"
+        ingestion.create_ingestion_job(job_id, filename=filename, total_size=file_size)
         background_tasks.add_task(
             ingestion.process_and_ingest_document,
-            file_bytes=content,
             filename=filename,
             subject=subject,
             grade_level=grade_level,
             topic=topic,
-            source_id=filename
+            source_id=filename,
+            file_path=str(dest_path),
+            job_id=job_id,
         )
         return {
             "status": "queued",
-            "message": f"Document '{filename}' ingestion started in background.",
+            "job_id": job_id,
+            "message": f"Document '{filename}' queued for background ingestion ({round(file_size / (1024*1024), 1)} MB).",
             "source_id": filename,
             "filename": filename,
+            "file_url": f"/static/knowledge_base/{safe_filename}",
             "subject": subject,
             "grade_level": grade_level,
             "topic": topic,
+            "file_size": file_size,
         }
 
-    # Synchronous processing for normal files
+    # Synchronous processing for smaller documents
     try:
         result = ingestion.process_and_ingest_document(
-            file_bytes=content,
             filename=filename,
             subject=subject,
             grade_level=grade_level,
             topic=topic,
-            source_id=filename
+            source_id=filename,
+            file_path=str(dest_path),
         )
+        result["file_url"] = f"/static/knowledge_base/{safe_filename}"
+        result["file_size"] = file_size
         return result
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process and ingest document '{filename}': {str(exc)}"
         )
+
+
+@router.get("/ingest/status/{job_id}")
+def get_ingestion_status(
+    job_id: str,
+    current_user: User = Depends(require_role("instructor"))
+):
+    """
+    Poll live progress and status of a background document ingestion job.
+    """
+    job = ingestion.get_ingestion_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Ingestion job not found")
+    return job
+
+
+@router.get("/sources/{source_id:path}/file")
+def get_source_file(
+    source_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Preview or download an already-uploaded Knowledge Base file.
+    """
+    clean_name = Path(source_id).name
+    candidates = [
+        KB_STORAGE_DIR / clean_name,
+        KB_STORAGE_DIR / f"{clean_name}.pdf",
+    ]
+    file_path = next((p for p in candidates if p.exists() and p.is_file()), None)
+    if not file_path:
+        raise HTTPException(status_code=404, detail=f"File for source '{source_id}' was not found on disk.")
+
+    media_type = "application/pdf" if file_path.suffix.lower() == ".pdf" else "text/plain"
+    return FileResponse(
+        str(file_path),
+        media_type=media_type,
+        filename=file_path.name,
+        content_disposition_type="inline",
+    )
+
+
+@router.get("/sources/{source_id:path}/preview")
+def preview_source_material(
+    source_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns document preview information including download/inline URL and sample extracted chunks.
+    """
+    clean_name = Path(source_id).name
+    candidates = [
+        KB_STORAGE_DIR / clean_name,
+        KB_STORAGE_DIR / f"{clean_name}.pdf",
+    ]
+    file_path = next((p for p in candidates if p.exists() and p.is_file()), None)
+    file_url = f"/static/knowledge_base/{file_path.name}" if file_path else None
+    
+    # Retrieve top sample chunks from vector store
+    sample_chunks = rag_qa.suggest_chunks(topic="", subject=None, grade_level=None, top_k=6, min_score=None).get("chunks", [])
+    filtered_chunks = [c for c in sample_chunks if c.get("source_file") == source_id or c.get("filename") == clean_name]
+    if not filtered_chunks and sample_chunks:
+        filtered_chunks = sample_chunks[:3]
+
+    return {
+        "source_id": source_id,
+        "filename": clean_name,
+        "has_file": file_path is not None,
+        "file_url": file_url,
+        "file_size": file_path.stat().st_size if file_path else 0,
+        "sample_chunks": filtered_chunks,
+    }
 
 
 @router.get("/sources", response_model=List[Dict[str, Any]])

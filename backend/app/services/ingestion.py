@@ -3,11 +3,83 @@ import uuid
 import datetime
 import io
 import re
+import threading
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
 from pypdf import PdfReader
 import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+KB_DIR = Path(__file__).resolve().parents[1] / "static" / "knowledge_base"
+KB_DIR.mkdir(parents=True, exist_ok=True)
+
+_jobs_lock = threading.Lock()
+_ingestion_jobs: Dict[str, Dict[str, Any]] = {}
+
+
+def create_ingestion_job(job_id: str, filename: str, total_size: int = 0) -> Dict[str, Any]:
+    with _jobs_lock:
+        job = {
+            "job_id": job_id,
+            "filename": filename,
+            "total_size": total_size,
+            "status": "queued",
+            "progress": 5,
+            "message": "Queued for processing...",
+            "chunks_indexed": 0,
+            "total_pages": 0,
+            "current_page": 0,
+            "error": None,
+            "file_url": f"/static/knowledge_base/{filename}",
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        _ingestion_jobs[job_id] = job
+        return job
+
+
+def update_ingestion_progress(
+    job_id: str,
+    progress: int,
+    message: str,
+    chunks_indexed: int = 0,
+    total_pages: int = 0,
+    current_page: int = 0,
+):
+    with _jobs_lock:
+        if job_id in _ingestion_jobs:
+            _ingestion_jobs[job_id]["status"] = "processing"
+            _ingestion_jobs[job_id]["progress"] = progress
+            _ingestion_jobs[job_id]["message"] = message
+            if chunks_indexed:
+                _ingestion_jobs[job_id]["chunks_indexed"] = chunks_indexed
+            if total_pages:
+                _ingestion_jobs[job_id]["total_pages"] = total_pages
+            if current_page:
+                _ingestion_jobs[job_id]["current_page"] = current_page
+
+
+def complete_ingestion_job(job_id: str, result: Dict[str, Any]):
+    with _jobs_lock:
+        if job_id in _ingestion_jobs:
+            _ingestion_jobs[job_id]["status"] = "completed"
+            _ingestion_jobs[job_id]["progress"] = 100
+            _ingestion_jobs[job_id]["message"] = f"Complete: {result.get('chunk_count', 0)} chunks indexed."
+            _ingestion_jobs[job_id]["result"] = result
+            _ingestion_jobs[job_id]["chunks_indexed"] = result.get("chunk_count", 0)
+
+
+def fail_ingestion_job(job_id: str, error_message: str):
+    with _jobs_lock:
+        if job_id in _ingestion_jobs:
+            _ingestion_jobs[job_id]["status"] = "failed"
+            _ingestion_jobs[job_id]["progress"] = 100
+            _ingestion_jobs[job_id]["error"] = error_message
+            _ingestion_jobs[job_id]["message"] = f"Failed: {error_message}"
+
+
+def get_ingestion_job(job_id: str) -> Optional[Dict[str, Any]]:
+    with _jobs_lock:
+        return _ingestion_jobs.get(job_id)
 
 from app.services.source_extractor import extract_text_from_file
 from app.services.vector_store import (
@@ -195,15 +267,24 @@ def ingest_file(
 
 # ─── Existing: Token-based ingestion for /api/rag/ingest ──────────────────────
 
-def extract_pdf_pages(file_content: bytes) -> List[Dict[str, Any]]:
+def extract_pdf_pages(
+    file_content: Optional[bytes] = None,
+    file_path: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """
-    Extracts text page-by-page from raw PDF binary bytes.
-    Returns a list of dicts: [{"page": page_num, "text": page_text}].
-    Preserves 1-indexed page numbers.
+    Extracts text page-by-page from raw PDF bytes or directly from a disk file path.
+    Streaming from a disk file path enables 100MB+ PDFs to process with minimal memory.
     """
-    pdf_file = io.BytesIO(file_content)
-    reader = PdfReader(pdf_file)
+    if file_path and os.path.exists(file_path):
+        reader = PdfReader(file_path)
+    elif file_content:
+        reader = PdfReader(io.BytesIO(file_content))
+    else:
+        return []
+
     pages_content = []
+    total_pages = len(reader.pages)
 
     for idx, page in enumerate(reader.pages):
         page_num = idx + 1
@@ -212,93 +293,133 @@ def extract_pdf_pages(file_content: bytes) -> List[Dict[str, Any]]:
         if page_text:
             pages_content.append({"page": page_num, "text": page_text})
 
+        if job_id and total_pages > 0 and (idx % 10 == 0 or idx == total_pages - 1):
+            pct = 10 + int((idx / total_pages) * 60)
+            update_ingestion_progress(
+                job_id,
+                pct,
+                f"Extracting text from page {page_num}/{total_pages}...",
+                total_pages=total_pages,
+                current_page=page_num,
+            )
+
     return pages_content
 
 
 def process_and_ingest_document(
-    file_bytes: bytes,
-    filename: str,
-    subject: str,
-    grade_level: str,
-    topic: str,
-    source_id: Optional[str] = None
+    file_bytes: Optional[bytes] = None,
+    filename: str = "uploaded_document.pdf",
+    subject: str = "General",
+    grade_level: str = "General",
+    topic: str = "General",
+    source_id: Optional[str] = None,
+    file_path: Optional[str] = None,
+    job_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Ingests a document (PDF or plain text) into ChromaDB vector store.
     - Extracts text preserving page numbers in metadata.
     - Chunks text into 500-1000 token pieces with 100 token overlap.
     - Attaches subject, grade_level, topic, source_file, page, and ingestion_date.
-    - Embeds and stores chunks via vector_store.add_chunks().
+    - Embeds and stores chunks via vector_store.add_chunks() in batches.
+    - Reports live progress via job_id if provided.
     """
-    if not source_id:
-        source_id = filename
+    try:
+        if not source_id:
+            source_id = filename
 
-    # Purge any previous chunks for this source to ensure idempotency
-    delete_by_source(source_id)
+        # Purge any previous chunks for this source to ensure idempotency
+        delete_by_source(source_id)
 
-    ingestion_date = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    pages_content: List[Dict[str, Any]] = []
+        if job_id:
+            update_ingestion_progress(job_id, 10, f"Extracting content from '{filename}'...")
 
-    if filename.lower().endswith(".pdf"):
-        pages_content = extract_pdf_pages(file_bytes)
-    else:
-        # For non-PDF text documents (e.g. .txt, .md)
-        text = file_bytes.decode("utf-8", errors="ignore").strip()
-        if text:
-            pages_content = [{"page": 1, "text": text}]
+        ingestion_date = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        pages_content: List[Dict[str, Any]] = []
 
-    chunk_records: List[ChunkRecord] = []
-    global_chunk_count = 0
+        if filename.lower().endswith(".pdf"):
+            pages_content = extract_pdf_pages(file_content=file_bytes, file_path=file_path, job_id=job_id)
+        else:
+            # For non-PDF text documents (e.g. .txt, .md)
+            if file_path and os.path.exists(file_path):
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as tf:
+                    text = tf.read().strip()
+            elif file_bytes:
+                text = file_bytes.decode("utf-8", errors="ignore").strip()
+            else:
+                text = ""
+            if text:
+                pages_content = [{"page": 1, "text": text}]
 
-    for item in pages_content:
-        page_num = item["page"]
-        page_text = item["text"]
+        if job_id:
+            update_ingestion_progress(job_id, 70, f"Partitioning text into semantic chunks ({len(pages_content)} pages parsed)...")
 
-        # Chunk text for this page
-        raw_chunks = _text_splitter.split_text(page_text)
+        chunk_records: List[ChunkRecord] = []
+        global_chunk_count = 0
 
-        for chunk_text in raw_chunks:
-            global_chunk_count += 1
-            chunk_id = f"{source_id}_p{page_num}_c{global_chunk_count}_{uuid.uuid4().hex[:6]}"
+        for item in pages_content:
+            page_num = item["page"]
+            page_text = item["text"]
 
-            metadata = ChunkMetadata(
-                subject=subject,
-                grade_level=grade_level,
-                topic=topic,
-                source_file=source_id,
-                source_id=source_id,
-                filename=filename,
-                page=page_num,
-                ingestion_date=ingestion_date,
-            )
+            # Chunk text for this page
+            raw_chunks = _text_splitter.split_text(page_text)
 
-            chunk_records.append(
-                ChunkRecord(
-                    id=chunk_id,
-                    text=chunk_text,
-                    metadata=metadata
+            for chunk_text in raw_chunks:
+                global_chunk_count += 1
+                chunk_id = f"{source_id}_p{page_num}_c{global_chunk_count}_{uuid.uuid4().hex[:6]}"
+
+                metadata = ChunkMetadata(
+                    subject=subject,
+                    grade_level=grade_level,
+                    topic=topic,
+                    source_file=source_id,
+                    source_id=source_id,
+                    filename=filename,
+                    page=page_num,
+                    ingestion_date=ingestion_date,
                 )
-            )
 
-    if chunk_records:
-        add_chunks(chunk_records)
+                chunk_records.append(
+                    ChunkRecord(
+                        id=chunk_id,
+                        text=chunk_text,
+                        metadata=metadata
+                    )
+                )
 
-    return {
-        "source_id": source_id,
-        "filename": filename,
-        "chunk_count": len(chunk_records),
-        "subject": subject,
-        "grade_level": grade_level,
-        "topic": topic,
-        "ingestion_date": ingestion_date,
-        "status": "success"
-    }
+        if job_id:
+            update_ingestion_progress(job_id, 85, f"Generating vector embeddings and indexing {len(chunk_records)} chunks...")
+
+        if chunk_records:
+            add_chunks(chunk_records)
+
+        result = {
+            "source_id": source_id,
+            "filename": filename,
+            "chunk_count": len(chunk_records),
+            "chunks_added": len(chunk_records),
+            "subject": subject,
+            "grade_level": grade_level,
+            "topic": topic,
+            "file_url": f"/static/knowledge_base/{Path(filename).name}",
+            "ingestion_date": ingestion_date,
+            "status": "success",
+        }
+
+        if job_id:
+            complete_ingestion_job(job_id, result)
+
+        return result
+    except Exception as exc:
+        if job_id:
+            fail_ingestion_job(job_id, str(exc))
+        raise
 
 
 def get_indexed_sources() -> List[Dict[str, Any]]:
     """
     Lists all indexed documents from ChromaDB vector store with chunk counts,
-    subject/grade tags, topic, and ingestion date.
+    subject/grade tags, topic, ingestion date, and physical file preview availability.
     """
     collection = init_collection()
     results = collection.get(include=["metadatas"])
@@ -309,24 +430,54 @@ def get_indexed_sources() -> List[Dict[str, Any]]:
         if not meta:
             continue
         source_id = str(meta.get("source_id") or meta.get("source_file") or "unknown")
+        fn = str(meta.get("filename") or meta.get("source_file") or source_id)
         if source_id not in sources_map:
+            ing_date = str(meta.get("ingestion_date", ""))
             sources_map[source_id] = {
                 "source_id": source_id,
-                "filename": str(meta.get("filename") or meta.get("source_file") or source_id),
+                "source_file": source_id,
+                "filename": fn,
                 "subject": str(meta.get("subject", "")),
                 "grade_level": str(meta.get("grade_level", "")),
                 "topic": str(meta.get("topic", "")),
-                "ingestion_date": str(meta.get("ingestion_date", "")),
-                "chunk_count": 0
+                "ingestion_date": ing_date,
+                "ingested_at": ing_date,
+                "chunk_count": 0,
+                "has_file": False,
+                "file_url": None,
+                "file_size": 0,
             }
         sources_map[source_id]["chunk_count"] += 1
+
+    # Check physical file availability on disk for each source
+    for source_id, item in sources_map.items():
+        fn_clean = Path(item["filename"]).name
+        sid_clean = Path(source_id).name
+        candidates = [
+            KB_DIR / fn_clean,
+            KB_DIR / sid_clean,
+            KB_DIR / f"{sid_clean}.pdf",
+        ]
+        found = next((p for p in candidates if p.exists() and p.is_file()), None)
+        if found:
+            item["has_file"] = True
+            item["file_url"] = f"/static/knowledge_base/{found.name}"
+            item["file_size"] = found.stat().st_size
 
     return list(sources_map.values())
 
 
 def delete_source_chunks(source_id: str) -> bool:
     """
-    Removes all chunks associated with a document source from the vector store.
+    Removes all chunks associated with a document source from the vector store,
+    and removes any physical stored file on disk.
     """
     delete_by_source(source_id)
+    sid_clean = Path(source_id).name
+    for candidate in [KB_DIR / sid_clean, KB_DIR / f"{sid_clean}.pdf"]:
+        if candidate.exists() and candidate.is_file():
+            try:
+                candidate.unlink(missing_ok=True)
+            except Exception:
+                pass
     return True

@@ -26,12 +26,17 @@ function formatApiError(data, statusText) {
   return parts.join(' ') || statusText || 'Request failed'
 }
 
+export { API_URL }
+
 export async function api(path, options = {}) {
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
+  const headers = { ...(options.headers || {}) }
   if (token()) headers.Authorization = `Bearer ${token()}`
 
   let body = options.body
   if (body && typeof body === 'object' && !(body instanceof FormData) && !(body instanceof Blob)) {
+    if (!headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json'
+    }
     body = JSON.stringify(body)
   }
 

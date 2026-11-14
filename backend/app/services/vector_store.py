@@ -152,11 +152,14 @@ def add_chunks(
         documents.append(chunk.text)
         metadatas.append(_normalize_metadata(chunk.metadata))
 
-    collection.upsert(
-        ids=ids,
-        documents=documents,
-        metadatas=metadatas
-    )
+    # Batch upsert to support large files with thousands of chunks without exceeding ChromaDB/SQLite limits
+    BATCH_SIZE = 200
+    for i in range(0, len(ids), BATCH_SIZE):
+        collection.upsert(
+            ids=ids[i:i + BATCH_SIZE],
+            documents=documents[i:i + BATCH_SIZE],
+            metadatas=metadatas[i:i + BATCH_SIZE]
+        )
 
 
 def query(

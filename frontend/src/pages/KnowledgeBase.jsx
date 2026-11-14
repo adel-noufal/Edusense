@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertCircle, BookOpen, Brain, CheckCircle2, ChevronDown, ChevronRight,
-  Database, FileText, Filter, Layers, Loader2, MessageSquare, Plus,
+  Database, Download, ExternalLink, Eye, FileText, Filter, Layers, Loader2, MessageSquare, Plus,
   RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, Upload, X, Zap
 } from 'lucide-react'
 import { api } from '../services/api'
@@ -58,13 +58,22 @@ function UploadModal({ onClose, onSuccess }) {
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState('')
   const [progress, setProgress]   = useState('')
+  const [progressPct, setProgressPct] = useState(0)
   const dropRef                   = useRef(null)
   const fileRef                   = useRef(null)
+
+  function handleFileSelection(f) {
+    if (!f) return
+    setFile(f)
+    if (f.size > 1024 * 1024) {
+      setIsAsync(true)
+    }
+  }
 
   function handleDrop(e) {
     e.preventDefault()
     const f = e.dataTransfer.files?.[0]
-    if (f) setFile(f)
+    handleFileSelection(f)
   }
 
   async function submit() {
@@ -74,7 +83,8 @@ function UploadModal({ onClose, onSuccess }) {
     }
     setError('')
     setLoading(true)
-    setProgress('Uploading…')
+    setProgress('Uploading document to server...')
+    setProgressPct(10)
     try {
       const form = new FormData()
       form.append('file', file)
@@ -83,29 +93,68 @@ function UploadModal({ onClose, onSuccess }) {
       form.append('topic', topic.trim())
       form.append('is_async', isAsync ? 'true' : 'false')
 
-      const tok = localStorage.getItem('edusense_token')
-      const res = await fetch('/api/rag/ingest', {
+      const data = await api('/rag/ingest', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${tok}` },
         body: form,
       })
-      const text = await res.text()
-      let data = null
-      try {
-        data = text ? JSON.parse(text) : {}
-      } catch {
-        data = { detail: text || `Upload failed with HTTP ${res.status}` }
+
+      if (data.status === 'queued' && data.job_id) {
+        const mb = (file.size / 1024 / 1024).toFixed(1)
+        setProgress(`Ingesting in background (${mb} MB)...`)
+        setProgressPct(15)
+        try {
+          localStorage.setItem('edusense_kb_ingest_job', JSON.stringify({
+            jobId: data.job_id,
+            filename: file.name,
+          }))
+        } catch (_) {}
+
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await api(`/rag/ingest/status/${data.job_id}`)
+            if (statusRes.progress) setProgressPct(statusRes.progress)
+            if (statusRes.message) setProgress(statusRes.message)
+
+            if (statusRes.status === 'completed') {
+              clearInterval(pollInterval)
+              try { localStorage.removeItem('edusense_kb_ingest_job') } catch (_) {}
+              setProgressPct(100)
+              setProgress(`✓ Complete: ${statusRes.chunks_indexed || statusRes.result?.chunk_count || 0} chunks indexed!`)
+              setTimeout(() => {
+                onSuccess()
+                onClose()
+              }, 1400)
+            } else if (statusRes.status === 'failed') {
+              clearInterval(pollInterval)
+              try { localStorage.removeItem('edusense_kb_ingest_job') } catch (_) {}
+              setError(statusRes.error || 'Ingestion failed on server')
+              setLoading(false)
+            }
+          } catch (err) {
+            clearInterval(pollInterval)
+            try { localStorage.removeItem('edusense_kb_ingest_job') } catch (_) {}
+            setError(err.message || 'Error tracking background status')
+            setLoading(false)
+          }
+        }, 1200)
+      } else {
+        setProgressPct(100)
+        setProgress(`✓ Indexed ${data.chunk_count || data.chunks_added || 0} chunks successfully`)
+        setTimeout(() => {
+          onSuccess()
+          onClose()
+        }, 1200)
       }
-      if (!res.ok) throw new Error(data?.detail || `Upload failed (status ${res.status})`)
-      setProgress(data.status === 'queued'
-        ? `Queued for background processing (${data.source_id})`
-        : `Done — ${data.chunks_added ?? '?'} chunks indexed`)
-      setTimeout(() => { onSuccess(); onClose() }, 1600)
     } catch (e) {
-      setError(e.message)
+      setError(e.message || 'Upload failed')
       setLoading(false)
       setProgress('')
+      setProgressPct(0)
     }
+  }
+
+  function roundMb(bytes) {
+    return (bytes / 1024 / 1024).toFixed(1)
   }
 
   return (
@@ -133,12 +182,12 @@ function UploadModal({ onClose, onSuccess }) {
             className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-8 transition-colors
               ${file ? 'border-teal-400 bg-teal-50 dark:bg-teal-950/20' : 'border-slate-300 hover:border-teal-400 hover:bg-slate-50 dark:border-slate-600 dark:hover:border-teal-500 dark:hover:bg-slate-800/50'}`}
           >
-            <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={(e) => setFile(e.target.files?.[0])} />
+            <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={(e) => handleFileSelection(e.target.files?.[0])} />
             {file ? (
               <>
                 <CheckCircle2 size={32} className="text-teal-500" />
                 <p className="text-center text-sm font-semibold text-teal-700 dark:text-teal-300">{file.name}</p>
-                <p className="text-xs text-slate-500">{(file.size / 1024 / 1024).toFixed(2)} MB — click to change</p>
+                <p className="text-xs text-slate-500">{roundMb(file.size)} MB — click to change</p>
               </>
             ) : (
               <>
@@ -146,7 +195,7 @@ function UploadModal({ onClose, onSuccess }) {
                   <FileText size={24} className="text-slate-400" />
                 </div>
                 <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Drop a PDF here, or click to browse</p>
-                <Pill label="PDF only" />
+                <Pill label="PDFs up to 100MB+" />
               </>
             )}
           </div>
@@ -176,17 +225,31 @@ function UploadModal({ onClose, onSuccess }) {
             <input type="checkbox" className="h-4 w-4 rounded" checked={isAsync} onChange={(e) => setIsAsync(e.target.checked)} />
             <div>
               <p className="text-sm font-semibold">Process in background</p>
-              <p className="text-xs text-slate-500">For large files (auto-selected for files &gt;1 MB)</p>
+              <p className="text-xs text-slate-500">Non-blocking background queue (auto-enabled for &gt;1 MB)</p>
             </div>
           </label>
 
           {error   && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
-          {progress && <p className="rounded-xl bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-700 dark:bg-teal-950/30 dark:text-teal-300">{progress}</p>}
+          
+          {loading && (
+            <div className="space-y-2 rounded-2xl bg-teal-50/70 p-4 dark:bg-teal-950/30">
+              <div className="flex justify-between text-xs font-semibold text-teal-800 dark:text-teal-200">
+                <span className="truncate max-w-[280px]">{progress || 'Processing…'}</span>
+                <span>{progressPct}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-teal-200/60 dark:bg-teal-900/60">
+                <div
+                  className="h-full bg-gradient-to-r from-teal-500 to-cyan-500 transition-all duration-300"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           <button id="kb-upload-submit" type="button" disabled={loading}
             className="btn-primary w-full justify-center gap-2 py-3"
             onClick={submit}>
-            {loading ? <><Loader2 size={18} className="animate-spin" />Processing…</> : <><Zap size={18} />Upload & Index</>}
+            {loading ? <><Loader2 size={18} className="animate-spin" />Processing ({progressPct}%)…</> : <><Zap size={18} />Upload & Index</>}
           </button>
         </div>
       </div>
@@ -194,7 +257,6 @@ function UploadModal({ onClose, onSuccess }) {
   )
 }
 
-// ─── Source Card ─────────────────────────────────────────────────────────────
 function SourceCard({ src, onDelete, onPreview }) {
   const [expanded, setExpanded] = useState(false)
   const subjectColor = { Biology:'teal', Physics:'violet', Mathematics:'amber', Chemistry:'green' }[src.subject] || 'slate'
@@ -218,9 +280,15 @@ function SourceCard({ src, onDelete, onPreview }) {
             {src.chunk_count ?? 0} chunks
           </span>
           <button type="button"
+            className="btn-soft p-1.5 text-ocean hover:bg-ocean/10 dark:text-mint"
+            title="Preview or view document"
+            onClick={() => onPreview({ ...src, initialTab: 'doc' })}>
+            <Eye size={15} />
+          </button>
+          <button type="button"
             className="btn-soft p-1.5 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-950/30"
-            title="Preview chunks"
-            onClick={() => onPreview(src)}>
+            title="Inspect semantic chunks"
+            onClick={() => onPreview({ ...src, initialTab: 'chunks' })}>
             <Search size={15} />
           </button>
           <button type="button"
@@ -251,10 +319,13 @@ function SourceCard({ src, onDelete, onPreview }) {
 
 // ─── Preview Panel ────────────────────────────────────────────────────────────
 function PreviewPanel({ src, onClose }) {
+  const [tab, setTab]         = useState(src?.initialTab || (src?.file_url ? 'doc' : 'chunks'))
   const [query, setQuery]     = useState(src?.topic || '')
   const [chunks, setChunks]   = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
+
+  const docUrl = src?.file_url || `/api/rag/sources/${encodeURIComponent(src?.source_id || src?.source_file || '')}/file`
 
   async function search() {
     if (!query.trim()) return
@@ -276,60 +347,106 @@ function PreviewPanel({ src, onClose }) {
   useEffect(() => { if (query) search() }, [src])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 backdrop-blur-sm sm:items-center">
-      <div className="flex w-full max-w-2xl flex-col rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-           style={{ maxHeight: '85vh', animation: 'modalRise .3s ease-out' }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="flex w-full max-w-4xl flex-col rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+           style={{ maxHeight: '90vh', height: '820px', animation: 'modalRise .3s ease-out' }}>
+        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white">
-              <Search size={18} />
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 text-white">
+              <FileText size={20} />
             </div>
-            <div>
-              <h2 className="font-black">Chunk Preview</h2>
-              <p className="text-xs text-slate-500 truncate max-w-xs">{src?.source_file}</p>
+            <div className="min-w-0">
+              <h2 className="font-black text-lg truncate">{src?.filename || src?.source_file}</h2>
+              <p className="text-xs text-slate-500">{src?.subject} · Grade {src?.grade_level || 'All'} · {src?.chunk_count || 0} chunks</p>
             </div>
           </div>
-          <button type="button" className="btn-soft p-1.5" onClick={onClose}><X size={18} /></button>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={docUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-soft gap-1.5 text-xs py-1.5 px-3 text-teal-700 dark:text-mint"
+              title="Open document in a new tab"
+            >
+              <ExternalLink size={14} />Open in New Tab
+            </a>
+            <button type="button" className="btn-soft p-1.5" onClick={onClose}><X size={18} /></button>
+          </div>
         </div>
 
-        <div className="flex gap-2 border-b border-slate-100 px-6 py-3 dark:border-slate-800">
-          <input id="preview-query" className="input flex-1" placeholder="Search topic in this source…"
-            value={query} onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && search()} />
-          <button id="preview-search" type="button" className="btn-primary px-4" onClick={search} disabled={loading}>
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+        {/* Tab switch */}
+        <div className="flex border-b border-slate-100 px-6 pt-2 dark:border-slate-800 gap-2 bg-slate-50/50 dark:bg-slate-900/50">
+          <button
+            type="button"
+            className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-semibold transition ${tab === 'doc' ? 'border-teal-600 text-teal-700 dark:border-mint dark:text-mint' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            onClick={() => setTab('doc')}
+          >
+            <Eye size={16} />Document Preview
+          </button>
+          <button
+            type="button"
+            className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-semibold transition ${tab === 'chunks' ? 'border-teal-600 text-teal-700 dark:border-mint dark:text-mint' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            onClick={() => setTab('chunks')}
+          >
+            <Layers size={16} />Semantic Chunks ({chunks.length || src?.chunk_count || 0})
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto space-y-3 p-6">
-          {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
-          {!loading && chunks.length === 0 && !error && (
-            <div className="flex flex-col items-center gap-3 py-10 text-center text-slate-400">
-              <Layers size={36} />
-              <p className="text-sm">No chunks found. Try a different search.</p>
+        {/* Tab Content */}
+        {tab === 'doc' ? (
+          <div className="flex-1 overflow-hidden p-6 flex flex-col">
+            <div className="flex-1 w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-950">
+              <iframe
+                src={docUrl}
+                className="w-full h-full min-h-[500px] border-0"
+                title="Document PDF Preview"
+              />
             </div>
-          )}
-          {chunks.map((c, i) => (
-            <div key={i} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <FileText size={13} />
-                  <span>{c.source_file} · p.{c.page}</span>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex gap-2 border-b border-slate-100 px-6 py-3 dark:border-slate-800">
+              <input id="preview-query" className="input flex-1" placeholder="Search topic or keywords in this source…"
+                value={query} onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && search()} />
+              <button id="preview-search" type="button" className="btn-primary px-4" onClick={search} disabled={loading}>
+                {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 p-6">
+              {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
+              {!loading && chunks.length === 0 && !error && (
+                <div className="flex flex-col items-center gap-3 py-10 text-center text-slate-400">
+                  <Layers size={36} />
+                  <p className="text-sm">No chunks match query. Try searching for broader terms.</p>
                 </div>
-                <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-bold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
-                  score {c.score?.toFixed(3)}
-                </span>
-              </div>
-              <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed line-clamp-4">{c.text}</p>
+              )}
+              {chunks.map((c, i) => (
+                <div key={i} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <FileText size={13} />
+                      <span>{c.source_file || src?.filename} · page {c.page}</span>
+                    </div>
+                    {c.score != null && (
+                      <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-bold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
+                        score {c.score?.toFixed(3)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{c.text}</p>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-// ─── Q&A / AI Chat Panel ──────────────────────────────────────────────────────
 function QAPanel() {
   const [messages, setMessages] = useState([
     {
@@ -520,7 +637,44 @@ export default function KnowledgeBaseDashboard() {
   const [searchQ, setSearchQ]         = useState('')
   const [filterSubject, setFilter]    = useState('')
   const [deleting, setDeleting]       = useState(null)
-  const [activeTab, setActiveTab]     = useState('library') // 'library' | 'qa'
+  const [activeTab, setActiveTab]     = useState('library')
+  const [activeJob, setActiveJob]     = useState(null)
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('edusense_kb_ingest_job')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (parsed?.jobId) {
+          setActiveJob(parsed)
+          pollActiveJob(parsed.jobId)
+        }
+      }
+    } catch (_) {}
+  }, [])
+
+  const pollActiveJob = (jobId) => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await api(`/rag/ingest/status/${jobId}`)
+        setActiveJob(curr => curr ? { ...curr, progress: res.progress, message: res.message, status: res.status } : null)
+        if (res.status === 'completed') {
+          clearInterval(interval)
+          try { localStorage.removeItem('edusense_kb_ingest_job') } catch (_) {}
+          setTimeout(() => {
+            setActiveJob(null)
+            loadSources()
+          }, 2000)
+        } else if (res.status === 'failed') {
+          clearInterval(interval)
+          try { localStorage.removeItem('edusense_kb_ingest_job') } catch (_) {}
+        }
+      } catch (_) {
+        clearInterval(interval)
+        try { localStorage.removeItem('edusense_kb_ingest_job') } catch (_) {}
+      }
+    }, 1500)
+  } // 'library' | 'qa'
 
   async function loadSources() {
     setLoading(true)
@@ -599,6 +753,26 @@ export default function KnowledgeBaseDashboard() {
         <StatCard icon={BookOpen}  label="Subjects"     value={uniqueSubs}     color="amber"  sub="covered" />
         <StatCard icon={Zap}       label="Grade Levels" value={uniqueGrades}   color="green"  sub="available" />
       </div>
+
+      {/* Background ingestion banner */}
+      {activeJob && activeJob.status !== 'completed' && (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-teal-200 bg-teal-50/80 p-4 dark:border-teal-900/50 dark:bg-teal-950/30">
+          <div className="flex items-center gap-3 min-w-0">
+            <Loader2 size={18} className="animate-spin text-teal-600 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-teal-900 dark:text-teal-200 truncate">
+                Ingesting {activeJob.filename || 'document'}... ({activeJob.progress || 0}%)
+              </p>
+              <p className="text-xs text-teal-700 dark:text-teal-300 truncate">
+                {activeJob.message || 'Processing pages and generating semantic embeddings...'}
+              </p>
+            </div>
+          </div>
+          <div className="w-32 bg-teal-200 dark:bg-teal-900/60 rounded-full h-2 overflow-hidden shrink-0">
+            <div className="bg-teal-600 h-2 transition-all duration-300" style={{ width: `${activeJob.progress || 10}%` }} />
+          </div>
+        </div>
+      )}
 
       {/* ── Tabs ── */}
       <div className="flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-900/50 w-fit">

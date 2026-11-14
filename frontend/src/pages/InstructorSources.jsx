@@ -62,13 +62,10 @@ export default function InstructorSources() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const authToken = token()
-      const res = await fetch(`/api/sessions/${activeSessionId}/resources`, {
+      await api(`/sessions/${activeSessionId}/resources`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       })
-      if (!res.ok) throw new Error(await res.text())
       await loadResources(activeSessionId)
     } catch (err) {
       setError(err.message || 'Upload failed')

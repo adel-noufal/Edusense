@@ -20,6 +20,7 @@ from app.models.models import (
     User,
 )
 from app.schemas.schemas import AssignmentIn, AssignmentOut, AssignmentSubmissionOut
+from app.services.file_validation import validate_file_signature
 
 router = APIRouter(prefix="/assignments", tags=["Assignments"])
 
@@ -190,6 +191,10 @@ def submit_assignment(
         raise HTTPException(400, "Uploaded file is empty")
     if file_size > 50 * 1024 * 1024:  # 50 MB limit
         raise HTTPException(413, "File too large (max 50 MB)")
+
+    is_valid_sig, sig_reason = validate_file_signature(file.filename, file_bytes[:2048])
+    if not is_valid_sig:
+        raise HTTPException(400, f"File validation failed: {sig_reason}")
 
     with open(dest_path, "wb") as f:
         f.write(file_bytes)
