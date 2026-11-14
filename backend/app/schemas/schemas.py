@@ -142,12 +142,51 @@ class FlashcardRequest(BaseModel):
 
 # Task 10 & 11 & Quiz Anti-Cheat: Quiz schemas
 class PublishExamRequest(BaseModel):
-    session_id: int
+    session_id: int | None = None
     time_limit_seconds: int | None = None
     time_limit_per_question_seconds: int | None = None
     lock_back_navigation: bool = False
     fullscreen_lock: bool = True
     camera_monitoring: bool = False
+    due_date: datetime | None = None
+    is_published: bool = True
+
+
+class QuizQuestionInput(BaseModel):
+    question: str
+    type: str = "multiple_choice"
+    options: list[str] | None = None
+    answer: str
+    explanation: str | None = None
+
+
+class QuizCreateManual(BaseModel):
+    title: str = Field(min_length=1, max_length=180)
+    difficulty: str = "Medium"
+    session_id: int | None = None
+    questions: list[QuizQuestionInput] = Field(min_length=1)
+    is_exam: bool = False
+    is_published: bool = True
+    time_limit_seconds: int | None = None
+    time_limit_per_question_seconds: int | None = None
+    lock_back_navigation: bool = False
+    fullscreen_lock: bool = False
+    camera_monitoring: bool = False
+    due_date: datetime | None = None
+
+
+class QuizUpdateSettings(BaseModel):
+    title: str | None = None
+    difficulty: str | None = None
+    session_id: int | None = None
+    questions: list[QuizQuestionInput] | None = None
+    is_exam: bool | None = None
+    is_published: bool | None = None
+    time_limit_seconds: int | None = None
+    time_limit_per_question_seconds: int | None = None
+    lock_back_navigation: bool | None = None
+    fullscreen_lock: bool | None = None
+    camera_monitoring: bool | None = None
     due_date: datetime | None = None
 
 

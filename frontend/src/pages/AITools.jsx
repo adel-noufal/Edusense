@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X } from 'lucide-react'
+import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff } from 'lucide-react'
 import { api, downloadAuthenticatedRequest, staticUrl } from '../services/api'
 import { downloadBlob, downloadText, flashcardsToHtml, lessonToMarkdown, downloadLessonAsDoc, downloadLessonAsHtml, downloadLessonAsPdf, downloadLessonAsPptxHtml, downloadQuizAsDoc, downloadQuizAsHtml, downloadQuizAsPdf, downloadFlashcardsAsDoc, downloadFlashcardsAsPdf } from '../utils/download'
 import { useLanguage } from '../context/LanguageContext'
@@ -374,32 +374,537 @@ export function QuizGenerator() {
     } catch { /* handled in hook */ }
   }
 
-  async function deleteHistory(id, e) {
-    e.stopPropagation()
+  const [creationMode, setCreationMode] = useState('ai') // 'ai' or 'manual'
+  const toast = useToast()
+  const [manualSubmitting, setManualSubmitting] = useState(false)
+  const [manualError, setManualError] = useState('')
+  const [manualForm, setManualForm] = useState({
+    title: '',
+    difficulty: 'Medium',
+    session_id: '',
+    is_exam: false,
+    time_limit_mins: '30',
+    per_question_secs: '',
+    lock_back_navigation: false,
+    fullscreen_lock: false,
+    camera_monitoring: false,
+    due_date: '',
+    questions: [
+      {
+        question: '',
+        type: 'multiple_choice',
+        options: ['Option A', 'Option B', 'Option C', 'Option D'],
+        answer: 'Option A',
+        explanation: '',
+      },
+    ],
+  })
+
+  function addQuestion() {
+    setManualForm((prev) => ({
+      ...prev,
+      questions: [
+        ...prev.questions,
+        {
+          question: '',
+          type: 'multiple_choice',
+          options: ['Option A', 'Option B', 'Option C', 'Option D'],
+          answer: 'Option A',
+          explanation: '',
+        },
+      ],
+    }))
+  }
+
+  function removeQuestion(qIdx) {
+    if (manualForm.questions.length <= 1) {
+      setManualError('Quiz must contain at least one question.')
+      return
+    }
+    setManualForm((prev) => ({
+      ...prev,
+      questions: prev.questions.filter((_, i) => i !== qIdx),
+    }))
+  }
+
+  function updateQuestion(qIdx, patch) {
+    setManualForm((prev) => {
+      const nextQ = [...prev.questions]
+      nextQ[qIdx] = { ...nextQ[qIdx], ...patch }
+      return { ...prev, questions: nextQ }
+    })
+  }
+
+  function addOption(qIdx) {
+    const q = manualForm.questions[qIdx]
+    const nextChar = String.fromCharCode(65 + q.options.length)
+    updateQuestion(qIdx, { options: [...q.options, `Option ${nextChar}`] })
+  }
+
+  function removeOption(qIdx, optIdx) {
+    const q = manualForm.questions[qIdx]
+    if (q.options.length <= 2) return
+    const removedOpt = q.options[optIdx]
+    const newOptions = q.options.filter((_, i) => i !== optIdx)
+    const newAnswer = q.answer === removedOpt ? newOptions[0] : q.answer
+    updateQuestion(qIdx, { options: newOptions, answer: newAnswer })
+  }
+
+  async function submitManualQuiz(e) {
+    e.preventDefault()
+    if (!manualForm.title.trim()) {
+      setManualError('Please provide a quiz title.')
+      return
+    }
+    for (let i = 0; i < manualForm.questions.length; i++) {
+      const q = manualForm.questions[i]
+      if (!q.question.trim()) {
+        setManualError(`Question ${i + 1} is missing question text.`)
+        return
+      }
+      if (!q.answer.trim()) {
+        setManualError(`Question ${i + 1} is missing a designated correct answer.`)
+        return
+      }
+    }
+    setManualError('')
+    setManualSubmitting(true)
     try {
-      await api(`/ai/quizzes/${id}`, { method: 'DELETE' })
+      let formattedDueDate = null
+      if (manualForm.due_date && manualForm.due_date.trim()) {
+        try {
+          const d = new Date(manualForm.due_date)
+          if (!isNaN(d.getTime())) formattedDueDate = d.toISOString()
+        } catch (_) {}
+      }
+
+      const payload = {
+        title: manualForm.title.trim(),
+        difficulty: manualForm.difficulty,
+        session_id: manualForm.session_id ? Number(manualForm.session_id) : null,
+        is_exam: manualForm.is_exam,
+        is_published: true,
+        time_limit_seconds: manualForm.time_limit_mins ? Number(manualForm.time_limit_mins) * 60 : null,
+        time_limit_per_question_seconds: manualForm.per_question_secs ? Number(manualForm.per_question_secs) : null,
+        lock_back_navigation: manualForm.lock_back_navigation,
+        fullscreen_lock: manualForm.fullscreen_lock,
+        camera_monitoring: manualForm.camera_monitoring,
+        due_date: formattedDueDate,
+        questions: manualForm.questions.map((q) => ({
+          question: q.question.trim(),
+          type: q.type,
+          options: q.type === 'multiple_choice' ? q.options.filter(Boolean) : (q.type === 'true_false' ? ['True', 'False'] : []),
+          answer: q.answer.trim(),
+          explanation: q.explanation?.trim() || '',
+        })),
+      }
+      const created = await api('/quizzes', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      toast.success(manualForm.is_exam ? 'Manual Exam created & published successfully!' : 'Manual Quiz created successfully!')
+      setResult(created)
+      setAnswers({})
+      setRevealed({})
       await loadHistory()
-      if (result && result.id === id) setResult(null)
-    } catch { /* ignore */ }
+    } catch (err) {
+      setManualError(err.message || 'Failed to create quiz.')
+    } finally {
+      setManualSubmitting(false)
+    }
   }
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_320px] items-start">
       <div className="space-y-6">
-        <ToolShell title={t('ai.quizTitle')} icon={<FileQuestion />} onSubmit={submit} loading={loading} error={error}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <SelectField label="AI Model" value={form.model} options={aiModels} onChange={(value) => setForm({ ...form, model: value })} />
-            <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
-            <SelectField label={t('ai.difficulty')} value={form.difficulty} options={difficulties} onChange={(value) => setForm({ ...form, difficulty: value })} />
-            <Field label={t('ai.questionCount')} type="number" value={form.count} onChange={(value) => setForm({ ...form, count: value })} />
-            <div className="md:col-span-2">
-              <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} textarea />
+        {/* Creation Mode Switcher: AI vs Manual */}
+        <div className="flex items-center gap-2 rounded-2xl bg-slate-100 p-1 dark:bg-slate-800 w-fit">
+          <button
+            type="button"
+            onClick={() => setCreationMode('ai')}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${creationMode === 'ai' ? 'bg-white text-ocean shadow-sm dark:bg-slate-700 dark:text-white' : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-100'}`}
+          >
+            <Sparkles size={14} /> AI Generation
+          </button>
+          <button
+            type="button"
+            onClick={() => setCreationMode('manual')}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${creationMode === 'manual' ? 'bg-white text-ocean shadow-sm dark:bg-slate-700 dark:text-white' : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-100'}`}
+          >
+            <Edit3 size={14} /> Manual Authoring
+          </button>
+        </div>
+
+        {creationMode === 'ai' ? (
+          <ToolShell title={t('ai.quizTitle')} icon={<FileQuestion />} onSubmit={submit} loading={loading} error={error}>
+            <div className="grid gap-4 md:grid-cols-2">
+              <SelectField label="AI Model" value={form.model} options={aiModels} onChange={(value) => setForm({ ...form, model: value })} />
+              <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
+              <SelectField label={t('ai.difficulty')} value={form.difficulty} options={difficulties} onChange={(value) => setForm({ ...form, difficulty: value })} />
+              <Field label={t('ai.questionCount')} type="number" value={form.count} onChange={(value) => setForm({ ...form, count: value })} />
+              <div className="md:col-span-2">
+                <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} textarea />
+              </div>
+              <SessionPickerFields form={form} setForm={setForm} />
             </div>
-            <SessionPickerFields form={form} setForm={setForm} />
+            <button className="btn-primary" disabled={loading}>{loading ? t('ai.generatingLesson') : t('ai.generateQuiz')}</button>
+          </ToolShell>
+        ) : (
+          <div className="panel space-y-5">
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400">
+                <Edit3 size={20} />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold">Manual Quiz & Exam Builder</h2>
+                <p className="text-xs text-slate-500">Author custom questions, designate answers, and deploy with timer & anti-cheat locks.</p>
+              </div>
+            </div>
+
+            <form onSubmit={submitManualQuiz} className="space-y-5 text-sm">
+              {manualError && (
+                <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+                  {manualError}
+                </p>
+              )}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Quiz Title *</label>
+                  <input
+                    type="text"
+                    className="input mt-1 w-full"
+                    value={manualForm.title}
+                    onChange={(e) => setManualForm({ ...manualForm, title: e.target.value })}
+                    placeholder="e.g. Calculus Midterm Examination"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Difficulty</label>
+                  <select
+                    className="input mt-1 w-full"
+                    value={manualForm.difficulty}
+                    onChange={(e) => setManualForm({ ...manualForm, difficulty: e.target.value })}
+                  >
+                    {difficulties.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <SessionPickerFields form={manualForm} setForm={setManualForm} showSourceSession={false} />
+                </div>
+              </div>
+
+              {/* Direct Exam Lockdown Settings */}
+              <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-800/40">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-xs uppercase tracking-wider text-purple-700 dark:text-purple-400">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-purple-600 focus:ring-purple-600"
+                    checked={manualForm.is_exam}
+                    onChange={(e) => setManualForm({ ...manualForm, is_exam: e.target.checked })}
+                  />
+                  <span>Publish Directly as Exam (With Anti-Cheat & Timers)</span>
+                </label>
+
+                {manualForm.is_exam && (
+                  <div className="space-y-3 pt-2">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Overall Time Limit (mins)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="300"
+                          className="input mt-1 w-full"
+                          value={manualForm.time_limit_mins}
+                          onChange={(e) => setManualForm({ ...manualForm, time_limit_mins: e.target.value })}
+                          placeholder="e.g. 45"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Per-Question Time (sec)</label>
+                        <input
+                          type="number"
+                          min="5"
+                          max="600"
+                          className="input mt-1 w-full"
+                          value={manualForm.per_question_secs}
+                          onChange={(e) => setManualForm({ ...manualForm, per_question_secs: e.target.value })}
+                          placeholder="Optional (e.g. 60)"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Exam Due Date & Time</label>
+                      <input
+                        type="datetime-local"
+                        className="input mt-1 w-full"
+                        value={manualForm.due_date}
+                        onChange={(e) => setManualForm({ ...manualForm, due_date: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="rounded border-slate-300 text-purple-600"
+                          checked={manualForm.lock_back_navigation}
+                          onChange={(e) => setManualForm({ ...manualForm, lock_back_navigation: e.target.checked })}
+                        />
+                        <span className="font-semibold flex items-center gap-1"><Lock size={12} /> Lock Back Nav</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="rounded border-slate-300 text-purple-600"
+                          checked={manualForm.fullscreen_lock}
+                          onChange={(e) => setManualForm({ ...manualForm, fullscreen_lock: e.target.checked })}
+                        />
+                        <span className="font-semibold flex items-center gap-1"><Shield size={12} /> Fullscreen</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="rounded border-slate-300 text-purple-600"
+                          checked={manualForm.camera_monitoring}
+                          onChange={(e) => setManualForm({ ...manualForm, camera_monitoring: e.target.checked })}
+                        />
+                        <span className="font-semibold flex items-center gap-1"><Camera size={12} /> Camera Lock</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Questions List */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">
+                    Questions ({manualForm.questions.length})
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={addQuestion}
+                    className="btn-soft text-xs py-1.5 px-3 flex items-center gap-1 text-ocean font-semibold"
+                  >
+                    <Plus size={14} /> Add Question
+                  </button>
+                </div>
+
+                {manualForm.questions.map((q, qIdx) => (
+                  <div key={qIdx} className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3 dark:border-slate-800 dark:bg-slate-900/60">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        Question {qIdx + 1}
+                      </span>
+                      {manualForm.questions.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeQuestion(qIdx)}
+                          className="text-slate-400 hover:text-red-500 transition p-1"
+                          title="Remove question"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div>
+                      <input
+                        type="text"
+                        className="input w-full font-medium"
+                        placeholder="Type question text..."
+                        value={q.question}
+                        onChange={(e) => updateQuestion(qIdx, { question: e.target.value })}
+                        required
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-4 text-xs font-semibold">
+                      <span className="text-slate-500">Type:</span>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`qtype-${qIdx}`}
+                          checked={q.type === 'multiple_choice'}
+                          onChange={() => updateQuestion(qIdx, {
+                            type: 'multiple_choice',
+                            options: q.options?.length >= 2 ? q.options : ['Option A', 'Option B', 'Option C', 'Option D'],
+                            answer: q.options?.[0] || 'Option A',
+                          })}
+                        />
+                        <span>Multiple Choice</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`qtype-${qIdx}`}
+                          checked={q.type === 'true_false'}
+                          onChange={() => updateQuestion(qIdx, {
+                            type: 'true_false',
+                            options: ['True', 'False'],
+                            answer: 'True',
+                          })}
+                        />
+                        <span>True / False</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`qtype-${qIdx}`}
+                          checked={q.type === 'short_answer'}
+                          onChange={() => updateQuestion(qIdx, {
+                            type: 'short_answer',
+                            options: [],
+                            answer: '',
+                          })}
+                        />
+                        <span>Short Answer</span>
+                      </label>
+                    </div>
+
+                    {/* Question Content based on type */}
+                    {q.type === 'multiple_choice' && (
+                      <div className="space-y-2 pt-1">
+                        <p className="text-[11px] font-semibold text-slate-500">
+                          Options (Select the radio button next to the correct answer):
+                        </p>
+                        {q.options.map((opt, optIdx) => (
+                          <div key={optIdx} className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name={`correct-ans-${qIdx}`}
+                              checked={q.answer === opt}
+                              onChange={() => updateQuestion(qIdx, { answer: opt })}
+                              title="Mark as correct answer"
+                            />
+                            <input
+                              type="text"
+                              className="input flex-1 py-1.5 text-xs"
+                              value={opt}
+                              onChange={(e) => {
+                                const newOpts = [...q.options]
+                                const wasAnswer = q.answer === opt
+                                newOpts[optIdx] = e.target.value
+                                updateQuestion(qIdx, {
+                                  options: newOpts,
+                                  answer: wasAnswer ? e.target.value : q.answer,
+                                })
+                              }}
+                              placeholder={`Option ${optIdx + 1}`}
+                              required
+                            />
+                            {q.options.length > 2 && (
+                              <button
+                                type="button"
+                                onClick={() => removeOption(qIdx, optIdx)}
+                                className="text-slate-400 hover:text-red-500 p-1"
+                              >
+                                <X size={14} />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {q.options.length < 6 && (
+                          <button
+                            type="button"
+                            onClick={() => addOption(qIdx)}
+                            className="text-xs text-ocean hover:underline font-semibold flex items-center gap-1 mt-1"
+                          >
+                            <Plus size={12} /> Add Option
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {q.type === 'true_false' && (
+                      <div className="flex items-center gap-4 pt-1 text-xs">
+                        <span className="font-semibold text-slate-500">Correct Answer:</span>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`tf-ans-${qIdx}`}
+                            checked={q.answer === 'True'}
+                            onChange={() => updateQuestion(qIdx, { answer: 'True' })}
+                          />
+                          <span>True</span>
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`tf-ans-${qIdx}`}
+                            checked={q.answer === 'False'}
+                            onChange={() => updateQuestion(qIdx, { answer: 'False' })}
+                          />
+                          <span>False</span>
+                        </label>
+                      </div>
+                    )}
+
+                    {q.type === 'short_answer' && (
+                      <div className="pt-1">
+                        <label className="block text-[11px] font-semibold text-slate-500">Expected Correct Answer *</label>
+                        <input
+                          type="text"
+                          className="input mt-1 w-full text-xs"
+                          placeholder="e.g. 1 / Photosynthesis / Isaac Newton"
+                          value={q.answer}
+                          onChange={(e) => updateQuestion(qIdx, { answer: e.target.value })}
+                          required
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <input
+                        type="text"
+                        className="input w-full text-xs text-slate-500"
+                        placeholder="Explanation or rationale for the answer (optional)"
+                        value={q.explanation || ''}
+                        onChange={(e) => updateQuestion(qIdx, { explanation: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={addQuestion}
+                  className="btn-soft w-full justify-center py-2 text-xs font-semibold flex items-center gap-1.5"
+                >
+                  <Plus size={14} /> Add Another Question
+                </button>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={manualSubmitting}
+                  className="btn-primary w-full justify-center py-2.5 text-sm font-bold flex items-center gap-2"
+                >
+                  {manualSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
+                  {manualSubmitting ? 'Saving Quiz...' : (manualForm.is_exam ? 'Save & Deploy Exam' : 'Save & Publish Quiz')}
+                </button>
+              </div>
+            </form>
           </div>
-          <button className="btn-primary" disabled={loading}>{loading ? t('ai.generatingLesson') : t('ai.generateQuiz')}</button>
-        </ToolShell>
-        {result && <QuizResult result={result} answers={answers} revealed={revealed} onAnswer={setAnswers} onReveal={setRevealed} onPublishExam={setPublishModalQuiz} />}
+        )}
+
+        {result && (
+          <QuizResult
+            result={result}
+            answers={answers}
+            revealed={revealed}
+            onAnswer={setAnswers}
+            onReveal={setRevealed}
+            onPublishExam={setPublishModalQuiz}
+          />
+        )}
       </div>
 
       <div className="panel space-y-4">
@@ -730,37 +1235,55 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
   const [lockBackNavigation, setLockBackNavigation] = useState(quiz.lock_back_navigation ?? true)
   const [fullscreenLock, setFullscreenLock] = useState(quiz.fullscreen_lock ?? true)
   const [cameraMonitoring, setCameraMonitoring] = useState(quiz.camera_monitoring ?? false)
-  const [dueDate, setDueDate] = useState(quiz.due_date ? quiz.due_date.substring(0, 16) : '')
+  const [dueDate, setDueDate] = useState(() => {
+    if (!quiz.due_date) return ''
+    try {
+      return new Date(quiz.due_date).toISOString().substring(0, 16)
+    } catch (_) {
+      return String(quiz.due_date).substring(0, 16)
+    }
+  })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
   async function handlePublish(e) {
     e.preventDefault()
-    if (!sessionId) {
-      setError('Please select a target session to publish this exam to.')
+    if (!sessionId && !quiz.session_id) {
+      setError('Please select a target session for this exam.')
       return
     }
     setSubmitting(true)
     setError('')
     try {
+      let formattedDueDate = null
+      if (dueDate && dueDate.trim()) {
+        try {
+          const parsed = new Date(dueDate)
+          if (!isNaN(parsed.getTime())) {
+            formattedDueDate = parsed.toISOString()
+          }
+        } catch (_) {}
+      }
+
       const payload = {
-        session_id: Number(sessionId),
+        session_id: sessionId ? Number(sessionId) : (quiz.session_id || null),
         time_limit_seconds: timeLimitMins ? Number(timeLimitMins) * 60 : null,
         time_limit_per_question_seconds: perQuestionSecs ? Number(perQuestionSecs) : null,
         lock_back_navigation: lockBackNavigation,
         fullscreen_lock: fullscreenLock,
         camera_monitoring: cameraMonitoring,
-        due_date: dueDate ? new Date(dueDate).toISOString() : null,
+        due_date: formattedDueDate,
+        is_published: true,
       }
       const updated = await api(`/quizzes/${quiz.id}/publish-as-exam`, {
         method: 'POST',
         body: JSON.stringify(payload),
       })
-      toast.success('Exam published successfully! Enrolled students can now take it from their Exams tab.')
+      toast.success(quiz.is_exam ? 'Exam settings updated successfully!' : 'Exam published successfully! Enrolled students can now take it from their Exams tab.')
       onPublished(updated)
       onClose()
     } catch (err) {
-      setError(err.message || 'Failed to publish exam')
+      setError(err.message || 'Failed to save exam settings')
     } finally {
       setSubmitting(false)
     }
@@ -774,7 +1297,7 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
               <Shield size={18} />
             </div>
-            <h2 className="text-lg font-bold">Publish as Exam</h2>
+            <h2 className="text-lg font-bold">{quiz.is_exam ? 'Update Exam Settings' : 'Publish as Exam'}</h2>
           </div>
           <button type="button" className="btn-soft p-1.5" onClick={onClose}><X size={18} /></button>
         </div>
@@ -840,7 +1363,7 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
           <div className="flex gap-2 pt-2">
             <button type="submit" disabled={submitting} className="btn-primary flex-1 justify-center gap-2">
               {submitting ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
-              {submitting ? 'Publishing Exam...' : 'Confirm & Publish Exam'}
+              {submitting ? (quiz.is_exam ? 'Saving Changes...' : 'Publishing Exam...') : (quiz.is_exam ? 'Save Settings Changes' : 'Confirm & Publish Exam')}
             </button>
             <button type="button" className="btn-soft" onClick={onClose} disabled={submitting}>Cancel</button>
           </div>
@@ -853,17 +1376,41 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
 function QuizResult({ result, answers, revealed, onAnswer, onReveal, onPublishExam }) {
   const { t } = useLanguage()
   const slug = (result.title || 'quiz').replace(/\s+/g, '-').toLowerCase()
+  const allRevealed = result.questions?.length > 0 && result.questions?.every((_, i) => revealed[i])
+
+  const toggleAllAnswers = () => {
+    const nextState = !allRevealed
+    const updated = {}
+    result.questions?.forEach((_, i) => {
+      updated[i] = nextState
+    })
+    onReveal(updated)
+  }
+
   return (
     <div className="space-y-4 rounded-md border border-slate-200 p-4 dark:border-slate-700">
       <ResultHeader title={result.title} subtitle={result.difficulty} sources={result.sources} unverified={result.unverified} />
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
-        <DownloadBar
-          items={[
-            { label: 'Word (.doc)', onClick: () => downloadQuizAsDoc(result, `${slug}.doc`) },
-            { label: 'PDF Document (.pdf)', onClick: () => downloadQuizAsPdf(result, slug) },
-            { label: 'HTML (.html)', onClick: () => downloadQuizAsHtml(result, `${slug}.html`) },
-          ]}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <DownloadBar
+            items={[
+              { label: 'Word (.doc)', onClick: () => downloadQuizAsDoc(result, `${slug}.doc`) },
+              { label: 'PDF Document (.pdf)', onClick: () => downloadQuizAsPdf(result, slug) },
+              { label: 'HTML (.html)', onClick: () => downloadQuizAsHtml(result, `${slug}.html`) },
+            ]}
+          />
+          {result.questions?.length > 0 && (
+            <button
+              type="button"
+              onClick={toggleAllAnswers}
+              className="btn-soft text-xs py-1.5 px-3 flex items-center gap-1.5"
+              title="Toggle correct answers visibility for all questions"
+            >
+              {allRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
+              {allRevealed ? 'Hide All Answers' : 'Show All Answers'}
+            </button>
+          )}
+        </div>
         {result.id && (
           <button
             type="button"
@@ -905,8 +1452,14 @@ function QuizResult({ result, answers, revealed, onAnswer, onReveal, onPublishEx
                   onChange={(e) => onAnswer({ ...answers, [index]: e.target.value })}
                 />
               )}
-              <div className="mt-3 flex items-center gap-3">
-                <button type="button" className="btn-soft" onClick={() => onReveal({ ...revealed, [index]: true })}>{t('ai.checkAnswer')}</button>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  className="btn-soft text-xs py-1.5 px-3"
+                  onClick={() => onReveal({ ...revealed, [index]: !show })}
+                >
+                  {show ? 'Hide Answer' : t('ai.checkAnswer')}
+                </button>
                 {show && (
                   <p className={`text-sm ${correct ? 'text-emerald-600' : 'text-red-600'}`}>
                     {correct ? t('ai.correct') : `${t('ai.answer')}: ${question.answer}`}

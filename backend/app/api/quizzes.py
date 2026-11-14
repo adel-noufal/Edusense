@@ -13,50 +13,148 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_role
 from app.core.audit import log_audit_event, log_student_data_access
 from app.db.session import get_db
-from app.models.models import Quiz, QuizAttempt, QuizViolation, User, Session as ClassSession
+from app.models.models import Quiz, QuizAttempt, QuizViolation, User, Session as ClassSession, AIGeneration
 from app.schemas.schemas import (
     QuizOut, PublishExamRequest, QuizAttemptOut, QuizSubmitRequest, QuizSubmitResponse,
-    QuizViolationOut, QuizAgentConfigCreate, QuizAgentConfigOut, QuizAgentConfigUpdate
+    QuizViolationOut, QuizAgentConfigCreate, QuizAgentConfigOut, QuizAgentConfigUpdate,
+    QuizCreateManual, QuizUpdateSettings
 )
 from app.models.models import SessionRegistration
 
 router = APIRouter(prefix="/quizzes", tags=["Quiz Attempts"])
 
 
-# ─── Student: Quiz Taking ────────────────────────────────────────────────────────
+# ─── Quiz Creation & Taking ───────────────────────────────────────────────────────
+
+@router.post("", response_model=QuizOut)
+@router.post("/", response_model=QuizOut)
+def create_manual_quiz(
+    payload: QuizCreateManual,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """
+    Allows an instructor to build a quiz MANUALLY (write their own questions/answers)
+    as an alternative to AI generation — same quiz object/schema either way.
+    """
+    if payload.session_id:
+        session = db.query(ClassSession).filter_by(id=payload.session_id).first()
+        if not session:
+            raise HTTPException(404, "Target session not found")
+        if session.instructor_id and session.instructor_id != user.id and user.role != "admin":
+            raise HTTPException(403, "Cannot attach quiz to a session owned by another instructor")
+
+    questions_data = []
+    for q in payload.questions:
+        q_dict = {
+            "question": q.question.strip(),
+            "type": q.type,
+            "options": q.options if q.options else (["True", "False"] if q.type == "true_false" else ["A", "B", "C", "D"]),
+            "answer": q.answer.strip(),
+            "explanation": q.explanation.strip() if q.explanation else "",
+        }
+        questions_data.append(q_dict)
+
+    quiz = Quiz(
+        session_id=payload.session_id,
+        title=payload.title.strip(),
+        difficulty=payload.difficulty,
+        questions_json=json.dumps(questions_data),
+        is_exam=payload.is_exam,
+        is_published=payload.is_published,
+        time_limit_seconds=payload.time_limit_seconds,
+        time_limit_per_question_seconds=payload.time_limit_per_question_seconds,
+        lock_back_navigation=payload.lock_back_navigation,
+        fullscreen_lock=payload.fullscreen_lock,
+        camera_monitoring=payload.camera_monitoring,
+        due_date=payload.due_date,
+    )
+    db.add(quiz)
+    db.commit()
+    db.refresh(quiz)
+
+    # Add AIGeneration record so it shows uniformly across historical views
+    generation = AIGeneration(
+        instructor_id=user.id,
+        session_id=payload.session_id,
+        type="quiz",
+        topic=quiz.title,
+        prompt=f"Manual Quiz · {quiz.difficulty}",
+        data_json=json.dumps({
+            "id": quiz.id,
+            "title": quiz.title,
+            "difficulty": quiz.difficulty,
+            "questions": questions_data,
+            "is_exam": quiz.is_exam,
+            "session_id": quiz.session_id,
+        })
+    )
+    db.add(generation)
+    db.commit()
+
+    log_audit_event(
+        db, action="create_manual_quiz", user=user,
+        resource_type="quiz", resource_id=str(quiz.id), request=request,
+        details={"title": quiz.title, "question_count": len(questions_data), "is_exam": quiz.is_exam}
+    )
+
+    return QuizOut(
+        id=quiz.id,
+        session_id=quiz.session_id,
+        title=quiz.title,
+        difficulty=quiz.difficulty,
+        questions=questions_data,
+        created_at=quiz.created_at,
+        time_limit_seconds=quiz.time_limit_seconds,
+        time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
+        fullscreen_lock=quiz.fullscreen_lock,
+        camera_monitoring=quiz.camera_monitoring,
+        is_published=quiz.is_published,
+        is_exam=quiz.is_exam,
+        lock_back_navigation=quiz.lock_back_navigation,
+        due_date=quiz.due_date,
+    )
+
 
 @router.get("/{quiz_id}", response_model=QuizOut)
 def get_quiz_for_student(
     quiz_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_role("student"))
+    user: User = Depends(get_current_user)
 ):
     """
-    Get quiz metadata for student (questions WITHOUT correct answers).
-    Checks enrollment if quiz is linked to a session.
+    Get quiz metadata.
+    - If user is student: strips correct answers and verifies enrollment if linked.
+    - If user is instructor/admin: returns full questions with answers.
     """
     quiz = db.query(Quiz).filter_by(id=quiz_id).first()
     if not quiz:
         raise HTTPException(404, "Quiz not found")
 
-    # If quiz is linked to a session, verify student is enrolled
-    if quiz.session_id:
-        reg = db.query(ClassSession).join(ClassSession.registrations).filter(
-            ClassSession.id == quiz.session_id,
-            ClassSession.registrations.any(student_id=user.id)
-        ).first()
-        if not reg:
-            raise HTTPException(403, "You are not enrolled in the session this quiz belongs to")
-
-    # Strip correct answers from questions for student view
     questions = json.loads(quiz.questions_json)
-    safe_questions = []
-    for q in questions:
-        safe_q = {k: v for k, v in q.items() if k != "answer"}
-        safe_questions.append(safe_q)
 
-    # Audit: student viewing quiz
+    if user.role == "student":
+        # If quiz is linked to a session, verify student is enrolled
+        if quiz.session_id:
+            reg = db.query(ClassSession).join(ClassSession.registrations).filter(
+                ClassSession.id == quiz.session_id,
+                ClassSession.registrations.any(student_id=user.id)
+            ).first()
+            if not reg:
+                raise HTTPException(403, "You are not enrolled in the session this quiz belongs to")
+
+        # Strip correct answers from questions for student view
+        safe_questions = []
+        for q in questions:
+            safe_q = {k: v for k, v in q.items() if k != "answer"}
+            safe_questions.append(safe_q)
+        display_questions = safe_questions
+    else:
+        display_questions = questions
+
+    # Audit
     log_audit_event(db, action="view_quiz", user=user, resource_type="quiz", resource_id=str(quiz_id), request=request)
 
     return QuizOut(
@@ -64,7 +162,7 @@ def get_quiz_for_student(
         session_id=quiz.session_id,
         title=quiz.title,
         difficulty=quiz.difficulty,
-        questions=safe_questions,
+        questions=display_questions,
         created_at=quiz.created_at,
         time_limit_seconds=quiz.time_limit_seconds,
         time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
@@ -196,22 +294,28 @@ def publish_quiz_as_exam(
     user: User = Depends(require_role("instructor"))
 ):
     """
-    Publish a quiz as an Exam for a specific session.
+    Publish a quiz as an Exam for a specific session, or update existing exam settings.
     Sets is_exam=True, is_published=True, and configures anti-cheat + navigation locks.
     """
     quiz = db.query(Quiz).filter_by(id=quiz_id).first()
     if not quiz:
         raise HTTPException(404, "Quiz not found")
 
-    session = db.query(ClassSession).filter_by(id=payload.session_id).first()
+    target_session_id = payload.session_id if payload.session_id is not None else quiz.session_id
+    if not target_session_id:
+        raise HTTPException(400, "A target session_id is required to publish an exam.")
+
+    session = db.query(ClassSession).filter_by(id=target_session_id).first()
     if not session:
         raise HTTPException(404, "Session not found")
-    if session.instructor_id != user.id and user.role != "admin":
+    if session.instructor_id is None:
+        session.instructor_id = user.id
+    elif session.instructor_id != user.id and user.role != "admin":
         raise HTTPException(403, "Not your session")
 
     quiz.is_exam = True
-    quiz.is_published = True
-    quiz.session_id = payload.session_id
+    quiz.is_published = payload.is_published if payload.is_published is not None else True
+    quiz.session_id = target_session_id
     quiz.time_limit_seconds = payload.time_limit_seconds
     quiz.time_limit_per_question_seconds = payload.time_limit_per_question_seconds
     quiz.lock_back_navigation = payload.lock_back_navigation
@@ -226,13 +330,98 @@ def publish_quiz_as_exam(
         db, action="publish_quiz_as_exam", user=user,
         resource_type="quiz", resource_id=str(quiz.id), request=request,
         details={
-            "session_id": payload.session_id,
+            "session_id": target_session_id,
             "time_limit_seconds": payload.time_limit_seconds,
             "time_limit_per_question_seconds": payload.time_limit_per_question_seconds,
             "lock_back_navigation": payload.lock_back_navigation,
             "fullscreen_lock": payload.fullscreen_lock,
             "camera_monitoring": payload.camera_monitoring,
         }
+    )
+
+    questions = json.loads(quiz.questions_json)
+    return QuizOut(
+        id=quiz.id,
+        session_id=quiz.session_id,
+        title=quiz.title,
+        difficulty=quiz.difficulty,
+        questions=questions,
+        created_at=quiz.created_at,
+        time_limit_seconds=quiz.time_limit_seconds,
+        time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
+        fullscreen_lock=quiz.fullscreen_lock,
+        camera_monitoring=quiz.camera_monitoring,
+        is_published=quiz.is_published,
+        is_exam=quiz.is_exam,
+        lock_back_navigation=quiz.lock_back_navigation,
+        due_date=quiz.due_date,
+    )
+
+
+@router.patch("/{quiz_id}", response_model=QuizOut)
+@router.put("/{quiz_id}", response_model=QuizOut)
+def update_quiz_or_settings(
+    quiz_id: int,
+    payload: QuizUpdateSettings,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """
+    Update exam settings, questions, or metadata for an existing quiz or exam.
+    Ensures seamless saving of exam settings changes.
+    """
+    quiz = db.query(Quiz).filter_by(id=quiz_id).first()
+    if not quiz:
+        raise HTTPException(404, "Quiz not found")
+
+    if payload.session_id is not None:
+        session = db.query(ClassSession).filter_by(id=payload.session_id).first()
+        if not session:
+            raise HTTPException(404, "Target session not found")
+        if session.instructor_id and session.instructor_id != user.id and user.role != "admin":
+            raise HTTPException(403, "Not your session")
+        quiz.session_id = payload.session_id
+
+    if payload.title is not None:
+        quiz.title = payload.title.strip()
+    if payload.difficulty is not None:
+        quiz.difficulty = payload.difficulty
+    if payload.questions is not None:
+        questions_data = []
+        for q in payload.questions:
+            questions_data.append({
+                "question": q.question.strip(),
+                "type": q.type,
+                "options": q.options if q.options else (["True", "False"] if q.type == "true_false" else ["A", "B", "C", "D"]),
+                "answer": q.answer.strip(),
+                "explanation": q.explanation.strip() if q.explanation else "",
+            })
+        quiz.questions_json = json.dumps(questions_data)
+    if payload.is_exam is not None:
+        quiz.is_exam = payload.is_exam
+    if payload.is_published is not None:
+        quiz.is_published = payload.is_published
+    if payload.time_limit_seconds is not None:
+        quiz.time_limit_seconds = payload.time_limit_seconds if payload.time_limit_seconds > 0 else None
+    if payload.time_limit_per_question_seconds is not None:
+        quiz.time_limit_per_question_seconds = payload.time_limit_per_question_seconds if payload.time_limit_per_question_seconds > 0 else None
+    if payload.lock_back_navigation is not None:
+        quiz.lock_back_navigation = payload.lock_back_navigation
+    if payload.fullscreen_lock is not None:
+        quiz.fullscreen_lock = payload.fullscreen_lock
+    if payload.camera_monitoring is not None:
+        quiz.camera_monitoring = payload.camera_monitoring
+    if payload.due_date is not None:
+        quiz.due_date = payload.due_date
+
+    db.commit()
+    db.refresh(quiz)
+
+    log_audit_event(
+        db, action="update_quiz_settings", user=user,
+        resource_type="quiz", resource_id=str(quiz.id), request=request,
+        details={"title": quiz.title, "is_exam": quiz.is_exam}
     )
 
     questions = json.loads(quiz.questions_json)
