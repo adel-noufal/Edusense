@@ -11,6 +11,7 @@ from app.api.deps import get_current_user, require_role
 from app.core.audit import log_audit_event, log_report_access, log_student_data_access, log_session_access
 from app.db.session import get_db
 from app.models.models import EmotionLog, Feedback, Profile, Quiz, Report, Session as ClassSession, SessionRegistration, User
+from app.services.attendance_service import calculate_session_attended_duration, calculate_student_attended_duration
 from app.schemas.schemas import FeedbackIn
 
 router = APIRouter(tags=["Reports and Feedback"])
@@ -29,13 +30,16 @@ def _session_report_payload(db: Session, item: ClassSession) -> dict:
     distribution = emotion_agent.distributions(db, item.id).data
     stored_reports = db.query(Report).filter_by(session_id=item.id).order_by(Report.generated_at.desc()).all()
     has_students = len(attendees) > 0
+    actual_attended_duration = calculate_session_attended_duration(db, item.id)
     return {
         "id": item.id,
         "title": item.title,
         "description": item.description,
         "date": item.date,
         "start_time": item.start_time,
-        "duration": item.duration,
+        "duration": actual_attended_duration,
+        "attended_duration": actual_attended_duration,
+        "scheduled_duration": item.duration,
         "status": item.status,
         "attendee_count": len(attendees),
         "has_students": has_students,
@@ -71,6 +75,8 @@ def _student_report_payload(db: Session, item: ClassSession, student: User) -> d
     quizzes = db.query(Quiz).filter_by(session_id=item.id).order_by(Quiz.created_at.desc()).all()
     from app.models.models import SessionNote
     notes = db.query(SessionNote).filter_by(session_id=item.id, student_id=student.id).all()
+    reg = db.query(SessionRegistration).filter_by(session_id=item.id, student_id=student.id).first()
+    student_attended_duration = calculate_student_attended_duration(db, item.id, student.id)
     return {
         "student": {
             "id": student.id,
@@ -82,14 +88,17 @@ def _student_report_payload(db: Session, item: ClassSession, student: User) -> d
             "department": getattr(profile, "department", None),
         },
         "attendance": {
-            "registered": db.query(SessionRegistration).filter_by(session_id=item.id, student_id=student.id).first() is not None,
+            "registered": reg is not None,
+            "attended": getattr(reg, "attended", False) if reg else False,
+            "duration": student_attended_duration,
+            "attended_duration": student_attended_duration,
             "emotion_samples": len(logs),
             "dominant_emotion": dominant_emotion,
             "average_confidence": average_confidence,
         },
         "analysis": {
             "summary": (
-                f"{student.name} has {len(logs)} emotion samples in this session. "
+                f"{student.name} attended for {student_attended_duration} min with {len(logs)} emotion samples in this session. "
                 f"Dominant emotion: {dominant_emotion}. "
                 f"Average confidence: {round(average_confidence * 100, 1)}%."
             ),
@@ -192,6 +201,8 @@ def report_session_detail(session_id: int, request: Request, db: Session = Depen
                 "name": student.name,
                 "email": student.email,
                 "avatar": details["student"]["avatar"],
+                "duration": details["attendance"]["duration"],
+                "attended_duration": details["attendance"]["attended_duration"],
                 "emotion_samples": details["attendance"]["emotion_samples"],
                 "dominant_emotion": details["attendance"]["dominant_emotion"],
                 "average_confidence": details["attendance"]["average_confidence"],

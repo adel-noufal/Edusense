@@ -313,13 +313,27 @@ def mark_attendance(session_id: int, request: Request, db: DbSession = Depends(g
         raise HTTPException(403, "You are not enrolled in this session")
     if session.status != "ongoing":
         raise HTTPException(400, "This session hasn't started yet. You can only join once the instructor starts it.")
+    now_ts = datetime.now(timezone.utc)
     reg.attended = True
+    if not getattr(reg, "joined_at", None):
+        reg.joined_at = now_ts
+    reg.left_at = now_ts
     db.commit()
 
     # Audit: student marking attendance
     log_session_access(db, user, session_id, action="mark_attendance", request=request)
 
     return {"message": "Attendance marked"}
+
+
+@router.post("/{session_id}/leave-live")
+def leave_live(session_id: int, request: Request, db: DbSession = Depends(get_db), user: User = Depends(require_role("student"))):
+    reg = db.query(SessionRegistration).filter_by(session_id=session_id, student_id=user.id).first()
+    if reg:
+        reg.left_at = datetime.now(timezone.utc)
+        db.commit()
+    log_session_access(db, user, session_id, action="leave_live", request=request)
+    return {"message": "Left live session"}
 
 
 @router.post("/{session_id}/start")
@@ -768,13 +782,17 @@ def student_my_sessions(request: Request, db: DbSession = Depends(get_db), user:
         refresh_status(s, db)
         inst = db.query(User).filter(User.id == s.instructor_id).first()
         reg = next((r for r in regs if r.session_id == s.id), None)
+        from app.services.attendance_service import calculate_student_attended_duration
+        attended_dur = calculate_student_attended_duration(db, s.id, user.id)
         result.append({
             "id": s.id,
             "title": s.title,
             "description": s.description,
             "date": str(s.date),
             "start_time": str(s.start_time),
-            "duration": s.duration,
+            "scheduled_duration": s.duration,
+            "duration": attended_dur if (reg and reg.attended) else s.duration,
+            "attended_duration": attended_dur,
             "status": s.status,
             "instructor_name": inst.name if inst else None,
             "attended": reg.attended if reg else False,

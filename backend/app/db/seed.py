@@ -89,6 +89,13 @@ def _ensure_schema_updates(db):
             """))
 
 
+            # Section 3: Session registrations attendance timestamps
+            reg_cols = [r[1] for r in db.execute(text("PRAGMA table_info(session_registrations);")).fetchall()]
+            if "joined_at" not in reg_cols:
+                db.execute(text("ALTER TABLE session_registrations ADD COLUMN joined_at DATETIME;"))
+            if "left_at" not in reg_cols:
+                db.execute(text("ALTER TABLE session_registrations ADD COLUMN left_at DATETIME;"))
+
             # Section 3: Quiz exam publishing columns (added in Section 3)
             quiz_cols = [r[1] for r in db.execute(text("PRAGMA table_info(quizzes);")).fetchall()]
             if "is_published" not in quiz_cols:

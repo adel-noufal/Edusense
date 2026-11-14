@@ -24,10 +24,20 @@ class EduSenseAgentWorkflow:
         topic: str = "current lesson",
         instructor_name: str = "Instructor",
         session_title: str = "Session",
+        attended_duration: float | int | None = None,
+        scheduled_duration: int | None = None,
     ) -> dict:
         # Determine if any students have attended (have emotion logs or registrations)
         from app.models.models import EmotionLog
+        from app.services.attendance_service import calculate_session_attended_duration
         has_students = db.query(SessionRegistration).filter_by(session_id=session_id).count() > 0
+
+        if attended_duration is None:
+            attended_duration = calculate_session_attended_duration(db, session_id)
+        if scheduled_duration is None:
+            s_obj = db.query(ClassSession).filter(ClassSession.id == session_id).first()
+            if s_obj:
+                scheduled_duration = s_obj.duration
 
         emotion_report = self.emotions.distributions(db, session_id).data
         engagement_report = self.engagement.calculate(db, session_id).data
@@ -42,6 +52,8 @@ class EduSenseAgentWorkflow:
             instructor_name=instructor_name,
             session_title=session_title,
             has_students=has_students,
+            attended_duration=attended_duration,
+            scheduled_duration=scheduled_duration,
         ).data
         return {
             "emotion_report": emotion_report,

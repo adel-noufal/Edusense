@@ -54,6 +54,8 @@ class SessionRegistration(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     attended: Mapped[bool] = mapped_column(Boolean, default=False)
+    joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     session: Mapped["Session"] = relationship(back_populates="registrations")
 
 

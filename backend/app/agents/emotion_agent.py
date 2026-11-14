@@ -58,6 +58,17 @@ class EmotionAnalysisAgent:
             confidence=confidence,
         )
         db.add(log)
+        try:
+            from app.models.models import SessionRegistration
+            reg = db.query(SessionRegistration).filter_by(session_id=session_id, student_id=student_id).first()
+            if reg:
+                now_ts = datetime.now(timezone.utc)
+                if not getattr(reg, "joined_at", None):
+                    reg.joined_at = now_ts
+                reg.left_at = now_ts
+                reg.attended = True
+        except Exception:
+            pass
         db.commit()
         db.refresh(log)
         return AgentResult(

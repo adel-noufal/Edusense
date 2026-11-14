@@ -36,6 +36,8 @@ class ReportGenerationAgent:
         instructor_name: str = "Instructor",
         session_title: str = "Session",
         has_students: bool = True,
+        attended_duration: float | int | None = None,
+        scheduled_duration: int | None = None,
     ) -> AgentResult:
         """
         Build a session report.
@@ -91,10 +93,18 @@ class ReportGenerationAgent:
                 )
 
             # Human-readable dominant emotions
-            emotion_labels = [EMOTION_LABELS.get(e, e.capitalize()) for e in dominant_emotions]
+            emotion_labels = []
+            for item in dominant_emotions:
+                e_name = item[0] if isinstance(item, (tuple, list)) else item
+                e_str = str(e_name)
+                emotion_labels.append(EMOTION_LABELS.get(e_str, e_str.capitalize()))
 
+            duration_note = ""
+            if attended_duration is not None:
+                duration_note = f"Attended duration: {attended_duration} min. "
             summary = (
                 f"{verdict} "
+                f"{duration_note}"
                 f"Overall engagement: {engagement_pct}%. "
                 f"Dominant emotions observed: {', '.join(emotion_labels) if emotion_labels else 'None recorded'}. "
                 f"Top recommendation: {recs[0]}."
@@ -107,6 +117,8 @@ class ReportGenerationAgent:
             engagement_pct,
             emotion_labels,
             recs,
+            attended_duration=attended_duration,
+            scheduled_duration=scheduled_duration,
         )
         return AgentResult(
             self.name,
@@ -114,6 +126,8 @@ class ReportGenerationAgent:
                 "summary": summary,
                 "pdf_path": pdf_path,
                 "has_students": True,
+                "attended_duration": attended_duration,
+                "scheduled_duration": scheduled_duration,
             },
         )
 
@@ -129,6 +143,8 @@ class ReportGenerationAgent:
         engagement_pct: float,
         emotion_labels: list[str],
         recommendations: list[str],
+        attended_duration: float | int | None = None,
+        scheduled_duration: int | None = None,
     ) -> str:
         path = self._out_path(session_id)
         c = canvas.Canvas(str(path), pagesize=letter)
@@ -143,7 +159,12 @@ class ReportGenerationAgent:
         c.drawString(72, y, f"Session: {session_title}")
         y -= 18
         c.drawString(72, y, f"Instructor: {instructor_name}")
-        y -= 30
+        y -= 18
+        if attended_duration is not None:
+            sched_str = f" (Scheduled: {scheduled_duration} min)" if scheduled_duration else ""
+            c.drawString(72, y, f"Attended Duration: {attended_duration} min{sched_str}")
+            y -= 18
+        y -= 12
 
         c.setFont("Helvetica-Bold", 13)
         c.drawString(72, y, f"Overall Engagement: {engagement_pct}%")

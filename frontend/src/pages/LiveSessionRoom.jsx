@@ -75,6 +75,9 @@ export default function LiveSessionRoom() {
     return () => {
       if (pollShare) clearInterval(pollShare)
       clearInterval(sessionPoll)
+      if (!isInstructor && session?.status === 'ongoing') {
+        api(`/sessions/${sessionId}/leave-live`, { method: 'POST' }).catch(() => {})
+      }
     }
   }, [sessionId, isInstructor, session?.status])
 
@@ -263,6 +266,7 @@ export default function LiveSessionRoom() {
       stopShare()
       navigate('/instructor/sessions')
     } else {
+      api(`/sessions/${sessionId}/leave-live`, { method: 'POST' }).catch(() => {})
       navigate('/student/upcoming')
     }
   }

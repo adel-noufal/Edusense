@@ -159,7 +159,7 @@ export default function Reports() {
                 <ChevronRight size={18} className="text-slate-400" />
               </div>
               <p className="mt-3 text-sm text-slate-500">{session.date} | {session.start_time}</p>
-              <p className="mt-2 text-xs text-slate-500">{session.attendee_count} attendees · {session.quiz_count} quizzes</p>
+              <p className="mt-2 text-xs text-slate-500">{session.attendee_count} attendees · {session.duration ?? session.attended_duration ?? 0} min attended</p>
             </button>
           ))}
         </div>
@@ -174,7 +174,10 @@ export default function Reports() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <InfoPill label="Date" value={String(sessionDetail.session.date)} />
                     <InfoPill label="Status" value={sessionDetail.session.status} />
-                    <InfoPill label="Duration" value={`${sessionDetail.session.duration} min`} />
+                    <InfoPill label="Attended Duration" value={`${sessionDetail.session.duration ?? sessionDetail.session.attended_duration ?? 0} min`} />
+                    {sessionDetail.session.scheduled_duration ? (
+                      <InfoPill label="Scheduled Duration" value={`${sessionDetail.session.scheduled_duration} min`} />
+                    ) : null}
                     <InfoPill label="Engagement" value={`${sessionDetail.session.engagement_percentage}%`} />
                   </div>
                   <div className="rounded-2xl bg-slate-100 p-4 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-300">
@@ -202,8 +205,8 @@ export default function Reports() {
                           <p className="text-sm text-slate-500">{student.email}</p>
                         </div>
                         <div className="text-right text-xs text-slate-500">
-                          <p>{student.emotion_samples} samples</p>
-                          <p>{student.dominant_emotion}</p>
+                          <p className="font-semibold text-ocean dark:text-mint">{student.duration ?? student.attended_duration ?? 0} min attended</p>
+                          <p>{student.emotion_samples} samples · {student.dominant_emotion}</p>
                         </div>
                       </button>
                     ))}
@@ -238,7 +241,8 @@ export default function Reports() {
                         </div>
                       </div>
                       <p className="text-sm leading-7 text-slate-600 dark:text-slate-300">{studentDetail.analysis.summary}</p>
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <InfoPill label="Attended Duration" value={`${studentDetail.attendance.duration ?? studentDetail.attendance.attended_duration ?? 0} min`} />
                         <InfoPill label="Dominant Emotion" value={studentDetail.attendance.dominant_emotion} />
                         <InfoPill label="Average Confidence" value={`${Math.round((studentDetail.attendance.average_confidence || 0) * 100)}%`} />
                       </div>
