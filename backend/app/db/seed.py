@@ -51,52 +51,90 @@ def _reset_pg_sequences(db):
 
 
 def _ensure_schema_updates(db):
-
-    """Ensure newly added columns exist in PostgreSQL or SQLite tables."""
-
+    """Ensure newly added columns and tables exist in PostgreSQL or SQLite tables."""
     try:
-
         if "postgresql" in str(engine.url):
-
             db.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS prep_start_time TIMESTAMP WITH TIME ZONE;"))
-
             db.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS reminders_sent VARCHAR(200);"))
-
             db.execute(text("ALTER TABLE ai_generations ADD COLUMN IF NOT EXISTS session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL;"))
-
+            db.execute(text("ALTER TABLE session_registrations ADD COLUMN IF NOT EXISTS joined_at TIMESTAMP WITH TIME ZONE;"))
+            db.execute(text("ALTER TABLE session_registrations ADD COLUMN IF NOT EXISTS left_at TIMESTAMP WITH TIME ZONE;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS is_published BOOLEAN NOT NULL DEFAULT TRUE;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS is_exam BOOLEAN NOT NULL DEFAULT FALSE;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS lock_back_navigation BOOLEAN NOT NULL DEFAULT FALSE;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS due_date TIMESTAMP WITH TIME ZONE;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS time_limit_seconds INTEGER;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS time_limit_per_question_seconds INTEGER;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS fullscreen_lock BOOLEAN DEFAULT FALSE;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS camera_monitoring BOOLEAN DEFAULT FALSE;"))
             db.execute(text("""
-
                 CREATE TABLE IF NOT EXISTS session_resources (
-
                     id SERIAL PRIMARY KEY,
-
                     session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-
                     instructor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-
                     name VARCHAR(255) NOT NULL,
-
                     file_path VARCHAR(500) NOT NULL,
-
                     file_type VARCHAR(80) DEFAULT 'file',
-
                     file_size INTEGER,
-
                     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-
                 );
-
             """))
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS assignments (
+                    id SERIAL PRIMARY KEY,
+                    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                    instructor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    title VARCHAR(200) NOT NULL,
+                    description TEXT,
+                    due_date TIMESTAMP WITH TIME ZONE,
+                    max_points REAL NOT NULL DEFAULT 100.0,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+            """))
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS assignment_submissions (
+                    id SERIAL PRIMARY KEY,
+                    assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+                    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    file_name VARCHAR(255) NOT NULL,
+                    file_path VARCHAR(500) NOT NULL,
+                    file_size INTEGER NOT NULL DEFAULT 0,
+                    submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    score REAL,
+                    feedback TEXT
+                );
+            """))
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS generation_jobs (
+                    id VARCHAR(36) PRIMARY KEY,
+                    instructor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    job_type VARCHAR(40) NOT NULL,
+                    label VARCHAR(180) DEFAULT '',
+                    status VARCHAR(20) DEFAULT 'pending',
+                    result_json TEXT,
+                    error TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+            """))
+        else:
+            res = db.execute(text("PRAGMA table_info(sessions);")).fetchall()
+            cols = [r[1] for r in res]
+            if "prep_start_time" not in cols:
+                db.execute(text("ALTER TABLE sessions ADD COLUMN prep_start_time DATETIME;"))
+            if "reminders_sent" not in cols:
+                db.execute(text("ALTER TABLE sessions ADD COLUMN reminders_sent VARCHAR(200);"))
 
+            gen_cols = [r[1] for r in db.execute(text("PRAGMA table_info(ai_generations);")).fetchall()]
+            if "session_id" not in gen_cols:
+                db.execute(text("ALTER TABLE ai_generations ADD COLUMN session_id INTEGER;"))
 
-            # Section 3: Session registrations attendance timestamps
             reg_cols = [r[1] for r in db.execute(text("PRAGMA table_info(session_registrations);")).fetchall()]
             if "joined_at" not in reg_cols:
                 db.execute(text("ALTER TABLE session_registrations ADD COLUMN joined_at DATETIME;"))
             if "left_at" not in reg_cols:
                 db.execute(text("ALTER TABLE session_registrations ADD COLUMN left_at DATETIME;"))
 
-            # Section 3: Quiz exam publishing columns (added in Section 3)
             quiz_cols = [r[1] for r in db.execute(text("PRAGMA table_info(quizzes);")).fetchall()]
             if "is_published" not in quiz_cols:
                 db.execute(text("ALTER TABLE quizzes ADD COLUMN is_published BOOLEAN NOT NULL DEFAULT 1;"))
@@ -106,8 +144,28 @@ def _ensure_schema_updates(db):
                 db.execute(text("ALTER TABLE quizzes ADD COLUMN lock_back_navigation BOOLEAN NOT NULL DEFAULT 0;"))
             if "due_date" not in quiz_cols:
                 db.execute(text("ALTER TABLE quizzes ADD COLUMN due_date DATETIME;"))
+            if "time_limit_seconds" not in quiz_cols:
+                db.execute(text("ALTER TABLE quizzes ADD COLUMN time_limit_seconds INTEGER;"))
+            if "time_limit_per_question_seconds" not in quiz_cols:
+                db.execute(text("ALTER TABLE quizzes ADD COLUMN time_limit_per_question_seconds INTEGER;"))
+            if "fullscreen_lock" not in quiz_cols:
+                db.execute(text("ALTER TABLE quizzes ADD COLUMN fullscreen_lock BOOLEAN NOT NULL DEFAULT 0;"))
+            if "camera_monitoring" not in quiz_cols:
+                db.execute(text("ALTER TABLE quizzes ADD COLUMN camera_monitoring BOOLEAN NOT NULL DEFAULT 0;"))
 
-            # Section 3: Assignment tables
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS session_resources (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    instructor_id INTEGER NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    file_path VARCHAR(500) NOT NULL,
+                    file_type VARCHAR(80) DEFAULT 'file',
+                    file_size INTEGER,
+                    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            """))
+
             db.execute(text("""
                 CREATE TABLE IF NOT EXISTS assignments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,6 +178,7 @@ def _ensure_schema_updates(db):
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
             """))
+
             db.execute(text("""
                 CREATE TABLE IF NOT EXISTS assignment_submissions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,103 +194,19 @@ def _ensure_schema_updates(db):
             """))
 
             db.execute(text("""
-
                 CREATE TABLE IF NOT EXISTS generation_jobs (
-
                     id VARCHAR(36) PRIMARY KEY,
-
-                    instructor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-
-                    job_type VARCHAR(40) NOT NULL,
-
-                    label VARCHAR(180) DEFAULT '',
-
-                    status VARCHAR(20) DEFAULT 'pending',
-
-                    result_json TEXT,
-
-                    error TEXT,
-
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-
-                );
-
-            """))
-
-        else:
-
-            res = db.execute(text("PRAGMA table_info(sessions);")).fetchall()
-
-            cols = [r[1] for r in res]
-
-            if "prep_start_time" not in cols:
-
-                db.execute(text("ALTER TABLE sessions ADD COLUMN prep_start_time DATETIME;"))
-
-            if "reminders_sent" not in cols:
-
-                db.execute(text("ALTER TABLE sessions ADD COLUMN reminders_sent VARCHAR(200);"))
-
-            gen_cols = [r[1] for r in db.execute(text("PRAGMA table_info(ai_generations);")).fetchall()]
-
-            if "session_id" not in gen_cols:
-
-                db.execute(text("ALTER TABLE ai_generations ADD COLUMN session_id INTEGER;"))
-
-            db.execute(text("""
-
-                CREATE TABLE IF NOT EXISTS session_resources (
-
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-                    session_id INTEGER NOT NULL,
-
                     instructor_id INTEGER NOT NULL,
-
-                    name VARCHAR(255) NOT NULL,
-
-                    file_path VARCHAR(500) NOT NULL,
-
-                    file_type VARCHAR(80) DEFAULT 'file',
-
-                    file_size INTEGER,
-
-                    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
-
-                );
-
-            """))
-
-            db.execute(text("""
-
-                CREATE TABLE IF NOT EXISTS generation_jobs (
-
-                    id VARCHAR(36) PRIMARY KEY,
-
-                    instructor_id INTEGER NOT NULL,
-
                     job_type VARCHAR(40) NOT NULL,
-
                     label VARCHAR(180) DEFAULT '',
-
                     status VARCHAR(20) DEFAULT 'pending',
-
                     result_json TEXT,
-
                     error TEXT,
-
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-
                 );
-
             """))
-
         db.commit()
-
     except Exception as exc:
 
         db.rollback()

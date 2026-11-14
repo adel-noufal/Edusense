@@ -101,9 +101,12 @@ export default function Quiz() {
         // Set server start time for validation
         serverStartTimeRef.current = new Date(attemptData.started_at).getTime()
 
-        // Set initial time remaining
+        // Set initial time remaining accounting for elapsed attempt time on resumption
         if (quizData.time_limit_seconds) {
-          setTimeRemaining(quizData.time_limit_seconds)
+          const serverStart = attemptData?.started_at ? new Date(attemptData.started_at).getTime() : Date.now()
+          const elapsed = Math.max(0, Math.floor((Date.now() - serverStart) / 1000))
+          const remaining = Math.max(0, quizData.time_limit_seconds - elapsed)
+          setTimeRemaining(remaining)
         }
 
         // Enable fullscreen lock if required
@@ -152,8 +155,8 @@ export default function Quiz() {
     timerRef.current = setInterval(() => {
       setTimeRemaining(prev => {
         if (prev <= 1) {
-          // Time's up - auto submit
-          handleTimeUp()
+          if (timerRef.current) clearInterval(timerRef.current)
+          setTimeout(() => handleTimeUp(), 0)
           return 0
         }
         return prev - 1
@@ -169,10 +172,11 @@ export default function Quiz() {
   useEffect(() => {
     if (!perQuestionLimit || showResults || !quiz) return
 
-    setQuestionStartTime(Date.now())
+    const qStart = Date.now()
+    setQuestionStartTime(qStart)
 
     questionTimerRef.current = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - questionStartTime) / 1000)
+      const elapsed = Math.floor((Date.now() - qStart) / 1000)
       if (elapsed >= perQuestionLimit) {
         if (questionTimerRef.current) clearInterval(questionTimerRef.current)
         toast.warning(`Question ${currentQuestion + 1} time limit reached!`)
@@ -182,7 +186,6 @@ export default function Quiz() {
         // Auto-advance or submit if on last question
         if (currentQuestion < quiz.questions.length - 1) {
           setCurrentQuestion(prev => prev + 1)
-          setQuestionStartTime(Date.now())
         } else {
           handleSubmit()
         }

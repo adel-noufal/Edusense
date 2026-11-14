@@ -101,6 +101,12 @@ class GeminiKeyRotator:
             logger.error("[Gemini Key Rotation] All configured Gemini API keys are currently exhausted.")
             return None
 
+    def reset(self) -> None:
+        """Reset rotator state, clearing all exhausted tracking."""
+        with self._lock:
+            self._current_index = 0
+            self._exhausted.clear()
+
     def status(self) -> dict:
         with self._lock:
             keys = self.get_keys()
@@ -116,18 +122,41 @@ class GeminiKeyRotator:
 rotator = GeminiKeyRotator()
 
 
-def _is_rate_limit_error(exc_code: int, detail: str) -> bool:
-    if exc_code == 429:
+def _is_rotatable_error(exc_code: int, detail: str) -> bool:
+    """
+    Determine if an HTTP error from Gemini is rotatable to the next key.
+    Includes:
+    - 429: Too Many Requests / Rate limit / Quota exceeded
+    - 503: Service Unavailable / Capacity issues
+    - 400 / 403 / 401: Invalid API key, permission denied, suspended project, billing errors
+    """
+    if exc_code in (429, 503):
         return True
     lower = detail.lower()
-    return any(phrase in lower for phrase in (
+    rotatable_phrases = (
         "resource_exhausted",
         "quota exceeded",
         "rate limit",
         "rate_limit",
         "too many requests",
         "per-minute quota",
-    ))
+        "api_key_invalid",
+        "api key not valid",
+        "invalid api key",
+        "api key expired",
+        "permission_denied",
+        "permissiondenied",
+        "billing_not_enabled",
+        "billing not enabled",
+        "unregistered callers",
+        "project has been suspended",
+    )
+    return any(phrase in lower for phrase in rotatable_phrases)
+
+
+def _is_rate_limit_error(exc_code: int, detail: str) -> bool:
+    """Backward-compatible alias for _is_rotatable_error."""
+    return _is_rotatable_error(exc_code, detail)
 
 
 def generate_content(prompt: str) -> str:
@@ -165,7 +194,7 @@ def generate_content(prompt: str) -> str:
 
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode()
-            if _is_rate_limit_error(exc.code, detail):
+            if _is_rotatable_error(exc.code, detail):
                 rotator.mark_exhausted(key, reason=f"HTTP {exc.code}")
                 last_error = f"HTTP {exc.code}: {detail[:150]}"
                 continue
