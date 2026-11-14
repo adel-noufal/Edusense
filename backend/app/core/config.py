@@ -52,6 +52,21 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from_email: str | None = None
 
+    # ── Chatbot Identity ───────────────────────────────────────────────────────
+    chatbot_name: str = Field(
+        default="EduSense AI",
+        validation_alias=AliasChoices("CHATBOT_NAME", "EDUSENSE_CHATBOT_NAME", "chatbot_name")
+    )
+    chatbot_persona: str = Field(
+        default="You are EduSense AI, a helpful educational assistant. You help instructors and students with course materials, learning questions, lesson planning, and academic queries. Be concise, accurate, and encouraging.",
+        validation_alias=AliasChoices("CHATBOT_PERSONA", "EDUSENSE_CHATBOT_PERSONA", "chatbot_persona")
+    )
+    # Optional dedicated API key for the chatbot (uses main gemini_api_key pool if not set)
+    chatbot_gemini_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("CHATBOT_GEMINI_API_KEY", "EDUSENSE_CHATBOT_GEMINI_API_KEY", "chatbot_gemini_api_key")
+    )
+
     # ── Vector Store ──────────────────────────────────────────────────────────
     chroma_persist_dir: str = Field(
         default="data/chroma",
@@ -90,6 +105,11 @@ class Settings(BaseSettings):
         for _, val in sorted(numbered_keys):
             if val not in keys:
                 keys.append(val)
+
+        if self.chatbot_gemini_api_key:
+            cb_k = self.chatbot_gemini_api_key.strip()
+            if cb_k and cb_k not in keys:
+                keys.append(cb_k)
         return keys
 
     @property

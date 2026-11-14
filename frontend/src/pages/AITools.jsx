@@ -1751,14 +1751,20 @@ function Section({ title, children }) {
 
 export function ChatbotGenerator() {
   const { t } = useLanguage()
-  const [messages, setMessages] = useState([
-    { role: 'assistant', content: "Hello! I'm your EduSense AI assistant. Ask me anything about your course materials, or I can search the web for current information." }
-  ])
+  const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [subject, setSubject] = useState('')
   const [gradeLevel, setGradeLevel] = useState('')
+  const [conversationId, setConversationId] = useState(null)
+  const [chatbotName, setChatbotName] = useState('EduSense AI')
+  const [conversations, setConversations] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [fileContext, setFileContext] = useState(null)
+  const [fileUploading, setFileUploading] = useState(false)
+  const [fileLabel, setFileLabel] = useState(null)
+  const fileInputRef = useRef(null)
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = useCallback(() => {
@@ -1768,6 +1774,98 @@ export function ChatbotGenerator() {
   useEffect(() => {
     scrollToBottom()
   }, [messages, scrollToBottom])
+
+  // Load chatbot settings + history list on mount
+  useEffect(() => {
+    api('/ai/chat/settings').then(r => {
+      if (r?.chatbot_name) setChatbotName(r.chatbot_name)
+    }).catch(() => {})
+    loadConversations()
+  }, [])
+
+  // Set initial greeting when chatbotName is known
+  useEffect(() => {
+    if (messages.length === 0) {
+      setMessages([{
+        role: 'assistant',
+        content: `Hello! I'm ${chatbotName}, your educational assistant. Ask me anything about your course materials, or I can search the web for current information. You can also upload a file to discuss its contents.`
+      }])
+    }
+  }, [chatbotName])
+
+  async function loadConversations() {
+    setHistoryLoading(true)
+    try {
+      const data = await api('/ai/chat/conversations?limit=20')
+      setConversations(Array.isArray(data) ? data : [])
+    } catch {
+      // silently ignore
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  async function loadConversation(id) {
+    try {
+      const data = await api(`/ai/chat/conversations/${id}`)
+      if (data?.messages) {
+        const loaded = data.messages.map(m => ({
+          role: m.role,
+          content: m.content,
+          metadata: m.metadata || undefined,
+        }))
+        setMessages(loaded)
+        setConversationId(id)
+        setFileContext(null)
+        setFileLabel(null)
+      }
+    } catch (err) {
+      setError('Failed to load conversation')
+    }
+  }
+
+  async function deleteConversation(id, e) {
+    e.stopPropagation()
+    try {
+      await api(`/ai/chat/conversations/${id}`, { method: 'DELETE' })
+      setConversations(prev => prev.filter(c => c.conversation_id !== id))
+      if (conversationId === id) {
+        setConversationId(null)
+        setMessages([{
+          role: 'assistant',
+          content: `Hello! I'm ${chatbotName}. How can I help you today?`
+        }])
+      }
+    } catch {
+      setError('Failed to delete conversation')
+    }
+  }
+
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setFileUploading(true)
+    setFileContext(null)
+    setFileLabel(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/ai/chat/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: formData,
+      })
+      if (!res.ok) throw new Error(`Upload failed (${res.status})`)
+      const data = await res.json()
+      setFileContext(data.text)
+      setFileLabel(`📎 ${file.name}${data.truncated ? ' (truncated)' : ''} — ${data.char_count} chars`)
+    } catch (err) {
+      setError(err.message || 'File upload failed')
+    } finally {
+      setFileUploading(false)
+      e.target.value = ''
+    }
+  }
 
   const modeLabels = {
     'online_rag_web_llm': { label: 'RAG + Web + LLM', icon: <Zap className="w-3 h-3" />, color: 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300' },
@@ -1783,7 +1881,6 @@ export function ChatbotGenerator() {
     setLoading(true)
     setError('')
 
-    // Add user message immediately
     setMessages(prev => [...prev, { role: 'user', content: userMessage }])
 
     try {
@@ -1791,13 +1888,21 @@ export function ChatbotGenerator() {
         method: 'POST',
         body: JSON.stringify({
           message: userMessage,
-          conversation_history: messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
+          conversation_id: conversationId || undefined,
+          conversation_history: conversationId ? [] : messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
           subject: subject || undefined,
           grade_level: gradeLevel || undefined,
+          file_context: fileContext || undefined,
         })
       })
 
-      // Add assistant response with metadata
+      if (response.conversation_id && !conversationId) {
+        setConversationId(response.conversation_id)
+        // Refresh history list
+        loadConversations()
+      }
+      if (response.chatbot_name) setChatbotName(response.chatbot_name)
+
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: response.answer,
@@ -1809,6 +1914,10 @@ export function ChatbotGenerator() {
           web_results_used: response.web_results_used,
         }
       }])
+
+      // Clear file context after first use
+      setFileContext(null)
+      setFileLabel(null)
     } catch (err) {
       setError(err.message || 'Failed to get response')
       setMessages(prev => [...prev, {
@@ -1820,6 +1929,17 @@ export function ChatbotGenerator() {
     }
   }
 
+  function startNewConversation() {
+    setConversationId(null)
+    setMessages([{
+      role: 'assistant',
+      content: `Hello! I'm ${chatbotName}. How can I help you today?`
+    }])
+    setFileContext(null)
+    setFileLabel(null)
+    setError('')
+  }
+
   function handleKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -1828,13 +1948,42 @@ export function ChatbotGenerator() {
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_320px] items-start">
+    <div className="grid gap-6 xl:grid-cols-[220px_1fr_300px] items-start">
+      {/* History Sidebar */}
+      <div className="panel space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold">Conversations</h2>
+          <button className="btn-soft text-xs px-2 py-1" onClick={startNewConversation}>+ New</button>
+        </div>
+        {historyLoading && <p className="text-xs text-slate-400">Loading...</p>}
+        {conversations.length === 0 && !historyLoading && (
+          <p className="text-xs text-slate-400 italic">No past conversations</p>
+        )}
+        <div className="space-y-1 max-h-[60vh] overflow-y-auto">
+          {conversations.map(conv => (
+            <div
+              key={conv.conversation_id}
+              className={`group flex items-start gap-1 rounded-lg px-2 py-2 cursor-pointer text-xs hover:bg-slate-100 dark:hover:bg-slate-800 ${conv.conversation_id === conversationId ? 'bg-teal-50 dark:bg-teal-950/30 font-semibold' : ''}`}
+              onClick={() => loadConversation(conv.conversation_id)}
+            >
+              <span className="flex-1 truncate">{conv.preview || conv.conversation_id.slice(0, 16)}</span>
+              <button
+                className="hidden group-hover:block text-slate-400 hover:text-red-500 ml-1 flex-shrink-0"
+                onClick={(e) => deleteConversation(conv.conversation_id, e)}
+                title="Delete conversation"
+              >×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Main Chat Panel */}
       <div className="space-y-6">
-        <ToolShell title={t('ai.chatbot') || 'AI Chatbot'} icon={<Bot />} onSubmit={sendMessage} loading={loading} error={error}>
+        <ToolShell title={chatbotName} icon={<Bot />} onSubmit={sendMessage} loading={loading} error={error}>
           <div className="rounded-xl border border-teal-200 bg-teal-50/60 p-3 text-xs text-teal-900 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-200">
             <p className="font-semibold flex items-center gap-1.5"><Bot size={14} /> Multi-Source Teaching Assistant</p>
             <p className="mt-0.5 text-slate-600 dark:text-slate-300">
-              Unlike the static Document Repository in Knowledge Base, this assistant dynamically queries your indexed materials, falls back to live web search, and uses Gemini to synthesize lesson ideas, answer student doubts, or explain complex concepts.
+              Dynamically queries your indexed knowledge base, falls back to live web search, and uses AI to synthesize answers. Upload files to discuss their contents directly.
             </p>
           </div>
           <div className="space-y-4">
@@ -1894,6 +2043,14 @@ export function ChatbotGenerator() {
               <div ref={messagesEndRef} />
             </div>
 
+            {/* File upload badge */}
+            {fileLabel && (
+              <div className="flex items-center gap-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 px-3 py-2 text-xs text-blue-800 dark:text-blue-200">
+                <span className="flex-1">{fileLabel}</span>
+                <button className="text-blue-400 hover:text-blue-700" onClick={() => { setFileContext(null); setFileLabel(null) }}>✕</button>
+              </div>
+            )}
+
             {/* Input Area */}
             <div className="space-y-3">
               <div className="grid gap-2 md:grid-cols-3">
@@ -1910,20 +2067,33 @@ export function ChatbotGenerator() {
                   disabled={loading}
                   rows={3}
                 />
-                <button
-                  type="button"
-                  className="btn-primary self-end px-6"
-                  onClick={sendMessage}
-                  disabled={loading || !input.trim()}
-                >
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send size={20} />}
-                </button>
+                <div className="flex flex-col gap-2 self-end">
+                  <button
+                    type="button"
+                    className="btn-soft px-3 py-2 text-xs"
+                    title="Upload file for context"
+                    disabled={fileUploading}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {fileUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : '📎'}
+                  </button>
+                  <input ref={fileInputRef} type="file" className="hidden" accept=".txt,.md,.pdf,.docx,.csv" onChange={handleFileUpload} />
+                  <button
+                    type="button"
+                    className="btn-primary px-6 py-2"
+                    onClick={sendMessage}
+                    disabled={loading || !input.trim()}
+                  >
+                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send size={20} />}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </ToolShell>
       </div>
 
+      {/* How It Works panel */}
       <div className="panel space-y-4">
         <h2 className="text-lg font-bold">How It Works</h2>
         <div className="space-y-3 text-sm text-slate-600 dark:text-slate-400">
@@ -1936,12 +2106,12 @@ export function ChatbotGenerator() {
             <p className="mt-1">If web search fails, uses knowledge base + LLM.</p>
           </div>
           <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
-            <p className="font-semibold flex items-center gap-2"><Bot className="w-4 h-4" /> Offline Mode</p>
-            <p className="mt-1">RAG + Template fallback when LLM unavailable.</p>
+            <p className="font-semibold flex items-center gap-2"><Bot className="w-4 h-4" /> File Upload</p>
+            <p className="mt-1">Attach .txt, .pdf, .docx, .md files — extracted text is injected as context into your next question.</p>
           </div>
           <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
-            <p className="font-semibold flex items-center gap-2"><Bot className="w-4 h-4" /> Template Only</p>
-            <p className="mt-1">Final fallback using local templates only.</p>
+            <p className="font-semibold flex items-center gap-2"><Bot className="w-4 h-4" /> Persistent History</p>
+            <p className="mt-1">Conversations are saved to the database. Resume any past chat from the sidebar.</p>
           </div>
         </div>
       </div>

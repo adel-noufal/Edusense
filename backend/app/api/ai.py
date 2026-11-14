@@ -4,7 +4,7 @@ import threading
 import time
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -85,6 +85,8 @@ class ChatRequest(BaseModel):
     subject: Optional[str] = None
     grade_level: Optional[str] = None
     stream: bool = False
+    # Uploaded file text to inject as context (from /api/chat/upload)
+    file_context: Optional[str] = None
 
 
 _analytics_cache: dict[str, dict] = {}
@@ -1085,6 +1087,20 @@ def delete_video(video_id: int, db: Session = Depends(get_db), user: User = Depe
 
 # ─── Chat Endpoint ────────────────────────────────────────────────────────────
 
+def _get_chatbot_settings():
+    """Return (name, persona) from config, cached."""
+    from app.core.config import get_settings
+    s = get_settings()
+    return s.chatbot_name, s.chatbot_persona
+
+
+def _build_chat_query(message: str, file_context: str | None) -> str:
+    """Prepend uploaded file context to the user message if present."""
+    if file_context and file_context.strip():
+        return f"[Uploaded file context]\n{file_context.strip()}\n\n[User question]\n{message}"
+    return message
+
+
 @router.post("/chat")
 async def chat(
     payload: ChatRequest,
@@ -1095,8 +1111,11 @@ async def chat(
     Returns answer with sources and mode metadata.
     Rate limited: 30 requests/minute per user.
     Persists conversation history by conversation_id.
+    Supports chatbot identity (name/persona from config) and file context injection.
     """
     _check_rate_limit(user)
+
+    bot_name, bot_persona = _get_chatbot_settings()
 
     # Generate or use existing conversation_id
     conversation_id = payload.conversation_id or str(uuid.uuid4())
@@ -1116,8 +1135,14 @@ async def chat(
     else:
         history = [{"role": msg.role, "content": msg.content} for msg in payload.conversation_history]
 
+    effective_query = _build_chat_query(payload.message, payload.file_context)
+
+    # Inject chatbot persona as a leading system context in the query
+    persona_prefix = f"[System: Your name is {bot_name}. {bot_persona}]\n\n" if bot_persona else ""
+    final_query = persona_prefix + effective_query
+
     result = await orchestrator._run_async(
-        query=payload.message,
+        query=final_query,
         subject=payload.subject,
         grade_level=payload.grade_level,
         conversation_history=history,
@@ -1156,12 +1181,176 @@ async def chat(
     return {
         "conversation_id": conversation_id,
         "answer": result.answer,
+        "chatbot_name": bot_name,
         "sources": result.sources,
         "web_sources": result.web_sources,
         "mode": result.mode,
         "rag_chunks_used": result.rag_chunks_used,
         "web_results_used": result.web_results_used,
         "fallback_reason": result.fallback_reason,
+    }
+
+
+# ─── Chat File Upload ──────────────────────────────────────────────────────────
+
+@router.post("/chat/upload")
+async def chat_upload(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    """
+    Upload a file and extract its text content for use as chat context.
+    Supports: .txt, .md, .pdf (basic), .docx (basic).
+    Returns extracted text (truncated to 8000 chars).
+    """
+    MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+    MAX_CHARS = 8000
+
+    content = await file.read()
+    if len(content) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+
+    filename = (file.filename or "").lower()
+    text = ""
+
+    try:
+        if filename.endswith(".pdf"):
+            try:
+                import io
+                import pypdf
+                reader = pypdf.PdfReader(io.BytesIO(content))
+                pages = [p.extract_text() or "" for p in reader.pages]
+                text = "\n".join(pages)
+            except ImportError:
+                # Fallback: try raw text extraction
+                text = content.decode("utf-8", errors="ignore")
+        elif filename.endswith(".docx"):
+            try:
+                import io
+                import docx
+                doc = docx.Document(io.BytesIO(content))
+                text = "\n".join(p.text for p in doc.paragraphs)
+            except ImportError:
+                text = content.decode("utf-8", errors="ignore")
+        else:
+            # txt, md, csv, etc.
+            text = content.decode("utf-8", errors="ignore")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not extract text from file: {e}")
+
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="No text could be extracted from the file.")
+
+    return {
+        "filename": file.filename,
+        "char_count": len(text),
+        "text": text[:MAX_CHARS],
+        "truncated": len(text) > MAX_CHARS,
+    }
+
+
+# ─── Chat Conversation History Endpoints ──────────────────────────────────────
+
+@router.get("/chat/conversations")
+async def list_conversations(
+    user: User = Depends(get_current_user),
+    limit: int = 50,
+):
+    """List all conversation IDs for the current user, ordered by most recent activity."""
+    from sqlalchemy import func
+    db = SessionLocal()
+    try:
+        conv_stats = db.query(
+            ChatMessageModel.conversation_id,
+            func.max(ChatMessageModel.created_at).label("last_at"),
+            func.count(ChatMessageModel.id).label("message_count"),
+        ).filter(
+            ChatMessageModel.user_id == user.id
+        ).group_by(
+            ChatMessageModel.conversation_id
+        ).order_by(
+            func.max(ChatMessageModel.created_at).desc()
+        ).limit(limit).all()
+
+        results = []
+        for conv_id, last_at, count in conv_stats:
+            first_msg = db.query(ChatMessageModel.content).filter_by(
+                conversation_id=conv_id,
+                user_id=user.id,
+                role="user"
+            ).order_by(ChatMessageModel.created_at.asc()).first()
+            results.append({
+                "conversation_id": conv_id,
+                "last_at": str(last_at),
+                "message_count": count,
+                "preview": (first_msg[0] if first_msg else "")[:80],
+            })
+        return results
+    finally:
+        db.close()
+
+
+@router.get("/chat/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Load full message history for a conversation."""
+    db = SessionLocal()
+    try:
+        messages = db.query(ChatMessageModel).filter_by(
+            conversation_id=conversation_id,
+            user_id=user.id
+        ).order_by(ChatMessageModel.created_at).all()
+        if not messages:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        import json as _json
+        return {
+            "conversation_id": conversation_id,
+            "messages": [
+                {
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": str(m.created_at),
+                    "metadata": _json.loads(m.metadata_json) if m.metadata_json else None,
+                }
+                for m in messages
+            ]
+        }
+    finally:
+        db.close()
+
+
+@router.delete("/chat/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Delete all messages in a conversation."""
+    db = SessionLocal()
+    try:
+        deleted = db.query(ChatMessageModel).filter_by(
+            conversation_id=conversation_id,
+            user_id=user.id
+        ).delete()
+        db.commit()
+        if deleted == 0:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return {"deleted": deleted, "conversation_id": conversation_id}
+    finally:
+        db.close()
+
+
+@router.get("/chat/settings")
+async def get_chatbot_settings(
+    user: User = Depends(get_current_user),
+):
+    """Return chatbot identity settings (name, persona preview)."""
+    bot_name, bot_persona = _get_chatbot_settings()
+    return {
+        "chatbot_name": bot_name,
+        "persona_preview": bot_persona[:200],
     }
 
 
