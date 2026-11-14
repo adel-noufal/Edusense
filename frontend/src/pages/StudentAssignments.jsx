@@ -9,8 +9,7 @@ import {
   Loader2, Paperclip, Upload, X,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api'
+import { api, API_URL } from '../services/api'
 
 function formatDate(dt) {
   if (!dt) return 'No due date'
@@ -58,9 +57,10 @@ function AssignmentCard({ assignment, submission, onSubmitted }) {
     formData.append('file', selectedFile)
 
     try {
-      const r = await fetch(`${API}/assignments/${assignment.id}/submit`, {
+      const activeToken = token || localStorage.getItem('edusense_token')
+      const r = await fetch(`${API_URL}/assignments/${assignment.id}/submit`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${activeToken}` },
         body: formData,
       })
       let data
@@ -218,37 +218,34 @@ export default function StudentAssignments() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (!token) return
+    const activeToken = token || localStorage.getItem('edusense_token')
+    if (!activeToken) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
 
-    fetch(`${API}/assignments/student`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
-      })
-      .then(data => {
-        setAssignments(data)
+    api('/assignments/student')
+      .then(async (data) => {
+        const list = Array.isArray(data) ? data : []
+        setAssignments(list)
+        if (list.length === 0) return
         // Fetch submission status for each assignment
-        return Promise.all(
-          data.map(a =>
-            fetch(`${API}/assignments/${a.id}/submission`, {
-              headers: { Authorization: `Bearer ${token}` },
-            })
-              .then(r => r.ok ? r.json() : null)
-              .then(sub => ({ id: a.id, sub }))
+        const subData = await Promise.all(
+          list.map((a) =>
+            api(`/assignments/${a.id}/submission`)
+              .then((sub) => ({ id: a.id, sub }))
               .catch(() => ({ id: a.id, sub: null }))
           )
         )
-      })
-      .then(subData => {
         const map = {}
-        subData.forEach(({ id, sub }) => { map[id] = sub })
+        subData.forEach(({ id, sub }) => {
+          map[id] = sub
+        })
         setSubmissions(map)
       })
-      .catch(err => setError(err.message))
+      .catch((err) => setError(err.message || 'Failed to load assignments'))
       .finally(() => setLoading(false))
   }, [token])
 
@@ -283,10 +280,10 @@ export default function StudentAssignments() {
     )
   }
 
-  // Group by session_id (use session_id as key; we don't have session name from this endpoint)
+  // Group by session (use session_title if available, else Session #ID)
   const bySession = {}
   assignments.forEach(a => {
-    const key = a.session_id
+    const key = a.session_title || `Session #${a.session_id}`
     if (!bySession[key]) bySession[key] = []
     bySession[key].push(a)
   })
@@ -300,10 +297,10 @@ export default function StudentAssignments() {
         </p>
       </div>
 
-      {Object.entries(bySession).map(([sessionId, sessionAssignments]) => (
-        <section key={sessionId}>
+      {Object.entries(bySession).map(([sessionLabel, sessionAssignments]) => (
+        <section key={sessionLabel}>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Session #{sessionId}
+            {sessionLabel}
           </h2>
           <div className="space-y-3">
             {sessionAssignments.map(a => (

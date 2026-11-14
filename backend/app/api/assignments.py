@@ -125,11 +125,21 @@ def list_my_assignments(
         .all()
     )
 
+    sessions_map = {
+        s.id: s.title
+        for s in db.query(ClassSession).filter(ClassSession.id.in_(enrolled_session_ids)).all()
+    }
+
     log_audit_event(
         db, action="list_my_assignments", user=user,
         resource_type="assignment", resource_id="all", request=request,
     )
-    return [AssignmentOut.model_validate(a) for a in assignments]
+    result = []
+    for a in assignments:
+        item = AssignmentOut.model_validate(a)
+        item.session_title = sessions_map.get(a.session_id)
+        result.append(item)
+    return result
 
 
 # ─── Student: submit assignment file ─────────────────────────────────────────

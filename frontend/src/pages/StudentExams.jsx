@@ -8,8 +8,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, BookOpen, CheckCircle, Clock, FileText, Lock, Shield } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api'
+import { api } from '../services/api'
 
 function formatDate(dt) {
   if (!dt) return null
@@ -51,36 +50,34 @@ export default function StudentExams() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (!token) return
+    const activeToken = token || localStorage.getItem('edusense_token')
+    if (!activeToken) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
-    fetch(`${API}/quizzes/student/exams`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
-      })
-      .then(data => {
-        setExams(data)
+
+    api('/quizzes/student/exams')
+      .then(async (data) => {
+        const list = Array.isArray(data) ? data : []
+        setExams(list)
+        if (list.length === 0) return
         // Fetch attempt history for each exam
-        return Promise.all(
-          data.map(exam =>
-            fetch(`${API}/quizzes/${exam.id}/my-attempts`, {
-              headers: { Authorization: `Bearer ${token}` },
-            })
-              .then(r => r.ok ? r.json() : [])
-              .then(att => ({ quizId: exam.id, attempts: att }))
+        const attData = await Promise.all(
+          list.map((exam) =>
+            api(`/quizzes/${exam.id}/my-attempts`)
+              .then((att) => ({ quizId: exam.id, attempts: Array.isArray(att) ? att : [] }))
               .catch(() => ({ quizId: exam.id, attempts: [] }))
           )
         )
-      })
-      .then(attData => {
         const map = {}
-        attData.forEach(({ quizId, attempts }) => { map[quizId] = attempts })
+        attData.forEach(({ quizId, attempts }) => {
+          map[quizId] = attempts
+        })
         setAttempts(map)
       })
-      .catch(err => setError(err.message))
+      .catch((err) => setError(err.message || 'Failed to load exams'))
       .finally(() => setLoading(false))
   }, [token])
 
@@ -147,6 +144,7 @@ export default function StudentExams() {
                     )}
                   </div>
                   <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                    {exam.session_title ? <span className="font-medium text-slate-700 dark:text-slate-300">{exam.session_title} · </span> : null}
                     {exam.questions.length} question{exam.questions.length !== 1 ? 's' : ''} ·{' '}
                     {exam.difficulty} difficulty
                     {exam.due_date ? ` · Due ${formatDate(exam.due_date)}` : ''}

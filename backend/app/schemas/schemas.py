@@ -223,6 +223,7 @@ class QuizOut(BaseModel):
     is_exam: bool = False
     lock_back_navigation: bool = False
     due_date: datetime | None = None
+    session_title: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -390,6 +391,7 @@ class AssignmentOut(BaseModel):
     due_date: datetime | None = None
     max_points: float
     created_at: datetime
+    session_title: str | None = None
 
     model_config = {"from_attributes": True}
 

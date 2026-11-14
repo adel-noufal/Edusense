@@ -261,6 +261,11 @@ def list_student_exams(
     log_audit_event(db, action="list_student_exams", user=user,
                     resource_type="quiz", resource_id="all", request=request)
 
+    sessions_map = {
+        s.id: s.title
+        for s in db.query(ClassSession).filter(ClassSession.id.in_(enrolled_session_ids)).all()
+    }
+
     result = []
     for quiz in quizzes:
         import json as _json
@@ -269,6 +274,7 @@ def list_student_exams(
         result.append(QuizOut(
             id=quiz.id,
             session_id=quiz.session_id,
+            session_title=sessions_map.get(quiz.session_id),
             title=quiz.title,
             difficulty=quiz.difficulty,
             questions=safe_questions,

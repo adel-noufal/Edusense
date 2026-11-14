@@ -5,6 +5,7 @@ const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('edusense_user') || 'null'))
+  const [token, setToken] = useState(() => localStorage.getItem('edusense_token'))
   const [consents, setConsents] = useState(() => JSON.parse(localStorage.getItem('edusense_consents') || '{}'))
 
   useEffect(() => {
@@ -17,8 +18,9 @@ export function AuthProvider({ children }) {
 
   // Sync fresh user information on load
   useEffect(() => {
-    const token = localStorage.getItem('edusense_token')
-    if (token) {
+    const storedToken = localStorage.getItem('edusense_token')
+    if (storedToken) {
+      setToken(storedToken)
       api('/users/me')
         .then((freshUser) => {
           if (freshUser && freshUser.id) {
@@ -41,6 +43,7 @@ export function AuthProvider({ children }) {
   async function login(email, password) {
     const result = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
     localStorage.setItem('edusense_token', result.access_token)
+    setToken(result.access_token)
     setUser(result.user)
     // Fetch consents after login
     await fetchConsents()
@@ -50,6 +53,7 @@ export function AuthProvider({ children }) {
   async function register(payload) {
     const result = await api('/auth/register', { method: 'POST', body: JSON.stringify(payload) })
     localStorage.setItem('edusense_token', result.access_token)
+    setToken(result.access_token)
     setUser(result.user)
     return result.user
   }
@@ -92,12 +96,14 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('edusense_token')
     localStorage.removeItem('edusense_user')
     localStorage.removeItem('edusense_consents')
+    setToken(null)
     setUser(null)
     setConsents({})
   }
 
   const value = useMemo(() => ({
     user,
+    token,
     consents,
     login,
     register,
@@ -107,7 +113,7 @@ export function AuthProvider({ children }) {
     giveConsent,
     withdrawConsent,
     hasConsent,
-  }), [user, consents])
+  }), [user, token, consents])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
