@@ -128,6 +128,21 @@ class VideoRequest(BaseModel):
     source_session_id: int | None = None
 
 
+class VideoSceneInput(BaseModel):
+    title: str
+    narration: str
+    content: str | None = None
+    highlight: str | None = None
+    bullets: list[str] = Field(default_factory=list)
+    duration_seconds: int = Field(default=8, ge=2, le=300)
+
+
+class VideoScenesUpdateRequest(BaseModel):
+    title: str | None = None
+    language: str | None = "English"
+    scenes: list[VideoSceneInput]
+
+
 class FlashcardRequest(BaseModel):
     topic: str
     prompt: str = ""

@@ -1491,6 +1491,13 @@ function VideoResult({ result, initialForm, onReplace, onHistoryRefresh }) {
     source_session_id: initialForm.source_session_id || '',
   })
   const [editing, setEditing] = useState(false)
+  const [scenes, setScenes] = useState(result.scenes || [])
+  const [sceneSaving, setSceneSaving] = useState(false)
+  const [sceneError, setSceneError] = useState(null)
+
+  useEffect(() => {
+    setScenes(result.scenes || [])
+  }, [result])
 
   useEffect(() => {
     if (editJob?.status === 'done' && editJob.result) {
@@ -1521,6 +1528,43 @@ function VideoResult({ result, initialForm, onReplace, onHistoryRefresh }) {
       })
     } catch {
       setEditing(false)
+    }
+  }
+
+  function updateScene(idx, field, value) {
+    setScenes(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
+  }
+
+  async function saveSceneEdits(e) {
+    e.preventDefault()
+    setSceneSaving(true)
+    setSceneError(null)
+    try {
+      const payload = {
+        title: result.title,
+        language: initialForm.language || 'English',
+        scenes: scenes.map(s => ({
+          title: s.title,
+          narration: s.narration,
+          content: s.content || s.narration,
+          highlight: s.highlight || '',
+          bullets: s.bullets || [],
+          duration_seconds: Number(s.duration_seconds) || 8,
+        })),
+      }
+      const res = await api(`/ai/videos/${result.id}/scenes`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      const updated = await res.json()
+      onReplace(updated)
+      onHistoryRefresh?.()
+    } catch (err) {
+      setSceneError(err.message || 'Failed to save scene edits')
+    } finally {
+      setSceneSaving(false)
     }
   }
 
@@ -1560,16 +1604,50 @@ function VideoResult({ result, initialForm, onReplace, onHistoryRefresh }) {
           <button type="submit" className="btn-primary md:col-span-2">{editing ? 'Updating video in background...' : 'Apply prompt edit'}</button>
         </form>
       </Section>
-      {result.scenes?.length > 0 && (
+      {scenes.length > 0 && (
         <Section title={t('ai.scenes')}>
-          <div className="grid gap-3 md:grid-cols-2">
-            {result.scenes.map((scene) => (
-              <article key={scene.title} className="rounded-md bg-slate-100 p-4 dark:bg-slate-800">
-                <div className="flex items-center gap-2 font-bold"><Volume2 size={16} />{scene.title}</div>
-                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{scene.narration}</p>
-              </article>
+          <form onSubmit={saveSceneEdits} className="space-y-4">
+            {scenes.map((scene, idx) => (
+              <div key={idx} className="rounded-md border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  <Volume2 size={14} /> Scene {idx + 1}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Scene Title</label>
+                  <input
+                    className="input w-full"
+                    value={scene.title || ''}
+                    onChange={e => updateScene(idx, 'title', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Narration</label>
+                  <textarea
+                    className="input w-full min-h-[80px] resize-y"
+                    value={scene.narration || ''}
+                    onChange={e => updateScene(idx, 'narration', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Duration (seconds)</label>
+                  <input
+                    type="number"
+                    min={2}
+                    max={300}
+                    className="input w-32"
+                    value={scene.duration_seconds || 8}
+                    onChange={e => updateScene(idx, 'duration_seconds', Number(e.target.value))}
+                  />
+                </div>
+              </div>
             ))}
-          </div>
+            {sceneError && (
+              <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{sceneError}</p>
+            )}
+            <button type="submit" className="btn-primary w-full" disabled={sceneSaving}>
+              {sceneSaving ? 'Saving & Re-rendering...' : 'Save Scene Edits & Re-render'}
+            </button>
+          </form>
         </Section>
       )}
       {result.lesson?.summary && (

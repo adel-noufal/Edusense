@@ -18,11 +18,11 @@ from app.agents.orchestrator import AgentOrchestrator
 from app.api.deps import get_current_user, require_role
 from app.db.session import get_db, SessionLocal
 from app.models.models import AIGeneration, ChatMessage as ChatMessageModel, Quiz, QuizAgentConfig, Report, Session as ClassSession, SessionResource, User, VideoProject
-from app.schemas.schemas import FlashcardRequest, LessonRequest, QuizRequest, QuizAgentConfigCreate, QuizAgentConfigUpdate, QuizAgentConfigOut, RecommendationDecision, VideoRequest
+from app.schemas.schemas import FlashcardRequest, LessonRequest, QuizRequest, QuizAgentConfigCreate, QuizAgentConfigUpdate, QuizAgentConfigOut, RecommendationDecision, VideoRequest, VideoScenesUpdateRequest
 from app.services.export import build_json_bytes, build_video_zip, build_word_document_bytes, lesson_to_markdown, build_true_docx_bytes, build_pptx_bytes
 from app.services.generation_jobs import create_job, get_job_payload, list_pending_jobs, set_job_status
 from app.services.source_extractor import build_session_source_context
-from app.services.video import generate_educational_video
+from app.services.video import generate_educational_video, rebuild_video_from_scenes
 from app.core.audit import log_audit_event
 
 VIDEO_STATIC_DIR = Path(__file__).resolve().parents[1] / "static" / "videos"
@@ -1026,6 +1026,46 @@ def get_video(video_id: int, db: Session = Depends(get_db), user: User = Depends
     if not project:
         raise HTTPException(404, "Video not found")
     return _serialize_video_project(project)
+
+
+@router.put("/videos/{video_id}/scenes")
+def update_video_scenes(
+    video_id: int,
+    payload: VideoScenesUpdateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor")),
+):
+    """
+    Update a video's scenes (titles, narration, duration_seconds) and re-render
+    the player HTML + re-TTS each segment + re-stitch MP4 (when ffmpeg available).
+    Does NOT re-generate the lesson — edits are applied directly to the scenes.
+    """
+    project = db.query(VideoProject).filter_by(id=video_id, instructor_id=user.id).first()
+    if not project:
+        raise HTTPException(404, "Video not found")
+
+    title = payload.title or project.title
+    language = payload.language or project.language or "English"
+    scenes_data = [s.model_dump() for s in payload.scenes]
+
+    result = rebuild_video_from_scenes(
+        project_id=video_id,
+        title=title,
+        scenes=scenes_data,
+        language=language,
+        re_tts=True,
+    )
+    # Update DB record
+    project.title = title
+    project.language = language
+    project.video_path = result["video_url"]
+    project.status = "completed"
+    db.commit()
+    db.refresh(project)
+
+    serialized = _serialize_video_project(project)
+    serialized["scenes"] = result["scenes"]
+    return serialized
 
 
 @router.get("/videos")
