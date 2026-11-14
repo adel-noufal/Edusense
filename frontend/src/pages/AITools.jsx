@@ -206,19 +206,6 @@ export function LessonGenerator() {
           {!history.length && <p className="text-sm text-slate-500">No lessons generated yet.</p>}
         </div>
       </div>
-
-      {publishModalQuiz && (
-        <PublishExamModal
-          quiz={publishModalQuiz}
-          onClose={() => setPublishModalQuiz(null)}
-          onPublished={(updated) => {
-            if (result && result.id === updated.id) {
-              setResult({ ...result, ...updated })
-            }
-            loadHistory()
-          }}
-        />
-      )}
     </div>
   )
 }
@@ -469,9 +456,23 @@ export function QuizGenerator() {
           {!history.length && <p className="text-sm text-slate-500">No quizzes generated yet.</p>}
         </div>
       </div>
+
+      {publishModalQuiz && (
+        <PublishExamModal
+          quiz={publishModalQuiz}
+          onClose={() => setPublishModalQuiz(null)}
+          onPublished={(updated) => {
+            if (result && result.id === updated.id) {
+              setResult({ ...result, ...updated })
+            }
+            loadHistory()
+          }}
+        />
+      )}
     </div>
   )
 }
+
 
 export function VideoLibrary() {
   const { t } = useLanguage()
