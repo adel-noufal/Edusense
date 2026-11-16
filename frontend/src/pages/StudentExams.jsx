@@ -197,6 +197,11 @@ export default function StudentExams() {
                     <Lock size={11} /> No back navigation
                   </span>
                 )}
+                {!exam.fullscreen_lock && !exam.camera_monitoring && !exam.lock_back_navigation && (
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                    <AlertTriangle size={11} /> No anti-cheat restrictions configured
+                  </span>
+                )}
               </div>
 
               {/* Prior attempt result */}

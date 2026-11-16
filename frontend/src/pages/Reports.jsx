@@ -99,6 +99,57 @@ export default function Reports() {
     }
   }
 
+  async function exportReport(format) {
+    if (!sessionDetail?.session) return
+    const data = {
+      session: sessionDetail.session,
+      attendees: sessionDetail.attendees || [],
+      quizzes: sessionDetail.quizzes || [],
+      student_reports: sessionDetail.student_reports || [],
+    }
+
+    if (format === 'json') {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `session-${activeSessionId}-report.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } else if (format === 'csv') {
+      const csvRows = [
+        ['Session Report'],
+        ['Title', data.session.title],
+        ['Date', data.session.date],
+        ['Status', data.session.status],
+        ['Engagement %', data.session.engagement_percentage],
+        ['Attendee Count', data.session.attendee_count],
+        [],
+        ['Attendees'],
+        ['Name', 'Email', 'Attended Duration (min)', 'Emotion Samples', 'Dominant Emotion'],
+        ...(data.attendees.map(a => [
+          a.name,
+          a.email,
+          a.duration || a.attended_duration || 0,
+          a.emotion_samples || 0,
+          a.dominant_emotion || 'N/A'
+        ])),
+        [],
+        ['Quizzes'],
+        ['Title', 'Difficulty', 'Question Count'],
+        ...(data.quizzes.map(q => [q.title, q.difficulty, q.question_count])),
+      ]
+      const csvContent = csvRows.map(row => row.join(',')).join('\n')
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `session-${activeSessionId}-report.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+  }
+
   function formatBytes(bytes) {
     if (!bytes) return ''
     if (bytes < 1024) return `${bytes} B`
@@ -124,6 +175,16 @@ export default function Reports() {
             <button className={`btn-soft ${activeTab === 'overview' ? 'bg-teal-600 text-white hover:bg-teal-700' : ''}`} type="button" onClick={() => setActiveTab('overview')}>Overview</button>
             <button className={`btn-soft ${activeTab === 'sources' ? 'bg-teal-600 text-white hover:bg-teal-700' : ''}`} type="button" onClick={() => setActiveTab('sources')}>Sources</button>
             <button className="btn-soft" type="button" onClick={loadSessions}>Refresh</button>
+            {sessionDetail && (
+              <div className="flex items-center gap-1">
+                <button className="btn-soft text-xs py-1.5 px-2" type="button" onClick={() => exportReport('json')} disabled={!sessionDetail}>
+                  <FileDown size={14} /> JSON
+                </button>
+                <button className="btn-soft text-xs py-1.5 px-2" type="button" onClick={() => exportReport('csv')} disabled={!sessionDetail}>
+                  <FileDown size={14} /> CSV
+                </button>
+              </div>
+            )}
           </div>
         </div>
         {stats.length > 0 && (

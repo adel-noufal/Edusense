@@ -53,7 +53,9 @@ export async function api(path, options = {}) {
     }
 
     if (!response.ok) {
-      throw new Error(formatApiError(data, response.statusText))
+      const error = new Error(formatApiError(data, response.statusText))
+      error.status = response.status
+      throw error
     }
 
     return data

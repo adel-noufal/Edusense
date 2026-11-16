@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookOpen, CheckCircle2, FileDown, FolderOpen, Link2, PlayCircle, Plus, RefreshCw, Trash2, Upload, Users, X } from 'lucide-react'
-import { api, token } from '../services/api'
+import { api, staticUrl, token } from '../services/api'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
 
@@ -65,7 +65,7 @@ export default function Sessions() {
         ...form,
         max_students: form.max_students ? Number(form.max_students) : null
       }
-      const created = await api('/sessions', { method: 'POST', body: JSON.stringify(payload) })
+      const created = await api('/sessions', { method: 'POST', body: payload })
       if (pendingCreateFile && created?.id) {
         setUploadingResource(true)
         try {
@@ -123,7 +123,7 @@ export default function Sessions() {
         ...editForm,
         max_students: editForm.max_students ? Number(editForm.max_students) : null
       }
-      await api(`/sessions/${editingSession.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+      await api(`/sessions/${editingSession.id}`, { method: 'PUT', body: payload })
       if (selectedGenerationId) {
         try {
           await api(`/sessions/${editingSession.id}/link-generation/${selectedGenerationId}`, { method: 'POST' })
@@ -324,7 +324,11 @@ export default function Sessions() {
         {!loading && sessions.length === 0 && !error && <p className="text-sm text-slate-500">{t('sessions.empty')}</p>}
         <div className="space-y-3">
           {sessions.map((session) => (
-            <div className="rounded-2xl border border-slate-200 p-4 transition hover:shadow-md dark:border-slate-700" key={session.id}>
+            <div 
+              className="rounded-2xl border border-slate-200 p-4 transition hover:shadow-md dark:border-slate-700 cursor-pointer" 
+              key={session.id}
+              onClick={() => navigate(`/instructor/reports?session_id=${session.id}`)}
+            >
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-lg font-bold">{session.title}</p>
@@ -338,7 +342,7 @@ export default function Sessions() {
                   <button
                     className="flex items-center gap-1.5 rounded-full bg-ocean/10 px-3 py-1 text-xs font-semibold text-ocean transition hover:bg-ocean/20 dark:bg-mint/10 dark:text-mint dark:hover:bg-mint/20"
                     type="button"
-                    onClick={() => viewAttendees(session)}
+                    onClick={(e) => { e.stopPropagation(); viewAttendees(session); }}
                   >
                     <Users size={13} />
                     Enrolled students
@@ -360,7 +364,7 @@ export default function Sessions() {
                       <button
                         type="button"
                         title="Unlink"
-                        onClick={() => unlinkGeneration(item.id, session.id, item.type)}
+                        onClick={(e) => { e.stopPropagation(); unlinkGeneration(item.id, session.id, item.type); }}
                         className="text-slate-400 hover:text-red-600 transition"
                       >
                         <X size={12} />
@@ -370,24 +374,24 @@ export default function Sessions() {
                 </div>
               )}
               <div className="mt-4 flex flex-wrap gap-2">
-                <button className="btn-soft" type="button" onClick={() => startEdit(session)}>Edit</button>
-                <button className="btn-soft" type="button" onClick={() => startSession(session.id)}><PlayCircle size={18} />{t('sessions.start')}</button>
-                <button className="btn-soft" type="button" onClick={() => endSession(session.id)}>{t('sessions.end')}</button>
+                <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); startEdit(session); }}>Edit</button>
+                <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); startSession(session.id); }}><PlayCircle size={18} />{t('sessions.start')}</button>
+                <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); endSession(session.id); }}>{t('sessions.end')}</button>
                 <button
                   className="btn-soft text-purple-600 hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-950/20"
                   type="button"
-                  onClick={() => openResourcePanel(session)}
+                  onClick={(e) => { e.stopPropagation(); openResourcePanel(session); }}
                 >
                   <FolderOpen size={18} />Manage Resources
                 </button>
                 <button
                   className="btn-soft text-teal-700 hover:bg-teal-50 dark:text-mint dark:hover:bg-teal-950/20"
                   type="button"
-                  onClick={() => openLinkPanel(session)}
+                  onClick={(e) => { e.stopPropagation(); openLinkPanel(session); }}
                 >
                   <Link2 size={18} />Link AI Content
                 </button>
-                <button className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={() => remove(session.id)}><Trash2 size={18} />{t('sessions.delete')}</button>
+                <button className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={(e) => { e.stopPropagation(); remove(session.id); }}><Trash2 size={18} />{t('sessions.delete')}</button>
               </div>
             </div>
           ))}
@@ -508,15 +512,21 @@ export default function Sessions() {
                         <p className="text-xs text-slate-500">{formatBytes(r.file_size)} · {new Date(r.uploaded_at).toLocaleDateString()}</p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <a
-                          href={`http://localhost:8000${r.url}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn-soft p-1.5 text-ocean dark:text-mint"
-                          title="Download"
-                        >
-                          <FileDown size={16} />
-                        </a>
+                        {r.available ? (
+                          <a
+                            href={staticUrl(r.url)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn-soft p-1.5 text-ocean dark:text-mint"
+                            title="Download"
+                          >
+                            <FileDown size={16} />
+                          </a>
+                        ) : (
+                          <span className="text-xs font-medium text-red-600 dark:text-red-400" role="status">
+                            File unavailable
+                          </span>
+                        )}
                         <button
                           type="button"
                           className="btn-soft p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20"

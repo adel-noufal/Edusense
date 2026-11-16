@@ -219,15 +219,21 @@ export default function StudentResources() {
                                 <p className="text-sm font-semibold truncate">{r.name}</p>
                                 <p className="text-xs text-slate-500">{formatBytes(r.file_size)} · {new Date(r.uploaded_at).toLocaleDateString()}</p>
                               </div>
-                              <a
-                                href={`${BACKEND}${r.url}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                download={r.name}
-                                className="btn-soft text-xs py-1.5 px-3 text-ocean dark:text-mint"
-                              >
-                                <Download size={14} />Download
-                              </a>
+                              {r.available ? (
+                                <a
+                                  href={`${BACKEND}${r.url}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  download={r.name}
+                                  className="btn-soft text-xs py-1.5 px-3 text-ocean dark:text-mint"
+                                >
+                                  <Download size={14} />Download
+                                </a>
+                              ) : (
+                                <span className="text-xs font-medium text-red-600 dark:text-red-400" role="status">
+                                  File unavailable
+                                </span>
+                              )}
                             </li>
                           ))}
                         </ul>

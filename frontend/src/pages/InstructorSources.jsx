@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FileDown, FolderOpen, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { FileDown, FolderOpen, MessageSquare, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { api, staticUrl, token } from '../services/api'
 
 export default function InstructorSources() {
+  const navigate = useNavigate()
   const [sessions, setSessions] = useState([])
   const [activeSessionId, setActiveSessionId] = useState('')
   const [resources, setResources] = useState([])
@@ -84,6 +86,11 @@ export default function InstructorSources() {
     }
   }
 
+  function askAboutDocument(resource) {
+    // Navigate to AI Tools with the source_id pre-selected
+    navigate('/instructor/ai-tools', { state: { sourceId: resource.id, sourceName: resource.name } })
+  }
+
   function formatBytes(bytes) {
     if (!bytes) return ''
     if (bytes < 1024) return `${bytes} B`
@@ -159,9 +166,18 @@ export default function InstructorSources() {
                       <p className="truncate font-semibold text-sm">{resource.name}</p>
                       <p className="text-xs text-slate-500">{formatBytes(resource.file_size)} · {new Date(resource.uploaded_at).toLocaleDateString()}</p>
                     </div>
-                    <a href={staticUrl(resource.url)} target="_blank" rel="noreferrer" className="btn-soft p-1.5" title="Open">
-                      <FileDown size={16} />
-                    </a>
+                    {resource.available ? (
+                      <a href={staticUrl(resource.url)} target="_blank" rel="noreferrer" className="btn-soft p-1.5" title="Open">
+                        <FileDown size={16} />
+                      </a>
+                    ) : (
+                      <span className="text-xs font-medium text-red-600 dark:text-red-400" role="status">
+                        File unavailable
+                      </span>
+                    )}
+                    <button type="button" className="btn-soft p-1.5 text-ocean dark:text-mint" onClick={() => askAboutDocument(resource)} title="Ask about this document">
+                      <MessageSquare size={16} />
+                    </button>
                     <button type="button" className="btn-soft p-1.5 text-red-500" onClick={() => deleteResource(resource.id)} title="Delete">
                       <Trash2 size={16} />
                     </button>

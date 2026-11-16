@@ -1,6 +1,10 @@
 ﻿import os
 import sys
 
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
 from app.core.config import get_settings
 from app.services.vector_store import (
     ChunkMetadata,
@@ -115,6 +119,10 @@ def run_verification():
     print("\n" + "=" * 60)
     print("   [SUCCESS] ALL TASK 1 VERIFICATION CHECKS PASSED!")
     print("=" * 60)
+
+
+def test_task1_vector_store():
+    run_verification()
 
 
 if __name__ == "__main__":

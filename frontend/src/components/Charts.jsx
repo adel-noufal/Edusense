@@ -7,9 +7,9 @@ const axisStyle = { fontSize: 12, fill: '#64748b' }
 export function EmotionDistribution({ data = {} }) {
   const rows = Object.entries(data).map(([name, value]) => ({ name, value }))
   return (
-    <ResponsiveContainer width="100%" height={280}>
+    <ResponsiveContainer width="100%" height={350}>
       <PieChart>
-        <Pie dataKey="value" data={rows} innerRadius={50} outerRadius={92} paddingAngle={4} label>
+        <Pie dataKey="value" data={rows} innerRadius={60} outerRadius={110} paddingAngle={4} label>
           {rows.map((_, i) => <Cell key={i} fill={colors[i % colors.length]} />)}
         </Pie>
         <Tooltip contentStyle={{ borderRadius: 16, border: '1px solid rgba(148,163,184,0.25)' }} />

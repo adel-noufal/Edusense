@@ -130,7 +130,7 @@ export default function WebcamEmotion({ sessionId, title = 'Live Emotion Analysi
     try {
       const response = await api('/emotions/analyze', {
         method: 'POST',
-        body: JSON.stringify({ session_id: sessionId, image }),
+        body: { session_id: sessionId, image },
       })
       if (updateUi) {
         setResults((prev) => [

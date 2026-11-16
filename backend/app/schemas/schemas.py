@@ -185,7 +185,7 @@ class QuizCreateManual(BaseModel):
     time_limit_seconds: int | None = None
     time_limit_per_question_seconds: int | None = None
     lock_back_navigation: bool = False
-    fullscreen_lock: bool = False
+    fullscreen_lock: bool | None = None
     camera_monitoring: bool = False
     due_date: datetime | None = None
 

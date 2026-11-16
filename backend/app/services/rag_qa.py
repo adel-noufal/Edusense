@@ -12,10 +12,74 @@ from typing import Optional
 
 from app.agents.base import LocalLLM
 from app.agents.logging_utils import LLMAuditContext
-from app.agents.prompts.scope_guardrail import build_guardrail_prompt, check_topic_in_scope, get_refusal_message
+from app.agents.prompts.scope_guardrail import build_guardrail_prompt
 from app.agents.tools import RAG_Search_Tool
+from app.services import vector_store
 from app.services.gemini import generate_content, generate_via_ollama
 from app.core.config import get_settings
+from app.services.ingestion import get_indexed_sources
+
+
+def _find_referenced_source(question: str) -> str | None:
+    lowered_question = question.casefold()
+    matches = []
+    for source in get_indexed_sources():
+        source_id = str(source.get("source_id") or "")
+        source_file = str(source.get("source_file") or "")
+        for alias in {source_id, source_file} - {""}:
+            if alias.casefold() in lowered_question:
+                matches.append((alias, source_id or source_file))
+    return max(matches, key=lambda match: len(match[0]))[1] if matches else None
+
+
+def _chunk_order(chunk: dict) -> tuple[int, int]:
+    metadata = chunk.get("metadata") or {}
+    try:
+        page = int(metadata.get("page") or 0)
+    except (TypeError, ValueError):
+        page = 0
+    try:
+        index = int(metadata.get("chunk_index") or 0)
+    except (TypeError, ValueError):
+        index = 0
+    return page, index
+
+
+def _representative_chunks(chunks: list[dict], count: int) -> list[dict]:
+    ordered = sorted(chunks, key=_chunk_order)
+    if len(ordered) <= count:
+        return ordered
+    if count <= 1:
+        return ordered[:count]
+    indexes = [round(i * (len(ordered) - 1) / (count - 1)) for i in range(count)]
+    return [ordered[index] for index in indexes]
+
+
+def _format_vector_chunks(chunks: list[dict]) -> list[dict]:
+    formatted = []
+    for chunk in chunks:
+        metadata = chunk.get("metadata") or {}
+        distance = chunk.get("distance")
+        score = round(max(0.0, min(1.0, 1.0 - float(distance))), 4) if distance is not None else 1.0
+        formatted.append({
+            "text": chunk.get("text", ""),
+            "source_file": str(metadata.get("source_file") or metadata.get("source_id") or ""),
+            "page": metadata.get("page", 1),
+            "subject": str(metadata.get("subject", "")),
+            "grade_level": str(metadata.get("grade_level", "")),
+            "topic": str(metadata.get("topic", "")),
+            "score": score,
+        })
+    return formatted
+
+
+def _is_document_overview_question(question: str) -> bool:
+    return bool(re.search(
+        r"\b(?:summar(?:y|ize|ise)|overview|main idea|what is it talking about|"
+        r"what is this about|what does (?:this|the) (?:pdf|document|file) (?:cover|discuss))\b",
+        question,
+        re.IGNORECASE,
+    ))
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -132,6 +196,27 @@ def answer_question(
         min_score=threshold,
     )
 
+    referenced_source = _find_referenced_source(question)
+    if referenced_source:
+        source_chunks = vector_store.get_by_source(referenced_source)
+        if source_chunks:
+            scoped_results = vector_store.query(
+                query_text=question,
+                top_k=top_k,
+                metadata_filter={"source_file": referenced_source},
+            )
+            if not scoped_results:
+                scoped_results = vector_store.query(
+                    query_text=question,
+                    top_k=top_k,
+                    metadata_filter={"source_id": referenced_source},
+                )
+            if _is_document_overview_question(question):
+                selected_chunks = _representative_chunks(source_chunks, top_k)
+            else:
+                selected_chunks = scoped_results or _representative_chunks(source_chunks, top_k)
+            chunks = _format_vector_chunks(selected_chunks)
+
     source_meta = [
         {
             "source_file":  c.get("source_file", ""),
@@ -161,8 +246,10 @@ A student has asked the following question:
 QUESTION: {question}
 
 No relevant material was found in the knowledge base for this question.
-Do NOT invent facts. Respond with a polite message directing the student to ask their instructor
-to upload course materials for this topic.
+If the user asks a general educational question, answer from general knowledge and clarify
+that the answer is not grounded in uploaded course materials. If the user asks about a
+specific uploaded document that was not found, say so plainly. Refuse only clearly
+non-educational or off-topic requests.
 
 Answer:"""
 

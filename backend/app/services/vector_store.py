@@ -210,6 +210,38 @@ def query(
     return results
 
 
+def get_by_source(
+    source_id: str,
+    collection_name: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Return all indexed chunks for a document source without vector ranking."""
+    collection = (
+        init_collection(collection_name)
+        if collection_name
+        else (_active_collection or init_collection())
+    )
+
+    for metadata_key in ("source_file", "source_id"):
+        raw_results = collection.get(
+            where={metadata_key: source_id},
+            include=["documents", "metadatas"],
+        )
+        ids = raw_results.get("ids", [])
+        if ids:
+            documents = raw_results.get("documents") or []
+            metadatas = raw_results.get("metadatas") or []
+            return [
+                {
+                    "id": chunk_id,
+                    "text": documents[index] if index < len(documents) else "",
+                    "metadata": metadatas[index] if index < len(metadatas) else {},
+                    "distance": None,
+                }
+                for index, chunk_id in enumerate(ids)
+            ]
+    return []
+
+
 def delete_by_source(
     source_id: str,
     collection_name: Optional[str] = None

@@ -34,6 +34,7 @@ export default function Quiz() {
   const [results, setResults] = useState(null)
   const [fullscreen, setFullscreen] = useState(false)
   const [fullscreenLocked, setFullscreenLocked] = useState(false)
+  const [fullscreenError, setFullscreenError] = useState('')
   const [cameraMonitoring, setCameraMonitoring] = useState(false)
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraStream, setCameraStream] = useState(null)
@@ -201,12 +202,15 @@ export default function Quiz() {
   async function enterFullscreen() {
     try {
       const elem = document.documentElement
-      if (elem.requestFullscreen) {
-        await elem.requestFullscreen()
-        setFullscreen(true)
-      }
+      if (!elem.requestFullscreen) throw new Error('Fullscreen is not supported by this browser.')
+      await elem.requestFullscreen()
+      setFullscreen(true)
+      setFullscreenError('')
+      return true
     } catch (err) {
-      console.warn('Fullscreen request failed:', err)
+      setFullscreen(false)
+      setFullscreenError(err.message || 'Fullscreen could not be activated.')
+      return false
     }
   }
 
@@ -305,12 +309,12 @@ export default function Quiz() {
         if (Math.random() < 0.1) { // ~10% of frames
           await api('/emotion/frame', {
             method: 'POST',
-            body: JSON.stringify({
+            body: {
               session_id: quiz.session_id,
               image: dataUrl,
               quiz_monitoring: true,
               attempt_id: attempt.id
-            })
+            }
           })
         }
       } catch (err) {
@@ -348,7 +352,7 @@ export default function Quiz() {
     try {
       await api(`/quizzes/${quizId}/violations`, {
         method: 'POST',
-        body: JSON.stringify({ event_type: eventType, details })
+        body: { event_type: eventType, details }
       })
     } catch (err) {
       console.error('Failed to log violation:', err)
@@ -397,10 +401,10 @@ export default function Quiz() {
 
       const result = await api(`/quizzes/${quizId}/submit`, {
         method: 'POST',
-        body: JSON.stringify({
+        body: {
           answers,
           elapsed_seconds: elapsedSeconds
-        })
+        }
       })
 
       setResults(result)
@@ -427,10 +431,10 @@ export default function Quiz() {
 
       const result = await api(`/quizzes/${quizId}/submit`, {
         method: 'POST',
-        body: JSON.stringify({
+        body: {
           answers,
           elapsed_seconds: elapsedSeconds
-        })
+        }
       })
 
       setResults(result)
@@ -618,6 +622,21 @@ export default function Quiz() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 relative">
       {renderWatermark()}
+      {fullscreenLocked && !fullscreen && !loading && !showResults && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/90 p-6 text-center">
+          <div className="max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-8 text-white shadow-2xl">
+            <Shield className="mx-auto h-10 w-10 text-amber-400" />
+            <h2 className="mt-4 text-xl font-bold">Fullscreen is required for this exam</h2>
+            <p className="mt-2 text-sm text-slate-300">
+              Enter fullscreen to continue. Leaving fullscreen during the exam is recorded as a security violation.
+            </p>
+            {fullscreenError && <p className="mt-3 text-sm text-amber-300" role="alert">{fullscreenError}</p>}
+            <button type="button" className="btn-primary mt-5 gap-2" onClick={enterFullscreen}>
+              <Maximize className="h-4 w-4" /> Enter fullscreen
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Fullscreen/Camera indicator bar */}
       {(fullscreenLocked || cameraMonitoring) && (
@@ -628,6 +647,15 @@ export default function Quiz() {
                 <Shield className="w-4 h-4" />
                 <span>Fullscreen Locked</span>
               </span>
+            )}
+            {fullscreenLocked && !fullscreen && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-2 py-1 font-semibold text-slate-950"
+                onClick={enterFullscreen}
+              >
+                <Maximize className="h-4 w-4" /> Enter fullscreen
+              </button>
             )}
             {cameraMonitoring && (
               <span className="flex items-center gap-1">
@@ -681,6 +709,25 @@ export default function Quiz() {
             <span className="flex items-center gap-1"><Flag className="w-4 h-4" />{quiz.questions.length} questions</span>
             {timeLimit && <span className="flex items-center gap-1"><Clock className="w-4 h-4" />{formatTime(timeLimit)} total</span>}
           </div>
+          {quiz.is_exam && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-semibold text-slate-600 dark:text-slate-300">Exam security:</span>
+              <span className={`rounded-full px-2.5 py-1 ${quiz.fullscreen_lock ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                {quiz.fullscreen_lock ? 'Fullscreen required' : 'Fullscreen not enabled'}
+              </span>
+              <span className={`rounded-full px-2.5 py-1 ${quiz.camera_monitoring ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                {quiz.camera_monitoring ? 'Camera monitoring enabled' : 'Camera monitoring off'}
+              </span>
+              <span className={`rounded-full px-2.5 py-1 ${quiz.lock_back_navigation ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                {quiz.lock_back_navigation ? 'Back navigation locked' : 'Back navigation allowed'}
+              </span>
+            </div>
+          )}
+          {fullscreenError && (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200" role="alert">
+              {fullscreenError} Use the “Enter fullscreen” button to retry.
+            </p>
+          )}
 
           {/* Progress bar */}
           <div className="mt-4 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">

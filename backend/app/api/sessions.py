@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Optional
 import asyncio
 import base64
+import uuid
 from pathlib import Path
 from collections import Counter
 from app.api.deps import get_current_user, require_role
@@ -521,7 +522,9 @@ async def upload_session_resource(
 
     # Save the file
     RESOURCE_DIR.mkdir(parents=True, exist_ok=True)
-    safe_name = f"session-{session_id}-{file.filename.replace(' ', '_')}"
+    original_name = file.filename or "resource"
+    safe_filename = Path(original_name.replace("\\", "/")).name.replace(" ", "_")
+    safe_name = f"session-{session_id}-{uuid.uuid4().hex}-{safe_filename}"
     dest = RESOURCE_DIR / safe_name
     content = await file.read()
     dest.write_bytes(content)
@@ -529,14 +532,20 @@ async def upload_session_resource(
     resource = SessionResource(
         session_id=session_id,
         instructor_id=user.id,
-        name=file.filename,
+        name=original_name,
         file_path=str(dest),
         file_type=file.content_type or "application/octet-stream",
         file_size=len(content),
     )
     db.add(resource)
-    db.commit()
-    db.refresh(resource)
+    try:
+        db.commit()
+        db.refresh(resource)
+    except Exception as exc:
+        db.rollback()
+        dest.unlink(missing_ok=True)
+        logger.exception("Failed to save uploaded resource record")
+        raise HTTPException(500, "Could not save uploaded resource") from exc
 
     # Ingest document into vector store
     from app.services.ingestion import ingest_file
@@ -586,6 +595,7 @@ async def upload_session_resource(
         "file_size": resource.file_size,
         "uploaded_at": resource.uploaded_at.isoformat(),
         "url": f"/static/resources/{safe_name}",
+        "available": True,
         "chunks_indexed": len(chunks),
     }
 
@@ -601,18 +611,22 @@ def list_session_resources(session_id: int, db: DbSession = Depends(get_db), use
         if not reg:
             raise HTTPException(403, "You are not enrolled in this session")
     resources = db.query(SessionResource).filter_by(session_id=session_id).order_by(SessionResource.uploaded_at.desc()).all()
-    safe_name_fn = lambda r: Path(r.file_path).name if r.file_path else ""
-    return [
-        {
-            "id": r.id,
-            "name": r.name,
-            "file_type": r.file_type,
-            "file_size": r.file_size,
-            "uploaded_at": r.uploaded_at.isoformat(),
-            "url": f"/static/resources/{safe_name_fn(r)}",
-        }
-        for r in resources
-    ]
+    result = []
+    for resource in resources:
+        stored_path = Path(resource.file_path) if resource.file_path else None
+        filename = stored_path.name if stored_path else ""
+        path = stored_path if stored_path and stored_path.is_file() else RESOURCE_DIR / filename
+        available = bool(filename and path.is_file())
+        result.append({
+            "id": resource.id,
+            "name": resource.name,
+            "file_type": resource.file_type,
+            "file_size": resource.file_size,
+            "uploaded_at": resource.uploaded_at.isoformat(),
+            "url": f"/static/resources/{filename}" if available else None,
+            "available": available,
+        })
+    return result
 
 
 @router.delete("/resources/{resource_id}")

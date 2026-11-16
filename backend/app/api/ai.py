@@ -87,6 +87,7 @@ class ChatRequest(BaseModel):
     stream: bool = False
     # Uploaded file text to inject as context (from /api/chat/upload)
     file_context: Optional[str] = None
+    source_id: Optional[str] = None
 
 
 _analytics_cache: dict[str, dict] = {}
@@ -1067,6 +1068,8 @@ def update_video_scenes(
 
     serialized = _serialize_video_project(project)
     serialized["scenes"] = result["scenes"]
+    serialized["fallback"] = result["fallback"]
+    serialized["duration_warning"] = result["duration_warning"]
     return serialized
 
 
@@ -1128,7 +1131,7 @@ async def chat(
             messages = db.query(ChatMessageModel).filter_by(
                 conversation_id=payload.conversation_id,
                 user_id=user.id
-            ).order_by(ChatMessageModel.created_at).all()
+            ).order_by(ChatMessageModel.created_at, ChatMessageModel.id).all()
             history = [{"role": m.role, "content": m.content} for m in messages]
         finally:
             db.close()
@@ -1146,6 +1149,7 @@ async def chat(
         subject=payload.subject,
         grade_level=payload.grade_level,
         conversation_history=history,
+        source_id=payload.source_id,
     )
 
     # Persist user message and assistant response
@@ -1302,7 +1306,7 @@ async def get_conversation(
         messages = db.query(ChatMessageModel).filter_by(
             conversation_id=conversation_id,
             user_id=user.id
-        ).order_by(ChatMessageModel.created_at).all()
+        ).order_by(ChatMessageModel.created_at, ChatMessageModel.id).all()
         if not messages:
             raise HTTPException(status_code=404, detail="Conversation not found")
         import json as _json
@@ -1377,7 +1381,7 @@ async def chat_stream(
             messages = db.query(ChatMessageModel).filter_by(
                 conversation_id=payload.conversation_id,
                 user_id=user.id
-            ).order_by(ChatMessageModel.created_at).all()
+            ).order_by(ChatMessageModel.created_at, ChatMessageModel.id).all()
             history = [{"role": m.role, "content": m.content} for m in messages]
         finally:
             db.close()
@@ -1408,6 +1412,7 @@ async def chat_stream(
             subject=payload.subject,
             grade_level=payload.grade_level,
             conversation_history=history,
+            source_id=payload.source_id,
         ):
             if chunk.startswith("\n\n__METADATA__"):
                 import json as _json

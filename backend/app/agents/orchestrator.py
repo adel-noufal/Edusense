@@ -30,6 +30,7 @@ from app.agents.logging_utils import LLMAuditContext
 from app.agents.prompts.scope_guardrail import build_guardrail_prompt
 from app.agents.tools import RAG_Search_Tool, Web_Search_Tool
 from app.core.config import get_settings
+from app.services import vector_store
 
 
 async def _run_with_timeout(func: Callable, timeout: float, *args, **kwargs):
@@ -80,20 +81,37 @@ class AgentOrchestrator:
         query: str,
         subject: Optional[str],
         grade_level: Optional[str],
-        top_k: int = 5
+        top_k: int = 5,
+        source_id: Optional[str] = None,
     ) -> tuple[str, List[str], int]:
         """
         Returns (context_block, source_labels, chunk_count).
         Times out after 2 seconds (near-instant local vector search).
         """
         try:
-            chunks = await _run_with_timeout(
-                RAG_Search_Tool, 2.0,
-                query=query,
-                subject=subject,
-                grade_level=grade_level,
-                top_k=top_k,
-            )
+            if source_id:
+                chunks = []
+                for metadata_key in ("source_file", "source_id"):
+                    chunks = await _run_with_timeout(
+                        vector_store.query,
+                        2.0,
+                        query_text=query,
+                        top_k=top_k,
+                        metadata_filter={metadata_key: source_id},
+                    )
+                    if chunks:
+                        break
+                if not chunks:
+                    chunks = await _run_with_timeout(vector_store.get_by_source, 2.0, source_id)
+                    chunks = chunks[:top_k]
+            else:
+                chunks = await _run_with_timeout(
+                    RAG_Search_Tool, 2.0,
+                    query=query,
+                    subject=subject,
+                    grade_level=grade_level,
+                    top_k=top_k,
+                )
         except asyncio.TimeoutError:
             print(f"[Orchestrator] RAG lookup timed out after 2s")
             return "", [], 0
@@ -107,8 +125,9 @@ class AgentOrchestrator:
         lines = []
         sources: List[str] = []
         for chunk in chunks:
-            src = chunk.get("source_file", "")
-            page = chunk.get("page", "")
+            metadata = chunk.get("metadata") or {}
+            src = chunk.get("source_file") or metadata.get("source_file") or metadata.get("source_id") or ""
+            page = chunk.get("page") or metadata.get("page") or ""
             label = f"{src} p.{page}" if src and page else (src or "unknown")
             if label not in sources:
                 sources.append(label)
@@ -206,13 +225,14 @@ Instructions:
         subject: Optional[str] = None,
         grade_level: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        source_id: Optional[str] = None,
     ) -> OrchestratorResult:
         """
         Run the orchestrator synchronously with tool timeouts.
 
         Returns OrchestratorResult with mode indicating which path was taken.
         """
-        return asyncio.run(self._run_async(query, subject, grade_level, conversation_history))
+        return asyncio.run(self._run_async(query, subject, grade_level, conversation_history, source_id))
 
     async def _run_async(
         self,
@@ -220,6 +240,7 @@ Instructions:
         subject: Optional[str] = None,
         grade_level: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        source_id: Optional[str] = None,
     ) -> OrchestratorResult:
         """
         Run the orchestrator asynchronously with tool timeouts.
@@ -228,8 +249,19 @@ Instructions:
         """
         # Step 1: RAG Search (always attempted, 2s timeout)
         rag_context, rag_sources, rag_count = await self._build_rag_context(
-            query, subject, grade_level
+            query, subject, grade_level, source_id=source_id
         )
+
+        if source_id and rag_count == 0:
+            return OrchestratorResult(
+                answer="I couldn't find indexed passages in the selected document. Try refreshing the Knowledge Base or selecting another file.",
+                sources=[],
+                web_sources=[],
+                mode="selected_source_empty",
+                rag_chunks_used=0,
+                web_results_used=0,
+                unverified=True,
+            )
 
         # Step 2: Web Search (if online, 5s timeout)
         web_context = ""
@@ -237,13 +269,18 @@ Instructions:
         web_count = 0
         web_failed = False
 
-        if self._is_online():
+        if self._is_online() and not source_id:
             web_context, web_results, web_count = await self._build_web_context(query)
             if web_count == 0:
                 web_failed = True
 
         # Step 3: LLM Generation with fallback chain
         prompt = self._build_prompt(query, rag_context, web_context, subject, grade_level, conversation_history)
+        if source_id:
+            prompt += (
+                "\n\nSelected-document restriction: use only the provided knowledge-base chunks "
+                "from the selected document. Do not use web sources or unrelated documents."
+            )
 
         # Try online LLM first
         answer = ""
@@ -404,13 +441,14 @@ Instructions:
         subject: Optional[str] = None,
         grade_level: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        source_id: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Run the orchestrator with streaming response.
         Yields answer chunks as they're generated.
         """
         # Run the async orchestrator
-        result = await self._run_async(query, subject, grade_level, conversation_history)
+        result = await self._run_async(query, subject, grade_level, conversation_history, source_id)
 
         # Simple chunking by sentences for streaming effect
         sentences = result.answer.split(". ")

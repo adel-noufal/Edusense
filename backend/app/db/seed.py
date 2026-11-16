@@ -65,7 +65,7 @@ def _ensure_schema_updates(db):
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS due_date TIMESTAMP WITH TIME ZONE;"))
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS time_limit_seconds INTEGER;"))
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS time_limit_per_question_seconds INTEGER;"))
-            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS fullscreen_lock BOOLEAN DEFAULT FALSE;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS fullscreen_lock BOOLEAN DEFAULT TRUE;"))
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS camera_monitoring BOOLEAN DEFAULT FALSE;"))
             db.execute(text("""
                 CREATE TABLE IF NOT EXISTS session_resources (
@@ -149,7 +149,7 @@ def _ensure_schema_updates(db):
             if "time_limit_per_question_seconds" not in quiz_cols:
                 db.execute(text("ALTER TABLE quizzes ADD COLUMN time_limit_per_question_seconds INTEGER;"))
             if "fullscreen_lock" not in quiz_cols:
-                db.execute(text("ALTER TABLE quizzes ADD COLUMN fullscreen_lock BOOLEAN NOT NULL DEFAULT 0;"))
+                db.execute(text("ALTER TABLE quizzes ADD COLUMN fullscreen_lock BOOLEAN NOT NULL DEFAULT 1;"))
             if "camera_monitoring" not in quiz_cols:
                 db.execute(text("ALTER TABLE quizzes ADD COLUMN camera_monitoring BOOLEAN NOT NULL DEFAULT 0;"))
 

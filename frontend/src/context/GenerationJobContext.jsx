@@ -92,7 +92,7 @@ export function GenerationJobProvider({ children }) {
   }, [updateJob, notifyComplete])
 
   const startJob = useCallback(async ({ type, endpoint, payload, label }) => {
-    const { job_id } = await api(endpoint, { method: 'POST', body: JSON.stringify(payload) })
+    const { job_id } = await api(endpoint, { method: 'POST', body: payload })
     const job = {
       jobId: job_id,
       type,

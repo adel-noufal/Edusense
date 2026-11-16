@@ -174,6 +174,10 @@ def run_verification():
     print("=" * 60)
 
 
+def test_task2_ingestion():
+    run_verification()
+
+
 if __name__ == "__main__":
     try:
         run_verification()

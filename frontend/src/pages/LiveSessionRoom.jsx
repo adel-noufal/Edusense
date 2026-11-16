@@ -134,7 +134,7 @@ export default function LiveSessionRoom() {
     canvas.getContext('2d').drawImage(shareVideo.current, 0, 0, canvas.width, canvas.height)
     await api(`/sessions/${sessionId}/share-frame`, {
       method: 'POST',
-      body: JSON.stringify({ image: canvas.toDataURL('image/jpeg', 0.7) }),
+      body: { image: canvas.toDataURL('image/jpeg', 0.7) },
     })
   }
 
@@ -184,7 +184,7 @@ export default function LiveSessionRoom() {
     canvas.getContext('2d').drawImage(localVideo.current, 0, 0, 480, 360)
     return await api('/emotions/analyze', {
       method: 'POST',
-      body: JSON.stringify({ session_id: Number(sessionId), image: canvas.toDataURL('image/jpeg') }),
+      body: { session_id: Number(sessionId), image: canvas.toDataURL('image/jpeg') },
     })
   }
 

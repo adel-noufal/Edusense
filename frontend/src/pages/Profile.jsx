@@ -54,12 +54,12 @@ export default function Profile() {
       }
 
       if (Object.keys(accountPayload).length > 0) {
-        const updated = await api('/users/me', { method: 'PUT', body: JSON.stringify(accountPayload) })
+        const updated = await api('/users/me', { method: 'PUT', body: accountPayload })
         if (updated && updateUser) updateUser(updated)
       }
 
       // 2. Update profile details
-      await api('/users/profile', { method: 'PUT', body: JSON.stringify(profileForm) })
+      await api('/users/profile', { method: 'PUT', body: profileForm })
       
       setMessage('Profile and preference settings updated successfully.')
       setAccountForm((prev) => ({ ...prev, current_password: '', new_password: '' }))

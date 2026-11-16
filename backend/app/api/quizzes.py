@@ -7,7 +7,7 @@ anti-cheat violation logging, and instructor violation review/re-entry.
 import json
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_role
@@ -26,8 +26,8 @@ router = APIRouter(prefix="/quizzes", tags=["Quiz Attempts"])
 
 # ─── Quiz Creation & Taking ───────────────────────────────────────────────────────
 
-@router.post("", response_model=QuizOut)
-@router.post("/", response_model=QuizOut)
+@router.post("", response_model=QuizOut, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=QuizOut, status_code=status.HTTP_201_CREATED)
 def create_manual_quiz(
     payload: QuizCreateManual,
     request: Request,
@@ -66,7 +66,7 @@ def create_manual_quiz(
         time_limit_seconds=payload.time_limit_seconds,
         time_limit_per_question_seconds=payload.time_limit_per_question_seconds,
         lock_back_navigation=payload.lock_back_navigation,
-        fullscreen_lock=payload.fullscreen_lock,
+        fullscreen_lock=payload.fullscreen_lock if payload.fullscreen_lock is not None else payload.is_exam,
         camera_monitoring=payload.camera_monitoring,
         due_date=payload.due_date,
     )
@@ -148,7 +148,7 @@ def get_quiz_for_student(
         # Strip correct answers from questions for student view
         safe_questions = []
         for q in questions:
-            safe_q = {k: v for k, v in q.items() if k != "answer"}
+            safe_q = {k: v for k, v in q.items() if k not in ("answer", "correct_answer")}
             safe_questions.append(safe_q)
         display_questions = safe_questions
     else:
@@ -204,7 +204,7 @@ def list_quizzes_for_session(
         questions = json.loads(quiz.questions_json)
         safe_questions = []
         for q in questions:
-            safe_q = {k: v for k, v in q.items() if k != "answer"}
+            safe_q = {k: v for k, v in q.items() if k not in ("answer", "correct_answer")}
             safe_questions.append(safe_q)
 
         result.append(QuizOut(
@@ -270,7 +270,7 @@ def list_student_exams(
     for quiz in quizzes:
         import json as _json
         questions = _json.loads(quiz.questions_json)
-        safe_questions = [{k: v for k, v in q.items() if k != "answer"} for q in questions]
+        safe_questions = [{k: v for k, v in q.items() if k not in ("answer", "correct_answer")} for q in questions]
         result.append(QuizOut(
             id=quiz.id,
             session_id=quiz.session_id,
@@ -676,6 +676,31 @@ def list_quiz_attempts(
         }
         for a in attempts
     ]
+
+
+@router.get("/{quiz_id}/my-attempts", response_model=list[QuizAttemptOut])
+def list_my_quiz_attempts(
+    quiz_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("student")),
+):
+    """Return only the current student's attempts for a quiz."""
+    quiz = db.query(Quiz).filter_by(id=quiz_id).first()
+    if not quiz:
+        raise HTTPException(404, "Quiz not found")
+    if quiz.session_id:
+        enrolled = db.query(SessionRegistration).filter_by(
+            session_id=quiz.session_id,
+            student_id=user.id,
+        ).first()
+        if not enrolled:
+            raise HTTPException(403, "You are not enrolled in the session this quiz belongs to")
+    return (
+        db.query(QuizAttempt)
+        .filter_by(quiz_id=quiz_id, student_id=user.id)
+        .order_by(QuizAttempt.started_at.desc(), QuizAttempt.id.desc())
+        .all()
+    )
 
 
 # ─── Anti-Cheat: Violation Logging & Review ──────────────────────────────────────

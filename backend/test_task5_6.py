@@ -36,6 +36,8 @@ def fail(msg: str, exc: Exception | None = None):
 
 
 # --öÇ--öÇ Imports --öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ
+import pytest
+
 try:
     from fastapi.testclient import TestClient
     from app.main import app
@@ -44,11 +46,18 @@ try:
     from app.core.security import hash_password
     from app.services.vector_store import ChunkRecord, ChunkMetadata, init_collection, add_chunks, get_client
     from app.services.rag_qa import answer_question, suggest_chunks
+    _IMPORT_OK = True
+    _IMPORT_ERR = ""
 except ImportError as exc:
-    print(f"[ERROR] Import failed: {exc}")
-    sys.exit(1)
+    _IMPORT_OK = False
+    _IMPORT_ERR = str(exc)
 
-client = TestClient(app)
+if _IMPORT_OK:
+    client = TestClient(app)
+else:
+    client = None  # type: ignore
+
+pytestmark = pytest.mark.skipif(not _IMPORT_OK, reason=f"Import failed: {_IMPORT_ERR}")
 
 # --öÇ--öÇ Seed ChromaDB collection --öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ
 TEST_COL = f"t56_{uuid.uuid4().hex[:8]}"

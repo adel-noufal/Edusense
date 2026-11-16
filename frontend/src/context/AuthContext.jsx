@@ -41,7 +41,7 @@ export function AuthProvider({ children }) {
   }
 
   async function login(email, password) {
-    const result = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+    const result = await api('/auth/login', { method: 'POST', body: { email, password } })
     localStorage.setItem('edusense_token', result.access_token)
     setToken(result.access_token)
     setUser(result.user)
@@ -51,7 +51,7 @@ export function AuthProvider({ children }) {
   }
 
   async function register(payload) {
-    const result = await api('/auth/register', { method: 'POST', body: JSON.stringify(payload) })
+    const result = await api('/auth/register', { method: 'POST', body: payload })
     localStorage.setItem('edusense_token', result.access_token)
     setToken(result.access_token)
     setUser(result.user)
@@ -78,7 +78,7 @@ export function AuthProvider({ children }) {
   }
 
   async function giveConsent(consentType, version = '1.0') {
-    await api('/emotions/consent/give', { method: 'POST', body: JSON.stringify({ consent_type: consentType, version }) })
+    await api('/emotions/consent/give', { method: 'POST', body: { consent_type: consentType, version } })
     await fetchConsents()
   }
 

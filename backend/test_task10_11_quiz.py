@@ -44,19 +44,28 @@ def fail(msg: str, exc: Exception | None = None):
 
 
 # ── Imports ───────────────────────────────────────────────────────────────────
+import pytest
+
 try:
     from fastapi.testclient import TestClient
     from app.main import app
-    from app.db.session import SessionLocal
-    from app.models.models import Quiz, User, Base
-    from app.db.session import engine, Session as ClassSession, SessionRegistration
+    from app.db.session import SessionLocal, engine, Base
+    from app.models.models import Quiz, User, Session as ClassSession, SessionRegistration
     from app.core.security import hash_password, create_access_token
+    _IMPORT_OK = True
+    _IMPORT_ERR = ""
 except ImportError as exc:
-    print(f"[ERROR] Import failed: {exc}")
-    sys.exit(1)
+    _IMPORT_OK = False
+    _IMPORT_ERR = str(exc)
 
-Base.metadata.create_all(bind=engine)
-client = TestClient(app)
+if _IMPORT_OK:
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+else:
+    client = None  # type: ignore
+
+# Skip entire module if imports failed (avoids sys.exit during pytest collection)
+pytestmark = pytest.mark.skipif(not _IMPORT_OK, reason=f"Import failed: {_IMPORT_ERR}")
 
 # ── Test identity emails ──────────────────────────────────────────────────────
 _INST_EMAIL = f"t1011_inst_{uuid.uuid4().hex[:6]}@test.com"
@@ -177,6 +186,25 @@ def test_03_start_returns_existing_attempt():
         ok("Second start call returns same attempt (idempotent)")
     except Exception as exc:
         fail("Idempotent start attempt test failed", exc)
+
+
+def test_03a_student_lists_only_own_attempts():
+    print("\n[T10-03a] GET /api/quizzes/{quiz_id}/my-attempts -- student gets own history")
+    try:
+        token = _login(_STU_EMAIL)
+        response = client.get(
+            f"/api/quizzes/{_quiz_id}/my-attempts",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200, f"Status {response.status_code}: {response.text}"
+        attempts = response.json()
+        assert isinstance(attempts, list)
+        assert any(attempt["id"] == _attempt_id for attempt in attempts)
+        student = _ensure_users()[1]
+        assert all(attempt["student_id"] == student.id for attempt in attempts)
+        ok(f"Student sees {len(attempts)} own attempt(s)")
+    except Exception as exc:
+        fail("Student attempt history endpoint failed", exc)
 
 
 def test_04_instructor_cannot_start():

@@ -113,7 +113,7 @@ class Quiz(Base):
     time_limit_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Per-quiz time limit
     time_limit_per_question_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Per-question time limit
     # Quiz Anti-Cheat / Fullscreen Lockdown settings
-    fullscreen_lock: Mapped[bool] = mapped_column(Boolean, default=False)
+    fullscreen_lock: Mapped[bool] = mapped_column(Boolean, default=True)
     camera_monitoring: Mapped[bool] = mapped_column(Boolean, default=False)
     # Section 3 & 5: Exam publishing and question navigation lock
     is_published: Mapped[bool] = mapped_column(Boolean, default=True)

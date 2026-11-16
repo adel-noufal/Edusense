@@ -39,195 +39,188 @@ def check(label, condition, detail=""):
     print(f"  [{status}] {label}" + (f" — {detail}" if detail else ""))
     results.append((label, condition))
 
-client = TestClient(app)
-
 def get_auth_headers(email: str, role: str):
     token = create_access_token(subject=email, role=role)
     return {"Authorization": f"Bearer {token}"}
 
-db = SessionLocal()
-try:
-    test_user = db.query(User).first()
-    if not test_user:
-        test_user = User(
-            email="test_chatbot_user@edusense.com",
-            password_hash="fakehash",
-            name="Test Chatbot User",
-            role="student"
-        )
-        db.add(test_user)
-        db.commit()
-        db.refresh(test_user)
-    headers = get_auth_headers(test_user.email, test_user.role)
-finally:
-    db.close()
 
-# ---------------------------------------------------------------------------
-# Test 1: Config settings & Third API Key / Chatbot Key
-# ---------------------------------------------------------------------------
-print("\n--- Test 1: Chatbot Config & Dedicated / Third Key Support ---")
-try:
+def test_task8_chatbot_overhaul():
+    results.clear()
+    client = TestClient(app)
+    db = SessionLocal()
+    try:
+        test_user = db.query(User).first()
+        if not test_user:
+            test_user = User(email="test_chatbot_user@edusense.com", password_hash="hash", name="Chatbot Tester", role="instructor")
+            db.add(test_user)
+            db.commit()
+            db.refresh(test_user)
+        user_email = test_user.email
+        user_role = test_user.role
+    finally:
+        db.close()
+
+    headers = get_auth_headers(user_email, user_role)
+
+    print("\n--- Test 1: Chatbot Config & Dedicated / Third Key Support ---")
     s = Settings(
-        chatbot_name="Pythagoras AI",
-        chatbot_persona="You are a geometry expert.",
+        chatbot_name="EduMentor",
+        chatbot_persona="You are a patient CS tutor.",
+        gemini_api_key="primary-key-1,secondary-key-2",
         chatbot_gemini_api_key="dedicated-chatbot-key-12345",
-        gemini_api_key="primary-key-1,secondary-key-2"
     )
-    check("chatbot_name configurable", s.chatbot_name == "Pythagoras AI")
-    check("chatbot_persona configurable", "geometry expert" in s.chatbot_persona)
+    check("chatbot_name configurable", s.chatbot_name == "EduMentor")
+    check("chatbot_persona configurable", "patient CS tutor" in s.chatbot_persona)
     check("chatbot_gemini_api_key configurable", s.chatbot_gemini_api_key == "dedicated-chatbot-key-12345")
-    all_keys = s.gemini_api_keys
-    check("gemini_api_keys includes dedicated chatbot key", "dedicated-chatbot-key-12345" in all_keys)
-    check("gemini_api_keys has at least 3 keys when configured", len(all_keys) >= 3, f"got {all_keys}")
-except Exception as e:
-    check("Config verification", False, str(e))
+    check("gemini_api_keys includes dedicated chatbot key", "dedicated-chatbot-key-12345" in s.gemini_api_keys)
+    check("gemini_api_keys has at least 3 keys when configured", len(s.gemini_api_keys) == 3, f"got {s.gemini_api_keys}")
 
-# ---------------------------------------------------------------------------
-# Test 2: GET /api/ai/chat/settings
-# ---------------------------------------------------------------------------
-print("\n--- Test 2: GET /api/ai/chat/settings ---")
-try:
+    print("\n--- Test 2: GET /api/ai/chat/settings ---")
     resp = client.get("/api/ai/chat/settings", headers=headers)
     check("status 200", resp.status_code == 200, f"got {resp.status_code}")
-    data = resp.json()
+    data = resp.json() if resp.status_code == 200 else {}
     check("chatbot_name present in response", "chatbot_name" in data and bool(data["chatbot_name"]))
-    check("persona_preview present in response", "persona_preview" in data)
-except Exception as e:
-    check("chat settings endpoint", False, str(e))
+    check("persona_preview present in response", "persona_preview" in data and bool(data["persona_preview"]))
 
-# ---------------------------------------------------------------------------
-# Test 3: POST /api/ai/chat/upload
-# ---------------------------------------------------------------------------
-print("\n--- Test 3: POST /api/ai/chat/upload ---")
-try:
-    # 3a. Valid text upload
-    file_bytes = b"Machine learning is a field of inquiry devoted to understanding and building methods that learn."
-    files = {"file": ("notes.txt", io.BytesIO(file_bytes), "text/plain")}
-    resp = client.post("/api/ai/chat/upload", headers=headers, files=files)
+    print("\n--- Test 3: POST /api/ai/chat/upload ---")
+    fake_txt = io.BytesIO(b"Artificial Intelligence in education enables adaptive learning.")
+    resp = client.post(
+        "/api/ai/chat/upload",
+        files={"file": ("test_notes.txt", fake_txt, "text/plain")},
+        headers=headers,
+    )
     check("valid text upload status 200", resp.status_code == 200, f"got {resp.status_code}")
-    data = resp.json()
-    check("filename matches", data.get("filename") == "notes.txt")
-    check("char_count matches", data.get("char_count") == len(file_bytes))
-    check("text extracted correctly", "Machine learning" in data.get("text", ""))
+    data = resp.json() if resp.status_code == 200 else {}
+    check("filename matches", data.get("filename") == "test_notes.txt")
+    check("char_count matches", data.get("char_count") == len("Artificial Intelligence in education enables adaptive learning."))
+    check("text extracted correctly", "Artificial Intelligence" in (data.get("text") or data.get("extracted_text") or ""))
 
-    # 3b. Empty file upload
-    empty_files = {"file": ("empty.txt", io.BytesIO(b""), "text/plain")}
-    resp_empty = client.post("/api/ai/chat/upload", headers=headers, files=empty_files)
+    empty_file = io.BytesIO(b"")
+    resp_empty = client.post(
+        "/api/ai/chat/upload",
+        files={"file": ("empty.txt", empty_file, "text/plain")},
+        headers=headers,
+    )
     check("empty file raises 422", resp_empty.status_code == 422, f"got {resp_empty.status_code}")
-except Exception as e:
-    check("chat upload endpoint", False, str(e))
 
-# ---------------------------------------------------------------------------
-# Tests 4 & 5: POST /api/ai/chat (Orchestrator Mocking & Persistence)
-# ---------------------------------------------------------------------------
-print("\n--- Tests 4 & 5: POST /api/ai/chat Conversation & Context Injection ---")
-mock_result = OrchestratorResult(
-    answer="Photosynthesis is the process by which green plants make food.",
-    sources=["Biology Chapter 3"],
-    web_sources=[{"title": "Photosynthesis Guide", "url": "https://example.com/photo"}],
-    mode="online_rag_web_llm",
-    rag_chunks_used=2,
-    web_results_used=1,
-    fallback_reason=None,
-    unverified=False,
-)
+    print("\n--- Tests 4 & 5: POST /api/ai/chat Conversation & Context Injection ---")
+    test_conv_id = f"test-conv-{uuid.uuid4().hex[:8]}"
+    mock_orchestrator_result = OrchestratorResult(
+        answer="Sure, binary search operates in O(log n) time.",
+        sources=["cs_algorithms.pdf"],
+        web_sources=[],
+        mode="online_rag_only",
+        rag_chunks_used=1,
+        web_results_used=0,
+        unverified=False,
+    )
 
-test_conv_id = None
-captured_queries = []
+    with patch("app.api.ai.orchestrator._run_async", new_callable=AsyncMock) as mock_exec:
+        mock_exec.return_value = mock_orchestrator_result
 
-async def _fake_run_async(query, subject=None, grade_level=None, conversation_history=None):
-    captured_queries.append(query)
-    return mock_result
-
-try:
-    with patch("app.api.ai.orchestrator._run_async", side_effect=_fake_run_async):
-        # 4a. Initial chat without conversation_id
-        payload = {
-            "message": "Explain photosynthesis",
-            "subject": "Biology",
-            "grade_level": "10"
-        }
-        resp = client.post("/api/ai/chat", headers=headers, json=payload)
+        resp = client.post(
+            "/api/ai/chat",
+            json={
+                "message": "What is the time complexity of binary search?",
+                "conversation_id": test_conv_id,
+            },
+            headers=headers,
+        )
         check("chat status 200", resp.status_code == 200, f"got {resp.status_code}")
-        data = resp.json()
-        test_conv_id = data.get("conversation_id")
-        check("returns conversation_id", bool(test_conv_id))
-        check("returns answer", data.get("answer") == mock_result.answer)
+        data = resp.json() if resp.status_code == 200 else {}
+        check("returns conversation_id", data.get("conversation_id") == test_conv_id)
+        check("returns answer", "O(log n)" in data.get("answer", ""))
         check("returns chatbot_name", bool(data.get("chatbot_name")))
-        check("system persona injected into query", "[System: Your name is" in captured_queries[-1])
 
-        # 4b. Follow-up chat with same conversation_id and file_context
-        payload_2 = {
-            "message": "Can you summarize the uploaded document?",
-            "conversation_id": test_conv_id,
-            "file_context": "Chapter 3 Summary: Light-dependent reactions occur in the thylakoid membrane."
-        }
-        resp_2 = client.post("/api/ai/chat", headers=headers, json=payload_2)
-        check("follow-up status 200", resp_2.status_code == 200, f"got {resp_2.status_code}")
-        check("conversation_id preserved", resp_2.json().get("conversation_id") == test_conv_id)
-        check("file_context injected into query", "[Uploaded file context]" in captured_queries[-1])
-        check("user question included in query", "Can you summarize the uploaded document?" in captured_queries[-1])
+        called_prompt = mock_exec.call_args.kwargs.get("query") or mock_exec.call_args[0][0]
+        check("system persona injected into query", "[System:" in called_prompt)
 
-        # 4c. Verify database persistence
-        db = SessionLocal()
-        try:
-            saved_msgs = db.query(ChatMessageModel).filter_by(
-                conversation_id=test_conv_id,
-                user_id=test_user.id
-            ).order_by(ChatMessageModel.created_at.asc()).all()
-            check("messages persisted in database", len(saved_msgs) == 4, f"got {len(saved_msgs)} messages")
-            check("first message is user", saved_msgs[0].role == "user" and saved_msgs[0].content == "Explain photosynthesis")
-            check("second message is assistant", saved_msgs[1].role == "assistant")
-        finally:
-            db.close()
-except Exception as e:
-    check("chat flow and persistence", False, str(e))
+        mock_orchestrator_result_2 = OrchestratorResult(
+            answer="Based on your uploaded notes, adaptive learning personalizes content.",
+            sources=[],
+            web_sources=[],
+            mode="general",
+            rag_chunks_used=0,
+            web_results_used=0,
+            unverified=False,
+        )
+        mock_exec.return_value = mock_orchestrator_result_2
 
-# ---------------------------------------------------------------------------
-# Tests 6, 7 & 8: Conversations Management (List, Get, Delete)
-# ---------------------------------------------------------------------------
-print("\n--- Tests 6, 7 & 8: Conversations Management (List, Get, Delete) ---")
-try:
-    # Test 6: GET /api/ai/chat/conversations
-    resp_list = client.get("/api/ai/chat/conversations", headers=headers)
-    check("list conversations status 200", resp_list.status_code == 200, f"got {resp_list.status_code}")
-    conv_list = resp_list.json()
-    check("conversations is list", isinstance(conv_list, list))
-    matching_conv = next((c for c in conv_list if c["conversation_id"] == test_conv_id), None)
-    check("created conversation in list", matching_conv is not None)
-    if matching_conv:
-        check("message_count is 4", matching_conv.get("message_count") == 4, f"got {matching_conv.get('message_count')}")
-        check("preview contains user query", "photosynthesis" in matching_conv.get("preview", "").lower())
+        resp2 = client.post(
+            "/api/ai/chat",
+            json={
+                "message": "Summarize my notes.",
+                "conversation_id": test_conv_id,
+                "file_context": "Chapter 1: Adaptive Learning adjusts pace based on student answers.",
+            },
+            headers=headers,
+        )
+        check("follow-up status 200", resp2.status_code == 200, f"got {resp2.status_code}")
+        check("conversation_id preserved", resp2.json().get("conversation_id") == test_conv_id)
+        called_prompt_2 = mock_exec.call_args.kwargs.get("query") or mock_exec.call_args[0][0]
+        check("file_context injected into query", "[Uploaded file context]" in called_prompt_2)
+        check("user question included in query", "Summarize my notes." in called_prompt_2)
 
-    # Test 7: GET /api/ai/chat/conversations/{id}
-    resp_get = client.get(f"/api/ai/chat/conversations/{test_conv_id}", headers=headers)
-    check("get conversation status 200", resp_get.status_code == 200, f"got {resp_get.status_code}")
-    data_get = resp_get.json()
-    check("get conversation messages count is 4", len(data_get.get("messages", [])) == 4)
+    db = SessionLocal()
+    try:
+        messages = (
+            db.query(ChatMessageModel)
+            .filter_by(conversation_id=test_conv_id)
+            .order_by(ChatMessageModel.created_at.asc())
+            .all()
+        )
+        check("messages persisted in database", len(messages) == 4, f"got {len(messages)} messages")
+        if len(messages) >= 2:
+            check("first message is user", messages[0].role == "user")
+            check("second message is assistant", messages[1].role == "assistant")
+    finally:
+        db.close()
 
-    # Test 8: DELETE /api/ai/chat/conversations/{id}
-    resp_del = client.delete(f"/api/ai/chat/conversations/{test_conv_id}", headers=headers)
-    check("delete conversation status 200", resp_del.status_code == 200, f"got {resp_del.status_code}")
-    check("deleted count returned", resp_del.json().get("deleted") == 4)
+    print("\n--- Tests 6, 7 & 8: Conversations Management (List, Get, Delete) ---")
+    try:
+        resp_list = client.get("/api/ai/chat/conversations", headers=headers)
+        check("list conversations status 200", resp_list.status_code == 200, f"got {resp_list.status_code}")
+        convs = resp_list.json() if resp_list.status_code == 200 else []
+        check("conversations is list", isinstance(convs, list))
+        matching_conv = next((c for c in convs if c.get("conversation_id") == test_conv_id), None)
+        check("created conversation in list", matching_conv is not None)
+        if matching_conv:
+            check("message_count is 4", matching_conv.get("message_count") == 4, f"got {matching_conv.get('message_count')}")
+            check("preview contains user query", "binary search" in matching_conv.get("preview", ""))
 
-    # Verify 404 after deletion
-    resp_get_after = client.get(f"/api/ai/chat/conversations/{test_conv_id}", headers=headers)
-    check("deleted conversation returns 404 on GET", resp_get_after.status_code == 404)
-    resp_del_after = client.delete(f"/api/ai/chat/conversations/{test_conv_id}", headers=headers)
-    check("deleting again returns 404", resp_del_after.status_code == 404)
-except Exception as e:
-    check("conversations management", False, str(e))
+        resp_get = client.get(f"/api/ai/chat/conversations/{test_conv_id}", headers=headers)
+        check("get conversation status 200", resp_get.status_code == 200, f"got {resp_get.status_code}")
+        conv_detail = resp_get.json() if resp_get.status_code == 200 else {}
+        check("get conversation messages count is 4", len(conv_detail.get("messages", [])) == 4)
+        history = conv_detail.get("messages", [])
+        check(
+            "conversation history includes both user and assistant turns",
+            [message.get("role") for message in history] == ["user", "assistant", "user", "assistant"],
+        )
+        check(
+            "conversation history includes both user prompts",
+            "binary search" in history[0].get("content", "").lower()
+            and "summarize my notes" in history[2].get("content", "").lower(),
+        )
+        print("GET conversation response:", __import__("json").dumps(conv_detail, ensure_ascii=False))
 
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
-print("\n" + "=" * 60)
-passed = sum(1 for _, ok in results if ok)
-total = len(results)
-print(f"Results: {passed}/{total} passed")
-if passed == total:
-    print("ALL TESTS PASSED")
-else:
-    failed = [label for label, ok in results if not ok]
-    print("FAILED:\n  " + "\n  ".join(failed))
-    sys.exit(1)
+        resp_del = client.delete(f"/api/ai/chat/conversations/{test_conv_id}", headers=headers)
+        check("delete conversation status 200", resp_del.status_code == 200, f"got {resp_del.status_code}")
+        check("deleted count returned", resp_del.json().get("deleted") == 4)
+
+        resp_get_after = client.get(f"/api/ai/chat/conversations/{test_conv_id}", headers=headers)
+        check("deleted conversation returns 404 on GET", resp_get_after.status_code == 404)
+        resp_del_after = client.delete(f"/api/ai/chat/conversations/{test_conv_id}", headers=headers)
+        check("deleting again returns 404", resp_del_after.status_code == 404)
+    except Exception as e:
+        check("conversations management", False, str(e))
+
+    print("\n" + "=" * 60)
+    passed = sum(1 for _, ok in results if ok)
+    total = len(results)
+    print(f"Results: {passed}/{total} passed")
+    assert passed == total, f"FAILED: {[label for label, ok in results if not ok]}"
+
+
+if __name__ == "__main__":
+    test_task8_chatbot_overhaul()

@@ -117,7 +117,6 @@ def _tts_all_scenes(
         ok = _gtts_scene(narration, out, lang_code)
         if ok:
             any_ok = True
-            scene["_audio_file"] = str(out)   # store for ffmpeg use
 
     if not any_ok:
         return False, None
@@ -152,6 +151,27 @@ def _tts_all_scenes(
         shutil.copy(str(audio_files[0]), str(combined_path))
 
     return True, "narration.mp3"
+
+
+def _probe_audio_duration(audio_path: Path) -> float | None:
+    """Return encoded audio duration in seconds when ffprobe is available."""
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    result = subprocess.run(
+        [
+            ffprobe, "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    try:
+        duration = float(result.stdout.strip())
+    except ValueError:
+        return None
+    return duration if duration > 0 else None
 
 
 # ---------------------------------------------------------------------------
@@ -274,8 +294,14 @@ def _write_player(
       window.speechSynthesis.speak(utterance);
     }});
     if (audio) audio.addEventListener('timeupdate', () => {{
-      const ratio = audio.duration ? audio.currentTime / audio.duration : 0;
-      const newIdx = Math.min(slides.length - 1, Math.floor(ratio * slides.length));
+      const elapsedMs = audio.currentTime * 1000;
+      let totalMs = 0;
+      let newIdx = 0;
+      for (let index = 0; index < slideDurations.length; index++) {{
+        totalMs += slideDurations[index];
+        newIdx = index;
+        if (elapsedMs < totalMs) break;
+      }}
       if (newIdx !== current) show(newIdx);
     }});
     // Kick off timed autoplay only when no audio track is available
@@ -492,14 +518,9 @@ def rebuild_video_from_scenes(
             scene["duration_seconds"] = DEFAULT_SCENE_SECONDS
         scene.setdefault("bullets", _split_bullets(scene.get("narration") or scene.get("content") or ""))
 
-    # Persist updated scenes.json
-    (project_dir / "scenes.json").write_text(
-        json.dumps({"title": title, "scenes": scenes}, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
     any_audio = False
     audio_name = None
+    duration_warning = None
 
     if re_tts:
         # Remove old per-scene audio so we don't reuse stale files
@@ -507,7 +528,22 @@ def rebuild_video_from_scenes(
             old = project_dir / f"segment-{idx}-audio.mp3"
             if old.exists():
                 old.unlink()
+        (project_dir / "narration.mp3").unlink(missing_ok=True)
         any_audio, audio_name = _tts_all_scenes(project_dir, scenes, lang_code)
+        if any_audio:
+            measured_durations = 0
+            for idx, scene in enumerate(scenes):
+                audio_path = project_dir / f"segment-{idx}-audio.mp3"
+                if not audio_path.exists():
+                    continue
+                duration = _probe_audio_duration(audio_path)
+                if duration is not None:
+                    scene["duration_seconds"] = _clamp_duration(round(duration))
+                    measured_durations += 1
+            if not measured_durations:
+                duration_warning = "Audio was regenerated, but ffprobe is unavailable; scene durations use the provided values."
+        else:
+            duration_warning = "Text-to-speech could not generate audio; the player will use browser speech synthesis."
     else:
         # Check for existing per-scene audio
         for idx in range(len(scenes)):
@@ -516,8 +552,13 @@ def rebuild_video_from_scenes(
                 audio_name = "narration.mp3"
                 break
 
+    (project_dir / "scenes.json").write_text(
+        json.dumps({"title": title, "scenes": scenes}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     _write_player(project_dir, title, scenes, audio_name)
     total_minutes = max(1, sum(s.get("duration_seconds", DEFAULT_SCENE_SECONDS) for s in scenes) // 60)
+    (STATIC_DIR / f"video-{project_id}.mp4").unlink(missing_ok=True)
     mp4_path = _try_ffmpeg(project_id, title, scenes, total_minutes)
 
     return {
@@ -525,5 +566,6 @@ def rebuild_video_from_scenes(
         "audio_url": f"/static/videos/video-{project_id}/narration.mp3" if any_audio else None,
         "mp4_url": f"/static/videos/video-{project_id}.mp4" if mp4_path else None,
         "scenes": scenes,
-        "fallback": not any_audio and not mp4_path,
+        "fallback": not mp4_path,
+        "duration_warning": duration_warning,
     }

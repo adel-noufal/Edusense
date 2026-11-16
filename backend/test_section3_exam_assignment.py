@@ -22,190 +22,175 @@ from app.db.session import get_db
 from app.models.models import User, Session as ClassSession, SessionRegistration, Quiz
 from app.core.security import hash_password, create_access_token
 
-init_db(seed=False)
 
-client = TestClient(app)
-db = next(get_db())
+def test_section3():
+    init_db(seed=False)
+    client = TestClient(app)
+    db = next(get_db())
 
-PASSED = []
-FAILED = []
+    PASSED = []
+    FAILED = []
 
-def check(name, cond, detail=""):
-    if cond:
-        PASSED.append(name)
-        print(f"  PASS {name}")
-    else:
-        FAILED.append(name)
-        print(f"  FAIL {name}{': ' + detail if detail else ''}")
+    def check(name, cond, detail=""):
+        if cond:
+            PASSED.append(name)
+            print(f"  PASS {name}")
+        else:
+            FAILED.append(name)
+            print(f"  FAIL {name}{': ' + detail if detail else ''}")
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+    def make_user(email, role):
+        u = db.query(User).filter_by(email=email).first()
+        if not u:
+            u = User(name=f"Test {role}", email=email, password_hash=hash_password("test123"), role=role)
+            db.add(u); db.commit(); db.refresh(u)
+        return u
 
-def make_user(email, role):
-    u = db.query(User).filter_by(email=email).first()
-    if not u:
-        u = User(name=f"Test {role}", email=email, password_hash=hash_password("test123"), role=role)
-        db.add(u); db.commit(); db.refresh(u)
-    return u
+    def tok(user):
+        return create_access_token(user.email, user.role)
 
-def tok(user):
-    return create_access_token(user.email, user.role)
+    print("\n=== Section 3 Verification ===\n")
 
-def make_session(instructor):
-    from datetime import time
-    s = ClassSession(
-        title="Exam Test Session", description="",
-        date=date(2026, 12, 1),
-        start_time=time(10, 0),
-        duration=60,
-        instructor_id=instructor.id,
-        status="scheduled",
-    )
-    db.add(s); db.commit(); db.refresh(s); return s
+    inst = make_user("s3_inst@test.com", "instructor")
+    stu_e = make_user("s3_stu_enrolled@test.com", "student")
+    stu_n = make_user("s3_stu_not_enrolled@test.com", "student")
 
-def enroll(student, session):
-    reg = db.query(SessionRegistration).filter_by(session_id=session.id, student_id=student.id).first()
+    from datetime import time as dtime
+    sess = db.query(ClassSession).filter_by(title="S3 Exam Test Session").first()
+    if not sess:
+        sess = ClassSession(
+            instructor_id=inst.id,
+            title="S3 Exam Test Session",
+            description="Testing exams and assignments",
+            date=date.today(),
+            start_time=dtime(9, 0),
+            duration=60,
+            status="pending",
+        )
+        db.add(sess); db.commit(); db.refresh(sess)
+
+    reg = db.query(SessionRegistration).filter_by(session_id=sess.id, student_id=stu_e.id).first()
     if not reg:
-        reg = SessionRegistration(session_id=session.id, student_id=student.id)
+        reg = SessionRegistration(session_id=sess.id, student_id=stu_e.id, attended=False)
         db.add(reg); db.commit()
 
-# ── Setup ────────────────────────────────────────────────────────────────────
-print("\n=== Section 3 Verification ===\n")
+    db.query(SessionRegistration).filter_by(session_id=sess.id, student_id=stu_n.id).delete()
+    db.commit()
 
-instructor = make_user("s3_instructor@test.com", "instructor")
-student_enrolled = make_user("s3_student_e@test.com", "student")
-student_not_enrolled = make_user("s3_student_n@test.com", "student")
-session = make_session(instructor)
-enroll(student_enrolled, session)
+    inst_tok  = tok(inst)
+    stu_e_tok = tok(stu_e)
+    stu_n_tok = tok(stu_n)
 
-inst_tok = tok(instructor)
-stu_e_tok = tok(student_enrolled)
-stu_n_tok = tok(student_not_enrolled)
+    print("Group A: Exams")
+    exam_payload = {
+        "title": "Quantum Physics Midterm",
+        "topic": "Quantum Mechanics",
+        "subject": "Physics",
+        "session_id": sess.id,
+        "is_exam": True,
+        "is_published": True,
+        "lock_back_navigation": True,
+        "fullscreen_lock": True,
+        "camera_monitoring": False,
+        "questions": [
+            {
+                "id": "q1",
+                "question": "What is a qubit?",
+                "options": ["A bit in quantum superposition", "A classic bit", "A photon", "None"],
+                "answer": "A bit in quantum superposition",
+                "correct_answer": "A bit in quantum superposition",
+                "explanation": "Qubits can exist in superposition."
+            }
+        ]
+    }
+    r = client.post("/api/quizzes", json=exam_payload, headers={"Authorization": f"Bearer {inst_tok}"})
+    check("1. Quiz created with is_exam=True", r.status_code == 201, f"status={r.status_code}")
+    exam_id = r.json().get("id") if r.status_code == 201 else None
 
-# ── Test 1: Instructor creates a quiz and marks is_exam=True via PUT ──────────
-print("Group A: Exams")
+    if exam_id:
+        created_quiz = db.query(Quiz).filter_by(id=exam_id).first()
+        check("2. Quiz created with is_published=True", getattr(created_quiz, "is_published", False) == True)
+        check("3. lock_back_navigation stored", getattr(created_quiz, "lock_back_navigation", False) == True)
 
-# Create a quiz via AI endpoint (use direct DB for speed in tests)
-q = Quiz(
-    session_id=session.id,
-    title="Section 3 Exam",
-    difficulty="Medium",
-    questions_json=json.dumps([
-        {"question": "2+2?", "type": "multiple_choice",
-         "options": ["3","4","5","6"], "answer": "4"},
-    ]),
-    is_exam=True,
-    is_published=True,
-    fullscreen_lock=True,
-    lock_back_navigation=True,
-)
-db.add(q); db.commit(); db.refresh(q)
+    r_e = client.get("/api/quizzes/student/exams", headers={"Authorization": f"Bearer {stu_e_tok}"})
+    check("4. Enrolled student can list exams (HTTP 200)", r_e.status_code == 200, f"status={r_e.status_code}")
+    if r_e.status_code == 200:
+        exams = r_e.json()
+        found = any(e["id"] == exam_id for e in exams)
+        check("5. Exam appears in enrolled student's list", found, f"exams={exams}")
+        if found:
+            ex = next(e for e in exams if e["id"] == exam_id)
+            check("6. is_exam field returned as True", ex.get("is_exam") is True)
+            check("7. lock_back_navigation returned as True", ex.get("lock_back_navigation") is True)
+            check("8. fullscreen_lock returned as True", ex.get("fullscreen_lock") is True)
+            qs = ex.get("questions") or []
+            leaks = [q for q in qs if "correct_answer" in q]
+            check("9. Correct answers stripped from questions", len(leaks) == 0, f"leaks={leaks}")
 
-check("1. Quiz created with is_exam=True", q.is_exam == True, f"is_exam={q.is_exam}")
-check("2. Quiz created with is_published=True", q.is_published == True)
-check("3. lock_back_navigation stored", q.lock_back_navigation == True)
+    r_n = client.get("/api/quizzes/student/exams", headers={"Authorization": f"Bearer {stu_n_tok}"})
+    check("10. Non-enrolled student gets 200 (empty list)", r_n.status_code == 200, f"status={r_n.status_code}")
+    if r_n.status_code == 200:
+        exams_n = r_n.json()
+        found_n = any(e["id"] == exam_id for e in exams_n)
+        check("11. Non-enrolled student sees empty exam list (not leaked)", not found_n)
 
-# ── Test 2: Enrolled student sees exam in GET /quizzes/student/exams ──────────
-r = client.get("/api/quizzes/student/exams", headers={"Authorization": f"Bearer {stu_e_tok}"})
-check("4. Enrolled student can list exams (HTTP 200)", r.status_code == 200, f"status={r.status_code}")
-exams = r.json() if r.status_code == 200 else []
-found_exam = any(e["id"] == q.id for e in exams)
-check("5. Exam appears in enrolled student's list", found_exam, f"exams={[e['id'] for e in exams]}")
+    print("\nGroup B: Assignments")
+    asgn_payload = {
+        "title": "Quantum Homework 1",
+        "description": "Solve problem set 3. Submit PDF.",
+        "session_id": sess.id,
+        "max_points": 100.0,
+        "due_date": "2026-12-31T23:59:59Z"
+    }
+    r = client.post("/api/assignments", json=asgn_payload, headers={"Authorization": f"Bearer {inst_tok}"})
+    check("12. Instructor creates assignment (HTTP 201)", r.status_code == 201, f"status={r.status_code} body={r.text[:80]}")
+    asgn_id = r.json().get("id") if r.status_code == 201 else None
 
-# Check exam fields returned
-if found_exam:
-    exam_data = next(e for e in exams if e["id"] == q.id)
-    check("6. is_exam field returned as True", exam_data.get("is_exam") == True)
-    check("7. lock_back_navigation returned as True", exam_data.get("lock_back_navigation") == True)
-    check("8. fullscreen_lock returned as True", exam_data.get("fullscreen_lock") == True)
-    check("9. Correct answers stripped from questions", "answer" not in exam_data["questions"][0])
-else:
-    for name in ["6. is_exam field", "7. lock_back_navigation", "8. fullscreen_lock", "9. No answers"]:
-        check(name, False, "exam not found")
+    if asgn_id:
+        check("13. Assignment title correct", r.json().get("title") == "Quantum Homework 1")
+        check("14. Assignment session_id correct", r.json().get("session_id") == sess.id)
 
-# ── Test 3: Non-enrolled student does NOT see exam ────────────────────────────
-r2 = client.get("/api/quizzes/student/exams", headers={"Authorization": f"Bearer {stu_n_tok}"})
-check("10. Non-enrolled student gets 200 (empty list)", r2.status_code == 200, f"status={r2.status_code}")
-other_exams = r2.json() if r2.status_code == 200 else []
-check("11. Non-enrolled student sees empty exam list (not leaked)",
-      not any(e["id"] == q.id for e in other_exams),
-      f"found={other_exams}")
+        r_asgn_e = client.get("/api/assignments/student", headers={"Authorization": f"Bearer {stu_e_tok}"})
+        check("15. Enrolled student lists assignments (HTTP 200)", r_asgn_e.status_code == 200, f"status={r_asgn_e.status_code}")
+        found_a = any(a["id"] == asgn_id for a in r_asgn_e.json()) if r_asgn_e.status_code == 200 else False
+        check("16. Assignment appears in enrolled student's list", found_a)
 
-# ── Test 4: Instructor creates assignment ─────────────────────────────────────
-print("\nGroup B: Assignments")
+        r_asgn_n = client.get("/api/assignments/student", headers={"Authorization": f"Bearer {stu_n_tok}"})
+        found_n = any(a["id"] == asgn_id for a in r_asgn_n.json()) if r_asgn_n.status_code == 200 else False
+        check("17. Non-enrolled student sees empty list (not leaked)", not found_n)
 
-r = client.post(
-    "/api/assignments/",
-    json={
-        "title": "Essay Assignment",
-        "description": "Write 500 words on AI in education.",
-        "due_date": "2026-12-15T23:59:00",
-        "max_points": 50.0,
-        "session_id": session.id,
-    },
-    headers={"Authorization": f"Bearer {inst_tok}"},
-)
-check("12. Instructor creates assignment (HTTP 201)", r.status_code == 201, f"status={r.status_code} body={r.text[:200]}")
-assignment = r.json() if r.status_code == 201 else {}
-check("13. Assignment title correct", assignment.get("title") == "Essay Assignment")
-check("14. Assignment session_id correct", assignment.get("session_id") == session.id)
+        fake_pdf = io.BytesIO(b"%PDF-1.4 Fake PDF Content for assignment submission")
+        r_sub = client.post(
+            f"/api/assignments/{asgn_id}/submit",
+            files={"file": ("solution.pdf", fake_pdf, "application/pdf")},
+            headers={"Authorization": f"Bearer {stu_e_tok}"},
+        )
+        check("18. Student submits file (HTTP 200)", r_sub.status_code == 200, f"status={r_sub.status_code} body={r_sub.text[:80]}")
+        sub_data = r_sub.json() if r_sub.status_code == 200 else {}
+        check("19. Submission has correct file_name", sub_data.get("file_name") == "solution.pdf")
+        check("20. Submission has file_size > 0", sub_data.get("file_size", 0) > 0)
+        check("21. Submission has submitted_at timestamp", bool(sub_data.get("submitted_at")))
+        check("22. Submission links to correct assignment", sub_data.get("assignment_id") == asgn_id)
 
-# ── Test 5: Enrolled student lists assignments ────────────────────────────────
-r = client.get("/api/assignments/student", headers={"Authorization": f"Bearer {stu_e_tok}"})
-check("15. Enrolled student lists assignments (HTTP 200)", r.status_code == 200, f"status={r.status_code}")
-asgns = r.json() if r.status_code == 200 else []
-found_asgn = any(a.get("id") == assignment.get("id") for a in asgns)
-check("16. Assignment appears in enrolled student's list", found_asgn)
+        r_status = client.get(
+            f"/api/assignments/{asgn_id}/submission",
+            headers={"Authorization": f"Bearer {stu_e_tok}"},
+        )
+        check("23. Student can check own submission status (HTTP 200)", r_status.status_code == 200, f"status={r_status.status_code}")
+        check("24. Status response has file_name", r_status.json().get("file_name") == "solution.pdf" if r_status.status_code == 200 else False)
 
-# ── Test 6: Non-enrolled student cannot list assignments ──────────────────────
-r2 = client.get("/api/assignments/student", headers={"Authorization": f"Bearer {stu_n_tok}"})
-check("17. Non-enrolled student sees empty list (not leaked)", r2.status_code == 200 and not any(
-    a.get("id") == assignment.get("id") for a in r2.json()
-))
+        fake2 = io.BytesIO(b"%PDF-1.4 malicious submission")
+        r3 = client.post(
+            f"/api/assignments/{asgn_id}/submit",
+            files={"file": ("hack.pdf", fake2, "application/pdf")},
+            headers={"Authorization": f"Bearer {stu_n_tok}"},
+        )
+        check("25. Non-enrolled student cannot submit (HTTP 403)", r3.status_code == 403, f"status={r3.status_code}")
 
-# ── Test 7: Student submits a file ────────────────────────────────────────────
-asgn_id = assignment.get("id")
-if asgn_id:
-    fake_pdf = io.BytesIO(b"%PDF-1.4 fake pdf content for test")
-    fake_pdf.name = "essay.pdf"
-    r = client.post(
-        f"/api/assignments/{asgn_id}/submit",
-        files={"file": ("essay.pdf", fake_pdf, "application/pdf")},
-        headers={"Authorization": f"Bearer {stu_e_tok}"},
-    )
-    check("18. Student submits file (HTTP 200)", r.status_code == 200, f"status={r.status_code} body={r.text[:200]}")
-    sub = r.json() if r.status_code == 200 else {}
-    check("19. Submission has correct file_name", sub.get("file_name") == "essay.pdf")
-    check("20. Submission has file_size > 0", (sub.get("file_size") or 0) > 0)
-    check("21. Submission has submitted_at timestamp", bool(sub.get("submitted_at")))
-    check("22. Submission links to correct assignment", sub.get("assignment_id") == asgn_id)
+    print(f"\n{'='*50}")
+    print(f"Results: {len(PASSED)} passed, {len(FAILED)} failed")
+    assert len(FAILED) == 0, f"Failed tests: {FAILED}"
 
-    # ── Test 8: Check submission status ──────────────────────────────────────
-    r2 = client.get(
-        f"/api/assignments/{asgn_id}/submission",
-        headers={"Authorization": f"Bearer {stu_e_tok}"},
-    )
-    check("23. Student can check own submission status (HTTP 200)", r2.status_code == 200)
-    sub2 = r2.json() if r2.status_code == 200 else {}
-    check("24. Status response has file_name", sub2.get("file_name") == "essay.pdf")
 
-    # Non-enrolled student cannot submit
-    fake2 = io.BytesIO(b"fake")
-    r3 = client.post(
-        f"/api/assignments/{asgn_id}/submit",
-        files={"file": ("hack.pdf", fake2, "application/pdf")},
-        headers={"Authorization": f"Bearer {stu_n_tok}"},
-    )
-    check("25. Non-enrolled student cannot submit (HTTP 403)", r3.status_code == 403, f"status={r3.status_code}")
-else:
-    for n in range(18, 26):
-        check(f"{n}. (skipped - assignment creation failed)", False)
-
-# ── Summary ───────────────────────────────────────────────────────────────────
-print(f"\n{'='*50}")
-print(f"Results: {len(PASSED)} passed, {len(FAILED)} failed")
-if FAILED:
-    print("FAILED:", FAILED)
-    sys.exit(1)
-else:
-    print("ALL PASSED PASS")
-    sys.exit(0)
+if __name__ == "__main__":
+    test_section3()

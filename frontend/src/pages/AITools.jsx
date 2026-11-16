@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
+import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff, Mic, MicOff } from 'lucide-react'
 import { api, downloadAuthenticatedRequest, staticUrl } from '../services/api'
 import { downloadBlob, downloadText, flashcardsToHtml, lessonToMarkdown, downloadLessonAsDoc, downloadLessonAsHtml, downloadLessonAsPdf, downloadLessonAsPptxHtml, downloadQuizAsDoc, downloadQuizAsHtml, downloadQuizAsPdf, downloadFlashcardsAsDoc, downloadFlashcardsAsPdf } from '../utils/download'
 import { useLanguage } from '../context/LanguageContext'
@@ -500,7 +501,7 @@ export function QuizGenerator() {
       }
       const created = await api('/quizzes', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: payload,
       })
       toast.success(manualForm.is_exam ? 'Manual Exam created & published successfully!' : 'Manual Quiz created successfully!')
       setResult(created)
@@ -604,7 +605,11 @@ export function QuizGenerator() {
                     type="checkbox"
                     className="rounded border-slate-300 text-purple-600 focus:ring-purple-600"
                     checked={manualForm.is_exam}
-                    onChange={(e) => setManualForm({ ...manualForm, is_exam: e.target.checked })}
+                    onChange={(e) => setManualForm((prev) => ({
+                      ...prev,
+                      is_exam: e.target.checked,
+                      ...(e.target.checked ? { fullscreen_lock: true } : {}),
+                    }))}
                   />
                   <span>Publish Directly as Exam (With Anti-Cheat & Timers)</span>
                 </label>
@@ -1233,7 +1238,7 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
   const [timeLimitMins, setTimeLimitMins] = useState(quiz.time_limit_seconds ? String(Math.floor(quiz.time_limit_seconds / 60)) : '30')
   const [perQuestionSecs, setPerQuestionSecs] = useState(quiz.time_limit_per_question_seconds ? String(quiz.time_limit_per_question_seconds) : '')
   const [lockBackNavigation, setLockBackNavigation] = useState(quiz.lock_back_navigation ?? true)
-  const [fullscreenLock, setFullscreenLock] = useState(quiz.fullscreen_lock ?? true)
+  const [fullscreenLock, setFullscreenLock] = useState(quiz.is_exam ? (quiz.fullscreen_lock ?? true) : true)
   const [cameraMonitoring, setCameraMonitoring] = useState(quiz.camera_monitoring ?? false)
   const [dueDate, setDueDate] = useState(() => {
     if (!quiz.due_date) return ''
@@ -1277,7 +1282,7 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
       }
       const updated = await api(`/quizzes/${quiz.id}/publish-as-exam`, {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: payload,
       })
       toast.success(quiz.is_exam ? 'Exam settings updated successfully!' : 'Exam published successfully! Enrolled students can now take it from their Exams tab.')
       onPublished(updated)
@@ -1478,7 +1483,11 @@ function QuizResult({ result, answers, revealed, onAnswer, onReveal, onPublishEx
 function VideoResult({ result, initialForm, onReplace, onHistoryRefresh }) {
   const { t } = useLanguage()
   const { startJob, job: editJob, removeJob } = useGenerationJobs('video-edit')
-  const playerUrl = result.video_url ? staticUrl(result.video_url) : null
+  const [playerReloadToken, setPlayerReloadToken] = useState(() => String(Date.now()))
+  const basePlayerUrl = result.video_url ? staticUrl(result.video_url) : null
+  const playerUrl = basePlayerUrl
+    ? `${basePlayerUrl}${basePlayerUrl.includes('?') ? '&' : '?'}v=${playerReloadToken}`
+    : null
   const mp4Url = result.mp4_url ? staticUrl(result.mp4_url) : null
   const [editForm, setEditForm] = useState({
     title: initialForm.title,
@@ -1554,12 +1563,11 @@ function VideoResult({ result, initialForm, onReplace, onHistoryRefresh }) {
       }
       const res = await api(`/ai/videos/${result.id}/scenes`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: payload,
       })
-      if (!res.ok) throw new Error(`Server error ${res.status}`)
-      const updated = await res.json()
-      onReplace(updated)
+      setScenes(res.scenes || [])
+      setPlayerReloadToken(String(Date.now()))
+      onReplace(res)
       onHistoryRefresh?.()
     } catch (err) {
       setSceneError(err.message || 'Failed to save scene edits')
@@ -1581,9 +1589,14 @@ function VideoResult({ result, initialForm, onReplace, onHistoryRefresh }) {
           MP4 export depends on FFmpeg being available on the backend. The interactive player remains available even when a full MP4 is not generated.
         </p>
       )}
+      {result.duration_warning && (
+        <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          {result.duration_warning}
+        </p>
+      )}
       {playerUrl && (
         <Section title={t('ai.player')}>
-          <iframe title="Lesson video player" src={playerUrl} className="h-[min(420px,60vh)] w-full rounded-md border border-slate-200 dark:border-slate-700" />
+          <iframe key={playerReloadToken} title="Lesson video player" src={playerUrl} className="h-[min(420px,60vh)] w-full rounded-md border border-slate-200 dark:border-slate-700" />
           <a className="btn-soft mt-3 inline-flex" href={playerUrl} target="_blank" rel="noreferrer">{t('ai.openPlayer')}</a>
         </Section>
       )}
@@ -1751,6 +1764,7 @@ function Section({ title, children }) {
 
 export function ChatbotGenerator() {
   const { t } = useLanguage()
+  const location = useLocation()
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -1764,7 +1778,11 @@ export function ChatbotGenerator() {
   const [fileContext, setFileContext] = useState(null)
   const [fileUploading, setFileUploading] = useState(false)
   const [fileLabel, setFileLabel] = useState(null)
+  const [ragSources, setRagSources] = useState([])
+  const [selectedSourceId, setSelectedSourceId] = useState('')
+  const [listening, setListening] = useState(false)
   const fileInputRef = useRef(null)
+  const recognitionRef = useRef(null)
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = useCallback(() => {
@@ -1781,7 +1799,22 @@ export function ChatbotGenerator() {
       if (r?.chatbot_name) setChatbotName(r.chatbot_name)
     }).catch(() => {})
     loadConversations()
+    api('/rag/sources')
+      .then(data => setRagSources(Array.isArray(data) ? data : []))
+      .catch(err => setError(err.message || 'Could not load indexed documents'))
   }, [])
+
+  // Handle navigation state from InstructorSources (ask about document)
+  useEffect(() => {
+    if (location.state?.sourceId) {
+      setSelectedSourceId(location.state.sourceId)
+      setFileLabel(`📎 ${location.state.sourceName || 'Selected document'}`)
+      // Clear the state to prevent re-triggering
+      window.history.replaceState({}, document.title)
+    }
+  }, [location.state])
+
+  useEffect(() => () => recognitionRef.current?.stop(), [])
 
   // Set initial greeting when chatbotName is known
   useEffect(() => {
@@ -1818,6 +1851,7 @@ export function ChatbotGenerator() {
         setConversationId(id)
         setFileContext(null)
         setFileLabel(null)
+        setSelectedSourceId('')
       }
     } catch (err) {
       setError('Failed to load conversation')
@@ -1850,13 +1884,10 @@ export function ChatbotGenerator() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/ai/chat/upload`, {
+      const data = await api('/ai/chat/upload', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: formData,
       })
-      if (!res.ok) throw new Error(`Upload failed (${res.status})`)
-      const data = await res.json()
       setFileContext(data.text)
       setFileLabel(`📎 ${file.name}${data.truncated ? ' (truncated)' : ''} — ${data.char_count} chars`)
     } catch (err) {
@@ -1870,6 +1901,8 @@ export function ChatbotGenerator() {
   const modeLabels = {
     'online_rag_web_llm': { label: 'RAG + Web + LLM', icon: <Zap className="w-3 h-3" />, color: 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300' },
     'online_rag_only': { label: 'RAG Only (Web Failed)', icon: <Database className="w-3 h-3" />, color: 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' },
+    'online_general_llm': { label: 'General Knowledge + LLM', icon: <Bot className="w-3 h-3" />, color: 'bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300' },
+    'selected_source_empty': { label: 'Selected File (No Indexed Passages)', icon: <Database className="w-3 h-3" />, color: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' },
     'offline_rag_template': { label: 'RAG + Template (Offline)', icon: <Bot className="w-3 h-3" />, color: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' },
     'offline_template_only': { label: 'Template Only (Offline)', icon: <Bot className="w-3 h-3" />, color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' },
   }
@@ -1886,14 +1919,15 @@ export function ChatbotGenerator() {
     try {
       const response = await api('/ai/chat', {
         method: 'POST',
-        body: JSON.stringify({
+        body: {
           message: userMessage,
           conversation_id: conversationId || undefined,
           conversation_history: conversationId ? [] : messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
           subject: subject || undefined,
           grade_level: gradeLevel || undefined,
           file_context: fileContext || undefined,
-        })
+          source_id: selectedSourceId || undefined,
+        }
       })
 
       if (response.conversation_id && !conversationId) {
@@ -1915,9 +1949,6 @@ export function ChatbotGenerator() {
         }
       }])
 
-      // Clear file context after first use
-      setFileContext(null)
-      setFileLabel(null)
     } catch (err) {
       setError(err.message || 'Failed to get response')
       setMessages(prev => [...prev, {
@@ -1937,6 +1968,7 @@ export function ChatbotGenerator() {
     }])
     setFileContext(null)
     setFileLabel(null)
+    setSelectedSourceId('')
     setError('')
   }
 
@@ -1944,6 +1976,41 @@ export function ChatbotGenerator() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       sendMessage()
+    }
+  }
+
+  function startVoiceInput() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      setError('Voice input is not supported by this browser. You can type your question instead.')
+      return
+    }
+    if (listening) {
+      recognitionRef.current?.stop()
+      return
+    }
+
+    const recognition = new SpeechRecognition()
+    recognition.lang = navigator.language || 'en-US'
+    recognition.interimResults = false
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript?.trim()
+      if (transcript) setInput(transcript)
+    }
+    recognition.onerror = (event) => {
+      setError(event.error === 'not-allowed'
+        ? 'Microphone access was denied. Allow microphone access to use voice input.'
+        : `Voice input failed: ${event.error}`)
+    }
+    recognition.onend = () => setListening(false)
+    recognitionRef.current = recognition
+    setError('')
+    try {
+      recognition.start()
+      setListening(true)
+    } catch (err) {
+      setError(err.message || 'Could not start voice input')
+      setListening(false)
     }
   }
 
@@ -2015,6 +2082,11 @@ export function ChatbotGenerator() {
                             <Globe size={10} /> {msg.metadata.web_results_used} Web
                           </span>
                         )}
+                        {msg.metadata.rag_chunks_used === 0 && msg.metadata.web_results_used === 0 && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                            <AlertTriangle size={10} /> Unverified
+                          </span>
+                        )}
                       </div>
                     )}
                     {msg.metadata && (msg.metadata.sources?.length > 0 || msg.metadata.web_sources?.length > 0) && (
@@ -2056,6 +2128,22 @@ export function ChatbotGenerator() {
               <div className="grid gap-2 md:grid-cols-3">
                 <Field label="Subject (optional)" value={subject} onChange={(v) => setSubject(v)} placeholder="e.g., Computer Science" />
                 <Field label="Grade Level (optional)" value={gradeLevel} onChange={(v) => setGradeLevel(v)} placeholder="e.g., 12, University" />
+                <label className="space-y-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+                  <span>Ask about one indexed document (optional)</span>
+                  <select
+                    className="input"
+                    value={selectedSourceId}
+                    onChange={(e) => setSelectedSourceId(e.target.value)}
+                    disabled={loading}
+                  >
+                    <option value="">Search all indexed documents</option>
+                    {ragSources.map((source) => (
+                      <option key={source.source_id || source.source_file} value={source.source_id || source.source_file}>
+                        {source.source_file || source.source_id} ({source.chunk_count || 0} chunks)
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <div className="flex gap-2">
                 <textarea
@@ -2068,6 +2156,16 @@ export function ChatbotGenerator() {
                   rows={3}
                 />
                 <div className="flex flex-col gap-2 self-end">
+                  <button
+                    type="button"
+                    className={`btn-soft px-3 py-2 text-xs ${listening ? 'text-red-600' : ''}`}
+                    title={listening ? 'Stop voice input' : 'Speak your question'}
+                    aria-label={listening ? 'Stop voice input' : 'Speak your question'}
+                    disabled={loading}
+                    onClick={startVoiceInput}
+                  >
+                    {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </button>
                   <button
                     type="button"
                     className="btn-soft px-3 py-2 text-xs"

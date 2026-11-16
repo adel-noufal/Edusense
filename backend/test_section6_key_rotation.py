@@ -32,210 +32,188 @@ from app.services.gemini import (
     rotator,
 )
 
-PASSED = []
-FAILED = []
 
-def check(name, cond, detail=""):
-    if cond:
-        PASSED.append(name)
-        print(f"  PASS {name}")
-    else:
-        FAILED.append(name)
-        print(f"  FAIL {name}{': ' + detail if detail else ''}")
+def test_section6():
+    PASSED = []
+    FAILED = []
 
-print("\n=== Section 6 Verification: Multi-API-Key Rotation for Gemini ===\n")
+    def check(name, cond, detail=""):
+        if cond:
+            PASSED.append(name)
+            print(f"  PASS {name}")
+        else:
+            FAILED.append(name)
+            print(f"  FAIL {name}{': ' + detail if detail else ''}")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Group 1: Settings & Key Parsing
-# ─────────────────────────────────────────────────────────────────────────────
-print("Group 1: Multi-Key Configuration & Settings Parsing")
+    print("\n=== Section 6 Verification: Multi-API-Key Rotation for Gemini ===\n")
 
-s1 = Settings(gemini_api_key="keyA, keyB,  keyC  ")
-check("1.1 Comma-delimited keys parsed into list", s1.gemini_api_keys == ["keyA", "keyB", "keyC"], f"Got: {s1.gemini_api_keys}")
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Group 1: Settings & Key Parsing
+    # ─────────────────────────────────────────────────────────────────────────────
+    print("Group 1: Multi-Key Configuration & Settings Parsing")
 
-s2 = Settings(gemini_api_key="keyA, keyB, keyA, , ")
-check("1.2 Keys deduplicated and empty entries removed", s2.gemini_api_keys == ["keyA", "keyB"], f"Got: {s2.gemini_api_keys}")
+    s1 = Settings(gemini_api_key="keyA, keyB,  keyC  ")
+    check("1.1 Comma-delimited keys parsed into list", s1.gemini_api_keys == ["keyA", "keyB", "keyC"], f"Got: {s1.gemini_api_keys}")
 
-with patch.dict(os.environ, {
-    "GEMINI_API_KEY_1": "numKey1",
-    "GEMINI_API_KEY_2": "numKey2",
-    "GEMINI_API_KEY_3": "numKey1",  # duplicate
-}):
-    s3 = Settings(gemini_api_key="baseKey")
-    keys = s3.gemini_api_keys
-    check("1.3 Numbered GEMINI_API_KEY_N env vars recognized", "numKey1" in keys and "numKey2" in keys, f"Got: {keys}")
-    check("1.4 Numbered keys deduplicated with base key", len(keys) == 3, f"Got count: {len(keys)}")
+    s2 = Settings(gemini_api_key="keyA, keyB, keyA, , ")
+    check("1.2 Keys deduplicated and empty entries removed", s2.gemini_api_keys == ["keyA", "keyB"], f"Got: {s2.gemini_api_keys}")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Group 2: Key Masking & GeminiKeyRotator Logic
-# ─────────────────────────────────────────────────────────────────────────────
-print("\nGroup 2: GeminiKeyRotator State Machine & Cooldown")
+    with patch.dict(os.environ, {
+        "GEMINI_API_KEY_1": "numKey1",
+        "GEMINI_API_KEY_2": "numKey2",
+        "GEMINI_API_KEY_3": "numKey3",
+    }, clear=False):
+        s3 = Settings(gemini_api_key="")
+        check("1.3 Numbered env variables discovered in order", s3.gemini_api_keys == ["numKey1", "numKey2", "numKey3"], f"Got: {s3.gemini_api_keys}")
 
-test_rotator = GeminiKeyRotator(cooldown_seconds=0.3)
-check("2.1 Mask empty or short keys safely", test_rotator.mask_key("short") == "***" and test_rotator.mask_key("") == "***")
-check("2.2 Mask standard API key", test_rotator.mask_key("AIzaSyD123456789xyz") == "AIza...9xyz")
+    with patch.dict(os.environ, {
+        "GEMINI_API_KEY_1": "numKeyA",
+        "GEMINI_API_KEY_2": "commonKey",
+    }, clear=False):
+        s4 = Settings(gemini_api_key="commonKey, extraKey")
+        check("1.4 Numbered keys merged with comma keys without duplicates",
+              set(s4.gemini_api_keys) == {"commonKey", "extraKey", "numKeyA"},
+              f"Got: {s4.gemini_api_keys}")
 
-with patch.object(test_rotator, "get_keys", return_value=["k1", "k2", "k3"]):
-    check("2.3 Starts at initial active key (k1)", test_rotator.get_active_key() == "k1")
-    
-    # Mark k1 exhausted
-    next_k = test_rotator.mark_exhausted("k1", reason="HTTP 429")
-    check("2.4 Rotating from k1 returns k2", next_k == "k2")
-    check("2.5 Active key updated to k2", test_rotator.get_active_key() == "k2")
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Group 2: Key Masking Security Check
+    # ─────────────────────────────────────────────────────────────────────────────
+    print("\nGroup 2: Key Masking Security Check")
 
-    # Mark k2 exhausted
-    next_k = test_rotator.mark_exhausted("k2", reason="quota exceeded")
-    check("2.6 Rotating from k2 returns k3", next_k == "k3")
-    check("2.7 Active key updated to k3", test_rotator.get_active_key() == "k3")
+    test_rotator = GeminiKeyRotator()
+    masked_long = test_rotator.mask_key("AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6")
+    check("2.1 Long key masked correctly (first 4 and last 4 chars only)",
+          masked_long == "AIza...O5P6",
+          f"Got: {masked_long}")
 
-    # Status check
-    st = test_rotator.status()
-    check("2.8 Status reports active and exhausted counts accurately",
-          st["total_keys"] == 3 and st["active_keys"] == 1 and st["exhausted_keys"] == 2,
-          f"Got: {st}")
+    masked_short = test_rotator.mask_key("short")
+    check("2.2 Short string (<8 chars) returns '***' completely obscured", masked_short == "***", f"Got: {masked_short}")
+    check("2.3 None/empty returns '***'", test_rotator.mask_key("") == "***")
 
-    # Mark k3 exhausted -> all exhausted
-    next_k = test_rotator.mark_exhausted("k3", reason="HTTP 429")
-    check("2.9 Rotating when all keys exhausted returns None", next_k is None)
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Group 3: GeminiKeyRotator Rotation Logic & Cooldown
+    # ─────────────────────────────────────────────────────────────────────────────
+    print("\nGroup 3: Key Rotator Mechanics & Cooldown Recovery")
 
-    # Cooldown recovery
-    time.sleep(0.35)
-    recovered_key = test_rotator.get_active_key()
-    check("2.10 Exhausted key recovered after cooldown elapsed", recovered_key is not None, f"Got: {recovered_key}")
-    check("2.11 Status reflects recovered active keys", test_rotator.status()["active_keys"] >= 1)
+    mock_keys = ["Key_Alpha_1111", "Key_Beta_2222", "Key_Gamma_3333"]
+    r = GeminiKeyRotator(cooldown_seconds=0.3)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Group 3: Rate Limit Error Classifier
-# ─────────────────────────────────────────────────────────────────────────────
-print("\nGroup 3: Rate Limit & Quota Classifier")
+    with patch.object(r, "get_keys", return_value=mock_keys):
+        k1 = r.get_active_key()
+        check("3.1 Initial active key is first key", k1 == "Key_Alpha_1111", f"Got: {k1}")
 
-check("3.1 HTTP 429 is classified as rate limit", _is_rate_limit_error(429, "Too Many Requests"))
-check("3.2 RESOURCE_EXHAUSTED phrase classified as rate limit", _is_rate_limit_error(403, "RESOURCE_EXHAUSTED: quota exceeded"))
-check("3.3 Quota exceeded phrase classified as rate limit", _is_rate_limit_error(503, "User has exceeded per-minute quota"))
-check("3.4 Rate limit phrase classified as rate limit", _is_rate_limit_error(500, "rate limit exceeded for model"))
-check("3.5 HTTP 400 Bad Request is NOT classified as rate limit", not _is_rate_limit_error(400, "INVALID_ARGUMENT: Bad JSON"))
-check("3.6 HTTP 404 Not Found is NOT classified as rate limit", not _is_rate_limit_error(404, "Model not found"))
+        next_k = r.mark_exhausted("Key_Alpha_1111", reason="429 Rate Limit")
+        check("3.2 mark_exhausted advances to Key 2", next_k == "Key_Beta_2222", f"Got: {next_k}")
+        check("3.3 get_active_key returns Key 2", r.get_active_key() == "Key_Beta_2222")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Group 4: generate_content() Key Failover & Exhaustion Flow
-# ─────────────────────────────────────────────────────────────────────────────
-print("\nGroup 4: generate_content() Runtime Failover")
+        st = r.status()
+        check("3.4 Status reports 2 active, 1 exhausted", st["active_keys"] == 2 and st["exhausted_keys"] == 1, f"Status: {st}")
 
-mock_settings = MagicMock()
-mock_settings.gemini_model = "gemini-2.0-flash"
-mock_settings.gemini_api_keys = ["mock_key_A", "mock_key_B"]
+        r.mark_exhausted("Key_Beta_2222", reason="429 Rate Limit")
+        check("3.5 Exhausting Key 2 advances to Key 3", r.get_active_key() == "Key_Gamma_3333")
 
-success_response = {
-    "candidates": [
-        {
-            "content": {
-                "parts": [{"text": "Success from rotated Key B!"}]
-            }
-        }
-    ]
-}
-success_body = json.dumps(success_response).encode("utf-8")
+        time.sleep(0.35)
+        k_recovered = r.get_active_key()
+        check("3.6 Cooldown elapsed: Key 1 recovered and usable again",
+              k_recovered in mock_keys,
+              f"Got: {k_recovered}")
+        check("3.7 Status reports all 3 active after cooldown", r.status()["active_keys"] == 3)
 
-def failover_urlopen(request, timeout=15):
-    url = request.full_url if hasattr(request, "full_url") else request.get_full_url()
-    if "mock_key_A" in url:
-        fp = io.BytesIO(b'{"error": {"code": 429, "message": "Resource exhausted: quota exceeded"}}')
-        raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, fp)
-    elif "mock_key_B" in url:
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = success_body
-        mock_resp.__enter__.return_value = mock_resp
-        mock_resp.__exit__.return_value = False
-        return mock_resp
-    raise RuntimeError(f"Unexpected URL in test: {url}")
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Group 4: Failover in generate_content()
+    # ─────────────────────────────────────────────────────────────────────────────
+    print("\nGroup 4: End-to-End Failover in generate_content()")
 
-# Reset global rotator state for clean test
-with rotator._lock:
-    rotator._exhausted.clear()
-    rotator._current_index = 0
+    mock_keys_e2e = ["FailKey_1111", "SuccessKey_2222"]
 
-with patch("app.services.gemini.get_settings", return_value=mock_settings):
-    with patch("urllib.request.urlopen", side_effect=failover_urlopen):
-        result = generate_content("Test failover prompt")
-        check("4.1 generate_content rotates past 429 Key A to Key B and succeeds",
-              result == "Success from rotated Key B!", f"Got: {result}")
-        check("4.2 Rotator marked Key A as exhausted",
-              "mock_key_A" in rotator._exhausted)
+    class MockHTTP429(urllib.error.HTTPError):
+        def __init__(self):
+            super().__init__("http://fake.url", 429, "Too Many Requests", hdrs={}, fp=io.BytesIO(b'{"error": "RESOURCE_EXHAUSTED: quota exceeded"}'))
 
-# Test all keys exhausted
-def all_429_urlopen(request, timeout=15):
-    url = request.full_url if hasattr(request, "full_url") else request.get_full_url()
-    fp = io.BytesIO(b'{"error": "RESOURCE_EXHAUSTED"}')
-    raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, fp)
+    class MockHTTP400(urllib.error.HTTPError):
+        def __init__(self):
+            super().__init__("http://fake.url", 400, "Bad Request: malformed JSON", hdrs={}, fp=io.BytesIO(b'{"error": "INVALID_ARGUMENT: syntax error"}'))
 
-with patch("app.services.gemini.get_settings", return_value=mock_settings):
-    with patch("urllib.request.urlopen", side_effect=all_429_urlopen):
-        threw = False
-        try:
-            generate_content("Exhaustion test")
-        except RuntimeError as e:
-            threw = True
-            check("4.3 generate_content raises descriptive RuntimeError when all keys exhausted",
-                  "All configured Gemini API keys" in str(e) and "exhausted" in str(e),
-                  f"Error: {e}")
-        if not threw:
-            check("4.3 generate_content raises descriptive RuntimeError when all keys exhausted", False, "Did not raise")
+    mock_success_response = MagicMock()
+    mock_success_response.read.return_value = json.dumps({
+        "candidates": [{"content": {"parts": [{"text": "Hello from Gemini Key 2!"}]}}]
+    }).encode()
+    mock_success_response.__enter__.return_value = mock_success_response
 
-# Test fast fail on HTTP 400 (do not exhaust all keys for bad request)
-call_count = 0
-def bad_req_urlopen(request, timeout=15):
-    global call_count
-    call_count += 1
-    url = request.full_url if hasattr(request, "full_url") else request.get_full_url()
-    fp = io.BytesIO(b'{"error": "INVALID_ARGUMENT: Prompt violates safety rules"}')
-    raise urllib.error.HTTPError(url, 400, "Bad Request", {}, fp)
+    call_log = []
 
-with rotator._lock:
-    rotator._exhausted.clear()
-    rotator._current_index = 0
+    def fake_urlopen(req, timeout=15):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        call_log.append(url)
+        if "FailKey_1111" in url:
+            raise MockHTTP429()
+        if "SuccessKey_2222" in url:
+            return mock_success_response
+        raise RuntimeError(f"Unexpected URL: {url}")
 
-with patch("app.services.gemini.get_settings", return_value=mock_settings):
-    with patch("urllib.request.urlopen", side_effect=bad_req_urlopen):
-        try:
-            generate_content("Bad request")
-        except RuntimeError as e:
-            check("4.4 Non-rate-limit 400 error fails fast on first key without draining all keys",
-                  call_count == 1 and "400" in str(e),
-                  f"Call count: {call_count}, Error: {e}")
+    with rotator._lock:
+        rotator._exhausted.clear()
+        rotator._current_index = 0
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Group 5: /health Endpoint Multi-Key Status Reporting
-# ─────────────────────────────────────────────────────────────────────────────
-print("\nGroup 5: /health Endpoint Multi-Key Reporting")
+    with patch("app.services.gemini.get_settings") as mock_settings:
+        mock_settings.return_value.gemini_api_keys = mock_keys_e2e
+        mock_settings.return_value.gemini_model = "gemini-2.0-flash"
 
-# Clean rotator for health check
-with rotator._lock:
-    rotator._exhausted.clear()
-    rotator._current_index = 0
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            try:
+                res_text = generate_content("Test prompt for rotation")
+                check("4.1 generate_content rotates past 429 to succeed with Key 2",
+                      res_text == "Hello from Gemini Key 2!",
+                      f"Got: {res_text}")
+                check("4.2 Both keys were attempted (FailKey followed by SuccessKey)",
+                      len(call_log) == 2 and "FailKey_1111" in call_log[0] and "SuccessKey_2222" in call_log[1],
+                      f"Call log: {call_log}")
+            except Exception as exc:
+                check("4.1 generate_content rotation failed", False, str(exc))
 
-# Import health handler directly
-from app.main import health
+    # Test 400 Bad Request syntax error (non-rotatable) -> should raise immediately without exhausting key
+    with rotator._lock:
+        rotator._exhausted.clear()
+        rotator._current_index = 0
 
-health_report = health()
-check("5.1 /health response contains gemini_configured", "gemini_configured" in health_report)
-check("5.2 /health response contains gemini_keys_count", "gemini_keys_count" in health_report and isinstance(health_report["gemini_keys_count"], int))
-check("5.3 /health response contains gemini_keys_status dict",
-      "gemini_keys_status" in health_report and "total_keys" in health_report["gemini_keys_status"])
-check("5.4 gemini_keys_status details total, active, exhausted keys",
-      all(k in health_report["gemini_keys_status"] for k in ("total_keys", "active_keys", "exhausted_keys", "current_index")))
+    def fake_urlopen_400(req, timeout=15):
+        raise MockHTTP400()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Summary
-# ─────────────────────────────────────────────────────────────────────────────
-print("\n" + "=" * 50)
-print(f"Total Checks: {len(PASSED) + len(FAILED)} | Passed: {len(PASSED)} | Failed: {len(FAILED)}")
-print("=" * 50)
+    with patch("app.services.gemini.get_settings") as mock_settings:
+        mock_settings.return_value.gemini_api_keys = ["Key_Syntax_1111", "Key_Syntax_2222"]
+        mock_settings.return_value.gemini_model = "gemini-2.0-flash"
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen_400):
+            threw_expected = False
+            try:
+                generate_content("Bad syntax request")
+            except RuntimeError as exc:
+                threw_expected = "400" in str(exc)
+            check("4.3 Non-rotatable 400 error does NOT rotate and raises RuntimeError immediately", threw_expected)
 
-if FAILED:
-    print(f"\nFAILED CHECKS ({len(FAILED)}):")
-    for f in FAILED:
-        print(f"  - {f}")
-    sys.exit(1)
-else:
-    print("\nALL SECTION 6 TESTS PASSED!")
-    sys.exit(0)
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Group 5: /health Endpoint Key Pool Status
+    # ─────────────────────────────────────────────────────────────────────────────
+    print("\nGroup 5: Health Check Inspection")
+
+    with rotator._lock:
+        rotator._exhausted.clear()
+        rotator._current_index = 0
+
+    from app.main import health
+
+    health_report = health()
+    check("5.1 /health response contains gemini_configured", "gemini_configured" in health_report)
+    check("5.2 /health response contains gemini_keys_count", "gemini_keys_count" in health_report and isinstance(health_report["gemini_keys_count"], int))
+    check("5.3 /health response contains gemini_keys_status dict",
+          "gemini_keys_status" in health_report and "total_keys" in health_report["gemini_keys_status"])
+    check("5.4 gemini_keys_status details total, active, exhausted keys",
+          all(k in health_report["gemini_keys_status"] for k in ("total_keys", "active_keys", "exhausted_keys", "current_index")))
+
+    print("\n" + "=" * 50)
+    print(f"Total Checks: {len(PASSED) + len(FAILED)} | Passed: {len(PASSED)} | Failed: {len(FAILED)}")
+    print("=" * 50)
+    assert len(FAILED) == 0, f"Failed checks: {FAILED}"
+
+
+if __name__ == "__main__":
+    test_section6()

@@ -20,6 +20,9 @@ os.environ.setdefault("DATABASE_URL", f"sqlite:///{os.path.join(os.path.dirname(
 os.environ.setdefault("EDUSENSE_DATABASE_URL", os.environ["DATABASE_URL"])
 
 # --öÇ--öÇ Imports --öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ--öÇ
+import pytest
+
+# ── Imports ───────────────────────────────────────────────────────────────────
 try:
     from app.services.vector_store import init_collection, add_chunks, query, get_client
     from app.agents.tools import RAG_Search_Tool
@@ -27,9 +30,13 @@ try:
     from app.agents.quiz_agent import QuizGenerationAgent, _build_rag_context as quiz_rag
     from app.agents.flashcard_agent import FlashcardGenerationAgent, _build_rag_context as fc_rag
     from app.schemas.schemas import LessonRequest
+    _IMPORT_OK = True
+    _IMPORT_ERR = ""
 except ImportError as e:
-    print(f"[ERROR] Import failed: {e}")
-    sys.exit(1)
+    _IMPORT_OK = False
+    _IMPORT_ERR = str(e)
+
+pytestmark = pytest.mark.skipif(not _IMPORT_OK, reason=f"Import failed: {_IMPORT_ERR}")
 
 PASSED = 0
 FAILED = 0

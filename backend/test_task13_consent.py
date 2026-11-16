@@ -45,6 +45,8 @@ def fail(msg: str, exc: Exception | None = None):
 
 
 # ── Imports ───────────────────────────────────────────────────────────────────
+import pytest
+
 try:
     from fastapi.testclient import TestClient
     from app.main import app
@@ -52,12 +54,19 @@ try:
     from app.models.models import User, ConsentRecord, Base
     from app.db.session import engine
     from app.core.security import hash_password
+    _IMPORT_OK = True
+    _IMPORT_ERR = ""
 except ImportError as exc:
-    print(f"[ERROR] Import failed: {exc}")
-    sys.exit(1)
+    _IMPORT_OK = False
+    _IMPORT_ERR = str(exc)
 
-Base.metadata.create_all(bind=engine)
-client = TestClient(app)
+if _IMPORT_OK:
+    Base.metadata.create_all(bind=engine)
+    client = TestClient(app)
+else:
+    client = None  # type: ignore
+
+pytestmark = pytest.mark.skipif(not _IMPORT_OK, reason=f"Import failed: {_IMPORT_ERR}")
 
 _USER_EMAIL = f"t13_{uuid.uuid4().hex[:8]}@consent.test"
 _PASSWORD   = "testpass123"

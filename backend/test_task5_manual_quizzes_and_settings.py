@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models.models import User, Quiz, Session as ClassSession, SessionRegistration
+from app.models.models import User, Quiz, AIGeneration, Session as ClassSession, SessionRegistration
 
 client = TestClient(app)
 
@@ -93,13 +93,39 @@ def test_task5_full_flow():
         }
 
         resp = client.post("/api/quizzes", headers=inst_headers, json=manual_payload)
-        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        assert resp.status_code == 201, f"Expected 201, got {resp.status_code}: {resp.text}"
         quiz_data = resp.json()
         quiz_id = quiz_data["id"]
         assert quiz_data["title"] == "Manual Vector Spaces Quiz"
         assert len(quiz_data["questions"]) == 3
         assert quiz_data["is_exam"] is False
         print(f"✓ Manual quiz created successfully with id={quiz_id}, questions count={len(quiz_data['questions'])}")
+
+        print("\n--- 1a. Testing Direct Manual Exam Default Fullscreen Lock ---")
+        direct_exam_title = "Manual Exam Default Fullscreen Test"
+        direct_exam_resp = client.post(
+            "/api/quizzes",
+            headers=inst_headers,
+            json={
+                "title": direct_exam_title,
+                "difficulty": "Medium",
+                "session_id": test_session.id,
+                "is_exam": True,
+                "questions": [{
+                    "question": "What is a vector?",
+                    "type": "short_answer",
+                    "options": [],
+                    "answer": "A quantity with magnitude and direction",
+                }],
+            },
+        )
+        assert direct_exam_resp.status_code in (200, 201), (
+            f"Expected successful exam creation, got {direct_exam_resp.status_code}: {direct_exam_resp.text}"
+        )
+        direct_exam_data = direct_exam_resp.json()
+        direct_exam_id = direct_exam_data["id"]
+        assert direct_exam_data["fullscreen_lock"] is True
+        print(f"✓ Directly authored exam defaults fullscreen_lock=True (quiz id={direct_exam_id})")
 
         # 3. Test Instructor vs Student view of the quiz
         print("\n--- 2. Testing Answer Visibility: Instructor sees answers, Student view strips answers ---")
@@ -123,7 +149,6 @@ def test_task5_full_flow():
             "time_limit_seconds": 2700, # 45 minutes
             "time_limit_per_question_seconds": 90,
             "lock_back_navigation": True,
-            "fullscreen_lock": True,
             "camera_monitoring": True,
             "due_date": due_time,
         }
@@ -183,6 +208,8 @@ def test_task5_full_flow():
 
         # Clean up test session and quiz
         db.delete(reg)
+        db.query(AIGeneration).filter_by(instructor_id=instructor.id, topic=direct_exam_title).delete()
+        db.query(Quiz).filter_by(id=direct_exam_id).delete()
         db.query(Quiz).filter_by(id=quiz_id).delete()
         db.delete(test_session)
         db.commit()

@@ -23,17 +23,11 @@ if BACKEND_DIR not in sys.path:
 os.chdir(BACKEND_DIR)
 
 # ---------------------------------------------------------------------------
-# Leaf stubs only — never overwrite real filesystem packages
+# Fake gemini (no network calls) and safe in-place monkeypatching
+# (Never replace entries in sys.modules with empty ModuleTypes, which breaks
+#  other test suites running in the same pytest process)
 # ---------------------------------------------------------------------------
 
-def _leaf_stub(name, **attrs):
-    mod = types.ModuleType(name)
-    for k, v in attrs.items():
-        setattr(mod, k, v)
-    sys.modules[name] = mod
-    return mod
-
-# Fake gemini (no network calls)
 def _fake_json(prompt, **kw):
     t = kw.get("task_type", "")
     if t == "quiz":
@@ -43,20 +37,18 @@ def _fake_json(prompt, **kw):
         return {"title": "Deck", "cards": [{"front": "F?", "back": "B"}]}
     return {"lesson": "content", "objectives": [], "activities": []}
 
-_leaf_stub("app.services.gemini",
-           generate_text=lambda p, **k: "text",
-           generate_json_any=_fake_json,
-           generate_via_ollama=lambda *a, **k: "ollama",
-           generate_content=lambda *a, **k: "content")
+_orig_generate_json_any = None
 
-# DB stubs
-_leaf_stub("app.db.session", SessionLocal=MagicMock(), get_db=MagicMock())
-_leaf_stub("app.models.models", QuizAgentConfig=MagicMock())
+def setUpModule():
+    global _orig_generate_json_any
+    import app.services.gemini as gem
+    _orig_generate_json_any = getattr(gem, "generate_json_any", None)
+    gem.generate_json_any = _fake_json
 
-# Tools stub — both tools return [] by default; tests patch them individually
-tools_stub = _leaf_stub("app.agents.tools",
-                         RAG_Search_Tool=lambda *a, **k: [],
-                         Web_Search_Tool=lambda *a, **k: [])
+def tearDownModule():
+    import app.services.gemini as gem
+    if _orig_generate_json_any is not None:
+        gem.generate_json_any = _orig_generate_json_any
 
 # ---------------------------------------------------------------------------
 # Import real app packages

@@ -261,15 +261,21 @@ function StudentHistoryView({ sessions }) {
                                   </p>
                                 </div>
                               </div>
-                              <a
-                                href={staticUrl(res.url)}
-                                target="_blank"
-                                rel="noreferrer"
-                                download
-                                className="btn-soft text-xs py-1.5 px-3 flex items-center gap-1 shrink-0 font-medium"
-                              >
-                                <Download size={13} /> Download
-                              </a>
+                              {res.available ? (
+                                <a
+                                  href={staticUrl(res.url)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  download
+                                  className="btn-soft text-xs py-1.5 px-3 flex items-center gap-1 shrink-0 font-medium"
+                                >
+                                  <Download size={13} /> Download
+                                </a>
+                              ) : (
+                                <span className="text-xs font-medium text-red-600 dark:text-red-400" role="status">
+                                  File unavailable
+                                </span>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -292,7 +298,7 @@ const DASHBOARD_REPORT_KEY = 'edusense_dashboard_last_report'
 export function InstructorDashboard() {
   const { t } = useLanguage()
   const [sessions, setSessions] = useState([])
-  const [selectedSessionId, setSelectedSessionId] = useState('all')
+  const [selectedSessionIds, setSelectedSessionIds] = useState([])
   const [report, setReport] = useState(() => {
     try {
       const saved = sessionStorage.getItem(DASHBOARD_REPORT_KEY)
@@ -318,6 +324,28 @@ export function InstructorDashboard() {
   useEffect(() => { loadSessions() }, [])
 
   const endedSessions = useMemo(() => sessions.filter((s) => s.status === 'ended'), [sessions])
+
+  // Toggle session selection
+  function toggleSessionSelection(sessionId) {
+    setSelectedSessionIds(prev => {
+      const id = String(sessionId)
+      if (prev.includes(id)) {
+        return prev.filter(s => s !== id)
+      } else {
+        return [...prev, id]
+      }
+    })
+  }
+
+  // Select all ended sessions
+  function selectAllEnded() {
+    setSelectedSessionIds(endedSessions.map(s => String(s.id)))
+  }
+
+  // Clear selection
+  function clearSelection() {
+    setSelectedSessionIds([])
+  }
 
   // Resume polling if an analysis job is running in background
   useEffect(() => {
@@ -384,17 +412,11 @@ export function InstructorDashboard() {
     }
 
     // Enforce rule: feedback loop can ONLY be run on ended sessions
-    if (selectedSessionId === 'all') {
-      if (!endedSessions.length) {
-        setError('Feedback loop is only available for ended sessions. None of your sessions have ended yet.')
-        return
-      }
-    } else {
-      const targetSession = sessions.find((s) => String(s.id) === String(selectedSessionId))
-      if (targetSession && targetSession.status !== 'ended') {
-        setError(`Feedback loop is only available for ended sessions. Session "${targetSession.title}" is currently ${targetSession.status}.`)
-        return
-      }
+    const targetIds = selectedSessionIds.length > 0 ? selectedSessionIds : endedSessions.map(s => String(s.id))
+    
+    if (!endedSessions.length) {
+      setError('Feedback loop is only available for ended sessions. None of your sessions have ended yet.')
+      return
     }
 
     setAnalyzing(true)
@@ -405,8 +427,7 @@ export function InstructorDashboard() {
     try {
       const res = await api('/ai/recommendations/queue', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedSessionId }),
+        body: { session_id: targetIds.length === 1 ? targetIds[0] : 'all' },
       })
 
       if (res.status === 'done' && res.result) {
@@ -439,28 +460,40 @@ export function InstructorDashboard() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-bold">{t('dashboard.managed')}</h2>
             <div className="flex flex-wrap items-center gap-2 sm:ms-auto">
-              <select
-                className="input py-1.5 text-xs min-w-[180px] flex-1 sm:flex-none"
-                value={selectedSessionId}
-                onChange={(e) => {
-                  setSelectedSessionId(e.target.value)
-                  setError('')
-                }}
-              >
-                <option value="all">All Ended Sessions ({endedSessions.length})</option>
-                {sessions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.title} ({s.status})
-                  </option>
-                ))}
-              </select>
-              <button className="btn-primary py-1.5 px-4 text-xs whitespace-nowrap" type="button" onClick={analyze} disabled={analyzing}>
+              <div className="flex items-center gap-1">
+                <button
+                  className="btn-soft text-xs py-1.5 px-2"
+                  type="button"
+                  onClick={selectAllEnded}
+                  disabled={endedSessions.length === 0}
+                >
+                  Select All
+                </button>
+                <button
+                  className="btn-soft text-xs py-1.5 px-2"
+                  type="button"
+                  onClick={clearSelection}
+                  disabled={selectedSessionIds.length === 0}
+                >
+                  Clear
+                </button>
+                <span className="text-xs text-slate-500">
+                  {selectedSessionIds.length} selected
+                </span>
+              </div>
+              <button className="btn-primary py-1.5 px-4 text-xs whitespace-nowrap" type="button" onClick={analyze} disabled={analyzing || endedSessions.length === 0}>
                 {analyzing ? 'Analyzing...' : t('dashboard.feedbackLoop')}
               </button>
             </div>
           </div>
           {error && <p className="rounded-md bg-red-50 p-2.5 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-200">{error}</p>}
-          <SessionList sessions={sessions} showEdit={true} onReload={loadSessions} />
+          <SessionList 
+            sessions={endedSessions} 
+            showEdit={true} 
+            onReload={loadSessions}
+            selectedSessionIds={selectedSessionIds}
+            onToggleSelection={toggleSessionSelection}
+          />
         </div>
         <div className="panel">
           <h2 className="mb-4 text-lg font-bold">{t('dashboard.recommendations')}</h2>
@@ -534,7 +567,7 @@ function HighlightCard({ icon: Icon, label, value }) {
   )
 }
 
-function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUnregister = false, showEdit = false }) {
+function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUnregister = false, showEdit = false, selectedSessionIds = [], onToggleSelection = null }) {
   const { t } = useLanguage()
   const navigate = useNavigate()
   const [editingSession, setEditingSession] = useState(null)
@@ -575,12 +608,24 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
   if (!sessions.length) return <p className="mt-4 text-sm text-slate-500">{emptyLabel}</p>
   return (
     <div className="mt-4 space-y-3">
-      {sessions.map((session) => (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white/70 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/50" key={session.id}>
-          <div>
-            <p className="font-bold">{session.title}</p>
-            <p className="text-sm text-slate-500">{session.date} | {session.start_time} | <span className="capitalize font-semibold text-ocean dark:text-mint">{session.status}</span></p>
-            {session.description && <p className="mt-2 max-w-xl text-sm text-slate-600 dark:text-slate-300">{session.description}</p>}
+      {sessions.map((session) => {
+        const isSelected = selectedSessionIds.includes(String(session.id))
+        return (
+        <div className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border p-4 shadow-sm dark:bg-slate-900/50 ${isSelected ? 'border-ocean bg-teal-50/70 dark:border-mint dark:bg-slate-800/70' : 'border-slate-200 bg-white/70 dark:border-slate-700'}`} key={session.id}>
+          <div className="flex items-start gap-3">
+            {onToggleSelection && (
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => onToggleSelection(session.id)}
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-ocean focus:ring-ocean dark:border-slate-600 dark:bg-slate-800 dark:text-mint dark:focus:ring-mint"
+              />
+            )}
+            <div>
+              <p className="font-bold">{session.title}</p>
+              <p className="text-sm text-slate-500">{session.date} | {session.start_time} | <span className="capitalize font-semibold text-ocean dark:text-mint">{session.status}</span></p>
+              {session.description && <p className="mt-2 max-w-xl text-sm text-slate-600 dark:text-slate-300">{session.description}</p>}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {showEdit && session.status === 'pending' && (
@@ -601,7 +646,8 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
             )}
           </div>
         </div>
-      ))}
+        )
+      })}
       {editingSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setEditingSession(null)}>
           <form className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 dark:text-slate-100" onSubmit={saveEdit} onClick={(e) => e.stopPropagation()}>

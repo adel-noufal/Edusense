@@ -133,7 +133,9 @@ function UploadModal({ onClose, onSuccess }) {
           } catch (err) {
             clearInterval(pollInterval)
             try { localStorage.removeItem('edusense_kb_ingest_job') } catch (_) {}
-            setError(err.message || 'Error tracking background status')
+            setError(err.status === 404
+              ? `Ingestion status for "${file.name}" is no longer available (the server may have restarted). Refresh the Knowledge Base to check whether it finished.`
+              : err.message || 'Error tracking background status')
             setLoading(false)
           }
         }, 1200)
@@ -276,9 +278,6 @@ function SourceCard({ src, onDelete, onPreview }) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            {src.chunk_count ?? 0} chunks
-          </span>
           <button type="button"
             className="btn-soft p-1.5 text-ocean hover:bg-ocean/10 dark:text-mint"
             title="Preview or view document"
@@ -310,7 +309,6 @@ function SourceCard({ src, onDelete, onPreview }) {
           {src.ingested_at && (
             <p>Indexed: <span className="font-medium text-slate-700 dark:text-slate-300">{new Date(src.ingested_at).toLocaleString()}</span></p>
           )}
-          <p>Chunks: <span className="font-medium text-slate-700 dark:text-slate-300">{src.chunk_count ?? '—'}</span></p>
         </div>
       )}
     </div>
@@ -358,7 +356,7 @@ function PreviewPanel({ src, onClose }) {
             </div>
             <div className="min-w-0">
               <h2 className="font-black text-lg truncate">{src?.filename || src?.source_file}</h2>
-              <p className="text-xs text-slate-500">{src?.subject} · Grade {src?.grade_level || 'All'} · {src?.chunk_count || 0} chunks</p>
+              <p className="text-xs text-slate-500">{src?.subject} · Grade {src?.grade_level || 'All'}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -389,7 +387,7 @@ function PreviewPanel({ src, onClose }) {
             className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-semibold transition ${tab === 'chunks' ? 'border-teal-600 text-teal-700 dark:border-mint dark:text-mint' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
             onClick={() => setTab('chunks')}
           >
-            <Layers size={16} />Semantic Chunks ({chunks.length || src?.chunk_count || 0})
+            <Layers size={16} />Semantic Chunks
           </button>
         </div>
 
@@ -669,12 +667,19 @@ export default function KnowledgeBaseDashboard() {
           clearInterval(interval)
           try { localStorage.removeItem('edusense_kb_ingest_job') } catch (_) {}
         }
-      } catch (_) {
+      } catch (err) {
         clearInterval(interval)
         try { localStorage.removeItem('edusense_kb_ingest_job') } catch (_) {}
+        setActiveJob(curr => curr ? {
+          ...curr,
+          status: err.status === 404 ? 'stale' : 'failed',
+          message: err.status === 404
+            ? 'Ingestion status is unavailable after a server restart. Refresh the Knowledge Base to check whether the document finished indexing.'
+            : err.message || 'Could not track ingestion status.',
+        } : null)
       }
     }, 1500)
-  } // 'library' | 'qa'
+  }
 
   async function loadSources() {
     setLoading(true)
@@ -756,21 +761,41 @@ export default function KnowledgeBaseDashboard() {
 
       {/* Background ingestion banner */}
       {activeJob && activeJob.status !== 'completed' && (
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-teal-200 bg-teal-50/80 p-4 dark:border-teal-900/50 dark:bg-teal-950/30">
+        <div className={`flex items-center justify-between gap-4 rounded-2xl border p-4 ${
+          ['stale', 'failed'].includes(activeJob.status)
+            ? 'border-amber-200 bg-amber-50/80 dark:border-amber-900/50 dark:bg-amber-950/30'
+            : 'border-teal-200 bg-teal-50/80 dark:border-teal-900/50 dark:bg-teal-950/30'
+        }`}>
           <div className="flex items-center gap-3 min-w-0">
-            <Loader2 size={18} className="animate-spin text-teal-600 shrink-0" />
+            {['stale', 'failed'].includes(activeJob.status)
+              ? <AlertCircle size={18} className="text-amber-600 shrink-0" />
+              : <Loader2 size={18} className="animate-spin text-teal-600 shrink-0" />}
             <div className="min-w-0">
-              <p className="text-sm font-bold text-teal-900 dark:text-teal-200 truncate">
-                Ingesting {activeJob.filename || 'document'}... ({activeJob.progress || 0}%)
+              <p className={`text-sm font-bold truncate ${
+                ['stale', 'failed'].includes(activeJob.status)
+                  ? 'text-amber-900 dark:text-amber-200'
+                  : 'text-teal-900 dark:text-teal-200'
+              }`}>
+                {activeJob.status === 'stale'
+                  ? `Ingestion status unavailable for ${activeJob.filename || 'document'}`
+                  : activeJob.status === 'failed'
+                    ? `Ingestion failed for ${activeJob.filename || 'document'}`
+                    : `Ingesting ${activeJob.filename || 'document'}... (${activeJob.progress || 0}%)`}
               </p>
-              <p className="text-xs text-teal-700 dark:text-teal-300 truncate">
+              <p className={`text-xs truncate ${
+                ['stale', 'failed'].includes(activeJob.status)
+                  ? 'text-amber-800 dark:text-amber-300'
+                  : 'text-teal-700 dark:text-teal-300'
+              }`}>
                 {activeJob.message || 'Processing pages and generating semantic embeddings...'}
               </p>
             </div>
           </div>
-          <div className="w-32 bg-teal-200 dark:bg-teal-900/60 rounded-full h-2 overflow-hidden shrink-0">
-            <div className="bg-teal-600 h-2 transition-all duration-300" style={{ width: `${activeJob.progress || 10}%` }} />
-          </div>
+          {!['stale', 'failed'].includes(activeJob.status) && (
+            <div className="w-32 bg-teal-200 dark:bg-teal-900/60 rounded-full h-2 overflow-hidden shrink-0">
+              <div className="bg-teal-600 h-2 transition-all duration-300" style={{ width: `${activeJob.progress || 10}%` }} />
+            </div>
+          )}
         </div>
       )}
 
