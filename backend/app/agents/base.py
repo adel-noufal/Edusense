@@ -50,15 +50,34 @@ class LocalLLM:
         # If prompt contains "Current Question:" or "QUESTION:", extract the actual question
         for marker in ["Current Question:", "QUESTION:", "Question:"]:
             if marker in prompt:
-                query_for_check = prompt.split(marker)[-1].split("\n")[0].strip()
+                query_for_check = prompt.split(marker)[-1].strip()
                 break
+        # Strip internal scaffolding ([System:...], [Uploaded file context]...
+        # [User question]) so persona/file-context text can never leak into
+        # the user-facing fallback answer.
+        if "[User question]" in query_for_check:
+            query_for_check = query_for_check.split("[User question]", 1)[1]
+        _lines = [
+            ln.strip() for ln in query_for_check.split("\n")
+            if ln.strip() and not ln.strip().startswith("[")
+        ]
+        query_for_check = " ".join(_lines).strip()
 
         in_scope, refusal = check_topic_in_scope(query_for_check, subject, grade_level)
         if not in_scope:
             return refusal
 
         tone = random.choice(["clear", "interactive", "visual", "practice-oriented"])
-        return f"Generated local {tone} educational content for: {prompt[:240]}"
+        # Never echo raw prompt/instruction text back to the user — only the
+        # extracted question/topic may appear in the fallback answer.
+        topic_text = query_for_check[:160].strip() if query_for_check != prompt else ""
+        if not topic_text:
+            topic_text = "this topic"
+        return (
+            f"Here's a {tone} explanation to help you study {topic_text}. "
+            "For a detailed answer, please try again when the AI service is available, "
+            "or consult your course materials and instructor."
+        )
 
 
 def adk_agent(name: str, description: str):

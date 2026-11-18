@@ -299,3 +299,45 @@ def is_likely_off_topic(query: str, subject: str | None = None) -> bool:
     """
     in_scope, _ = check_topic_in_scope(query, subject)
     return not in_scope
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# User-facing answer sanitizer
+# ──────────────────────────────────────────────────────────────────────────────
+
+import re as _re
+
+_GUARDRAIL_BLOCK = _re.compile(
+    r"={2,}\s*SCOPE GUARDRAIL.*?(?:={2,}\s*END SCOPE GUARDRAIL\s*={2,}|$)",
+    _re.DOTALL | _re.IGNORECASE,
+)
+_SYSTEM_PREAMBLE = _re.compile(
+    r"^\s*You are an? [^\n]{0,140}(?:AgentOrchestrator|EduSense|educational assistant)[^\n]*\n?",
+    _re.IGNORECASE,
+)
+_SYSTEM_TAG = _re.compile(r"^\s*\[System:[^\]]*\]\s*", _re.IGNORECASE)
+_META_TAIL = _re.compile(
+    r"(?:^|\n)\s*(?:Instructions?|Current Question|Conversation History|"
+    r"={2,}\s*(?:KNOWLEDGE BASE|WEB SEARCH RESULTS|SOURCE MATERIAL|END SOURCE MATERIAL))[^\n]*(?:\n|$)",
+    _re.IGNORECASE,
+)
+
+
+def sanitize_user_facing_answer(text: str | None) -> str:
+    """
+    Strip internal prompt/instruction scaffolding that an LLM may echo back
+    into its answer. Guarantees users never see guardrail/system text.
+    """
+    if not text:
+        return ""
+    cleaned = _GUARDRAIL_BLOCK.sub("", text)
+    cleaned = _SYSTEM_PREAMBLE.sub("", cleaned)
+    cleaned = _SYSTEM_TAG.sub("", cleaned)
+    cleaned = _META_TAIL.sub("\n", cleaned)
+    cleaned = _re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    if not cleaned or "GUARDRAIL" in cleaned.upper() or "MANDATORY" in cleaned.upper():
+        return (
+            "I don't have enough context to answer that reliably right now. "
+            "Please try rephrasing your question or consult your course materials."
+        )
+    return cleaned

@@ -258,12 +258,14 @@ def ask_question(
     subject     = payload.get("subject")     or None
     grade_level = payload.get("grade_level") or None
     top_k       = int(payload.get("top_k", 5))
+    source_file = payload.get("source_file") or payload.get("source_id") or None
 
     return rag_qa.answer_question(
         question=question,
         subject=subject,
         grade_level=grade_level,
         top_k=top_k,
+        source_file=source_file,
     )
 
 

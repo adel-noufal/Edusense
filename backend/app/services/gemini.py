@@ -159,44 +159,78 @@ def _is_rate_limit_error(exc_code: int, detail: str) -> bool:
     return _is_rotatable_error(exc_code, detail)
 
 
+# Some API keys belong to projects where older models were retired.
+# On a 404 "model not available" we retry the same key with these fallbacks.
+_MODEL_FALLBACKS = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"]
+
+# Tracks which (key -> models) were already attempted within a single generate_content call.
+_KEY_MODEL_TRIED: dict = {}
+
+
+def _model_candidates(primary: str) -> list[str]:
+    seen = []
+    for m in [primary] + _MODEL_FALLBACKS:
+        if m and m not in seen:
+            seen.append(m)
+    return seen
+
+
 def generate_content(prompt: str) -> str:
     settings = get_settings()
     keys = settings.gemini_api_keys
     if not keys:
         raise RuntimeError("Gemini API key is not configured. Set EDUSENSE_GEMINI_API_KEY in backend/.env")
 
-    max_attempts = len(keys)
+    # Some projects have retired older models — try model fallbacks per key
+    # before rotating to the next API key.
+    candidates = _model_candidates(settings.gemini_model)
     last_error = None
+    attempts = 0
+    max_attempts = len(keys) * len(candidates)
 
-    for _ in range(max_attempts):
+    while attempts < max_attempts:
         key = rotator.get_active_key()
         if not key:
             break
+        attempts += 1
+
+        # choose first model not yet tried with this key this call
+        tried = _KEY_MODEL_TRIED.get(id(rotator), {}).get(key, set())
+        model = next((m for m in candidates if m not in tried), None)
+        if model is None:
+            rotator.mark_exhausted(key, reason="all model candidates failed")
+            _KEY_MODEL_TRIED.get(id(rotator), {}).pop(key, None)
+            continue
+        _KEY_MODEL_TRIED.setdefault(id(rotator), {}).setdefault(key, set()).add(model)
 
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{settings.gemini_model}:generateContent?key={key}"
+            f"{model}:generateContent?key={key}"
         )
         body = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode()
         request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
+            with urllib.request.urlopen(request, timeout=20) as response:
                 payload = json.loads(response.read().decode())
 
-            candidates = payload.get("candidates") or []
-            if not candidates:
+            cand = payload.get("candidates") or []
+            if not cand:
                 raise RuntimeError("Gemini returned no candidates")
-            parts = candidates[0].get("content", {}).get("parts") or []
+            parts = cand[0].get("content", {}).get("parts") or []
             text = "".join(part.get("text", "") for part in parts).strip()
             if not text:
                 raise RuntimeError("Gemini returned an empty response")
+            _KEY_MODEL_TRIED.get(id(rotator), {}).pop(key, None)
             return text
 
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode()
+            last_error = f"HTTP {exc.code}: {detail[:150]}"
+            if exc.code == 404 and "model" in detail.lower():
+                continue  # same key, next model candidate
             if _is_rotatable_error(exc.code, detail):
                 rotator.mark_exhausted(key, reason=f"HTTP {exc.code}")
-                last_error = f"HTTP {exc.code}: {detail[:150]}"
+                _KEY_MODEL_TRIED.get(id(rotator), {}).pop(key, None)
                 continue
             raise RuntimeError(f"Gemini API error ({exc.code}): {detail[:240]}") from exc
 

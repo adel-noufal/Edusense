@@ -37,6 +37,28 @@ def analyze_frame(
     return agent.analyze_frame(db, payload.session_id, user.id, payload.image).data
 
 
+@router.post("/analyze-trial")
+def analyze_trial(
+    payload: dict,
+    user: User = Depends(require_consent("emotion_detection")),
+):
+    """
+    Stateless emotion-analysis trial for the student dashboard widget.
+    Reuses the same detection pipeline (v7 PyTorch / DeepFace fallback) but does
+    NOT write EmotionLog rows or require a class session — trial frames are ephemeral.
+    """
+    _check_rate_limit(user.id)
+    image = payload.get("image")
+    if not image:
+        raise HTTPException(400, "image is required")
+    emotion, confidence = agent._detect(image)
+    return {
+        "emotion": emotion,
+        "confidence": round(confidence, 4),
+        "backend": getattr(agent, "_active_backend", "unknown"),
+    }
+
+
 @router.post("/frame")
 def receive_frame(
     payload: dict,

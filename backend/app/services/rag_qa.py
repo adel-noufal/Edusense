@@ -12,7 +12,7 @@ from typing import Optional
 
 from app.agents.base import LocalLLM
 from app.agents.logging_utils import LLMAuditContext
-from app.agents.prompts.scope_guardrail import build_guardrail_prompt
+from app.agents.prompts.scope_guardrail import build_guardrail_prompt, sanitize_user_facing_answer
 from app.agents.tools import RAG_Search_Tool
 from app.services import vector_store
 from app.services.gemini import generate_content, generate_via_ollama
@@ -170,6 +170,7 @@ def answer_question(
     grade_level: Optional[str] = None,
     top_k: int = 5,
     min_score: Optional[float] = None,
+    source_file: Optional[str] = None,
 ) -> dict:
     """
     Retrieve relevant chunks from the vector store and use them to answer
@@ -196,7 +197,7 @@ def answer_question(
         min_score=threshold,
     )
 
-    referenced_source = _find_referenced_source(question)
+    referenced_source = source_file or _find_referenced_source(question)
     if referenced_source:
         source_chunks = vector_store.get_by_source(referenced_source)
         if source_chunks:
@@ -230,38 +231,16 @@ def answer_question(
     ]
 
     if not chunks:
-        # Build guardrail prompt for no-sources case
-        guardrail = build_guardrail_prompt(
-            subject=subject,
-            grade_level=grade_level,
-            agent_name="RAG_QA_Service (Chatbot API)",
-            has_rag_sources=False,
+        # Knowledge Base is strictly document-grounded: when nothing relevant is
+        # indexed, say so plainly instead of answering from general knowledge.
+        scope = f" for {subject}" if subject else ""
+        scope += f" (grade {grade_level})" if grade_level else ""
+        answer = (
+            "I couldn't find anything about that in the uploaded course materials"
+            f"{scope}. The Knowledge Base only answers from indexed documents — "
+            "please ask your instructor to upload relevant material, or try the AI "
+            "Chatbot for general questions."
         )
-
-        prompt = f"""{guardrail}
-
-You are a helpful, accurate educational assistant for EduSense.
-A student has asked the following question:
-
-QUESTION: {question}
-
-No relevant material was found in the knowledge base for this question.
-If the user asks a general educational question, answer from general knowledge and clarify
-that the answer is not grounded in uploaded course materials. If the user asks about a
-specific uploaded document that was not found, say so plainly. Refuse only clearly
-non-educational or off-topic requests.
-
-Answer:"""
-
-        answer, _, _ = _call_llm(
-            prompt,
-            subject=subject,
-            grade_level=grade_level,
-            topic=question,
-            has_rag_sources=False,
-            rag_source_count=0,
-        )
-        answer = answer.strip()
 
         return {
             "question":     question,
@@ -308,7 +287,7 @@ Answer:"""
         has_rag_sources=True,
         rag_source_count=len(chunks),
     )
-    answer = answer.strip()
+    answer = sanitize_user_facing_answer(answer).strip()
 
     return {
         "question":     question,
