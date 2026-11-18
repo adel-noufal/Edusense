@@ -110,10 +110,12 @@ export default function Quiz() {
           setTimeRemaining(remaining)
         }
 
-        // Enable fullscreen lock if required
+        // Enable fullscreen lock if required.
+        // NOTE: requestFullscreen() must be triggered by a user gesture, so we
+        // only flag the lock here — the "Enter fullscreen" overlay button
+        // (a real click) performs the actual request.
         if (quizData.fullscreen_lock) {
           setFullscreenLocked(true)
-          await enterFullscreen()
         }
 
         // Enable camera monitoring if required - check consent first
@@ -227,12 +229,12 @@ export default function Quiz() {
 
     const handler = () => {
       if (!document.fullscreenElement && attempt && !showResults) {
-        // User exited fullscreen - violation!
+        // User exited fullscreen - violation! Re-entry requires a user
+        // gesture, so the "Enter fullscreen" overlay handles it instead.
         logViolation('fullscreen_exit', { wasFullscreen: true })
-        // Re-enter fullscreen
-        setTimeout(enterFullscreen, 100)
       } else if (document.fullscreenElement) {
         setFullscreen(true)
+        setFullscreenError('')
       } else {
         setFullscreen(false)
       }

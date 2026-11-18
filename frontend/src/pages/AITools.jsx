@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
-import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff, Mic, MicOff } from 'lucide-react'
+import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff, Mic, MicOff, MessageCircle, Paperclip } from 'lucide-react'
 import { api, downloadAuthenticatedRequest, staticUrl } from '../services/api'
 import { downloadBlob, downloadText, flashcardsToHtml, lessonToMarkdown, downloadLessonAsDoc, downloadLessonAsHtml, downloadLessonAsPdf, downloadLessonAsPptxHtml, downloadQuizAsDoc, downloadQuizAsHtml, downloadQuizAsPdf, downloadFlashcardsAsDoc, downloadFlashcardsAsPdf } from '../utils/download'
 import { useLanguage } from '../context/LanguageContext'
@@ -359,6 +359,15 @@ export function QuizGenerator() {
       clearCompletedJob()
     }
   }, [job])
+
+  async function deleteHistory(id, e) {
+    e.stopPropagation()
+    try {
+      await api('/ai/quizzes/' + id, { method: 'DELETE' })
+      await loadHistory()
+      if (result && result.id === id) setResult(null)
+    } catch { /* ignore */ }
+  }
 
   async function submit(e) {
     e.preventDefault()
@@ -1152,48 +1161,53 @@ function SelectField({ label, value, options, onChange }) {
 
 function LessonResult({ result, request }) {
   const { t } = useLanguage()
-  const slug = (result.topic || 'lesson').replace(/\s+/g, '-').toLowerCase()
+  const lesson = (result?.data && !result?.topic ? result.data : result) || {}
+  const language = lesson?.language || request?.language || ''
+  const style = lesson?.style || request?.teaching_style || ''
+  const duration = lesson?.duration ?? request?.duration
+  const subtitle = [language, style, duration != null ? `${duration} min` : null].filter(Boolean).join(' · ')
+  const slug = (lesson?.topic || 'lesson').replace(/\s+/g, '-').toLowerCase()
   return (
     <div className="space-y-5 rounded-md border border-slate-200 p-4 dark:border-slate-700">
-      <ResultHeader title={result.topic} subtitle={`${result.language} · ${result.style} · ${result.duration} min`} model={request?.model} sources={result.sources} unverified={result.unverified} />
+      <ResultHeader title={lesson?.topic} subtitle={subtitle || undefined} model={request?.model} sources={lesson?.sources} unverified={lesson?.unverified} />
       <DownloadBar
         items={[
           {
             label: 'Word (.doc)',
-            onClick: () => downloadLessonAsDoc(result, `${slug}.doc`),
+            onClick: () => downloadLessonAsDoc(lesson, `${slug}.doc`),
           },
           {
             label: 'PowerPoint (.pptx)',
-            onClick: () => downloadLessonAsPptxHtml(result, `${slug}.pptx.html`),
+            onClick: () => downloadLessonAsPptxHtml(lesson, `${slug}.pptx.html`),
           },
           {
             label: 'PDF Document (.pdf)',
-            onClick: () => downloadLessonAsPdf(result, slug),
+            onClick: () => downloadLessonAsPdf(lesson, slug),
           },
           {
             label: 'HTML (.html)',
-            onClick: () => downloadLessonAsHtml(result, `${slug}.html`),
+            onClick: () => downloadLessonAsHtml(lesson, `${slug}.html`),
           },
           {
             label: 'Markdown (.md)',
-            onClick: () => downloadText(lessonToMarkdown(result), `${slug}.md`, 'text/markdown'),
+            onClick: () => downloadText(lessonToMarkdown(lesson), `${slug}.md`, 'text/markdown'),
           },
         ]}
       />
-      {result.overview && (
+      {lesson.overview && (
         <Section title={t('ai.overview')}>
-          <p className="text-sm leading-7 text-slate-700 dark:text-slate-300">{result.overview}</p>
+          <p className="text-sm leading-7 text-slate-700 dark:text-slate-300">{lesson.overview}</p>
         </Section>
       )}
       <Section title={t('ai.objectives')}>
         <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
-          {result.learning_objectives?.map((objective) => <li key={objective}>• {objective}</li>)}
+          {lesson.learning_objectives?.map((objective) => <li key={objective}>• {objective}</li>)}
         </ul>
       </Section>
-      {result.sections?.length > 0 && (
+      {lesson.sections?.length > 0 && (
         <Section title={t('ai.sections')}>
           <div className="grid gap-3">
-            {result.sections.map((section) => (
+            {lesson.sections.map((section) => (
               <article key={section.heading} className="rounded-md bg-slate-100 p-4 dark:bg-slate-800">
                 <p className="font-bold">{section.heading}</p>
                 <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{section.content}</p>
@@ -1205,7 +1219,7 @@ function LessonResult({ result, request }) {
       )}
       <Section title={t('ai.slides')}>
         <div className="grid gap-3 md:grid-cols-2">
-          {result.slides?.map((slide) => (
+          {lesson.slides?.map((slide) => (
             <article key={slide.title} className="rounded-md bg-slate-100 p-4 dark:bg-slate-800">
               <p className="font-bold">{slide.title}</p>
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{slide.content}</p>
@@ -1214,16 +1228,16 @@ function LessonResult({ result, request }) {
           ))}
         </div>
       </Section>
-      {result.key_points?.length > 0 && (
+      {lesson.key_points?.length > 0 && (
         <Section title={t('ai.keyPoints')}>
           <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
-            {result.key_points.map((point) => <li key={point}>• {point}</li>)}
+            {lesson.key_points.map((point) => <li key={point}>• {point}</li>)}
           </ul>
         </Section>
       )}
-      {result.summary && (
+      {lesson.summary && (
         <Section title={t('ai.summary')}>
-          <p className="text-sm leading-7 text-slate-700 dark:text-slate-300">{result.summary}</p>
+          <p className="text-sm leading-7 text-slate-700 dark:text-slate-300">{lesson.summary}</p>
         </Section>
       )}
     </div>
@@ -2015,204 +2029,213 @@ export function ChatbotGenerator() {
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[220px_1fr_300px] items-start">
+    <div className="flex flex-col gap-4 xl:flex-row xl:items-stretch">
       {/* History Sidebar */}
-      <div className="panel space-y-3">
+      <aside className="panel flex w-full shrink-0 flex-col space-y-3 xl:w-64">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold">Conversations</h2>
-          <button className="btn-soft text-xs px-2 py-1" onClick={startNewConversation}>+ New</button>
+          <h2 className="flex items-center gap-2 text-sm font-bold"><MessageCircle size={16} className="text-ocean dark:text-mint" /> Conversations</h2>
+          <button className="btn-soft text-xs px-2.5 py-1.5" onClick={startNewConversation}>+ New</button>
         </div>
         {historyLoading && <p className="text-xs text-slate-400">Loading...</p>}
-        {conversations.length === 0 && !historyLoading && (
+        {!historyLoading && conversations.length === 0 && (
           <p className="text-xs text-slate-400 italic">No past conversations</p>
         )}
-        <div className="space-y-1 max-h-[60vh] overflow-y-auto">
+        <div className="max-h-56 space-y-1 overflow-y-auto xl:max-h-none xl:flex-1">
           {conversations.map(conv => (
             <div
               key={conv.conversation_id}
-              className={`group flex items-start gap-1 rounded-lg px-2 py-2 cursor-pointer text-xs hover:bg-slate-100 dark:hover:bg-slate-800 ${conv.conversation_id === conversationId ? 'bg-teal-50 dark:bg-teal-950/30 font-semibold' : ''}`}
+              className={`group flex items-start gap-1 rounded-lg px-2.5 py-2 cursor-pointer text-xs transition hover:bg-slate-100 dark:hover:bg-slate-800 ${conv.conversation_id === conversationId ? 'bg-teal-50 font-semibold text-teal-900 dark:bg-teal-950/30 dark:text-teal-200' : 'text-slate-600 dark:text-slate-300'}`}
               onClick={() => loadConversation(conv.conversation_id)}
             >
               <span className="flex-1 truncate">{conv.preview || conv.conversation_id.slice(0, 16)}</span>
               <button
-                className="hidden group-hover:block text-slate-400 hover:text-red-500 ml-1 flex-shrink-0"
+                className="hidden flex-shrink-0 text-slate-400 hover:text-red-500 group-hover:block"
                 onClick={(e) => deleteConversation(conv.conversation_id, e)}
                 title="Delete conversation"
               >×</button>
             </div>
           ))}
         </div>
-      </div>
+      </aside>
 
       {/* Main Chat Panel */}
-      <div className="space-y-6">
-        <ToolShell title={chatbotName} icon={<Bot />} onSubmit={sendMessage} loading={loading} error={error}>
-          <div className="rounded-xl border border-teal-200 bg-teal-50/60 p-3 text-xs text-teal-900 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-200">
-            <p className="font-semibold flex items-center gap-1.5"><Bot size={14} /> Multi-Source Teaching Assistant</p>
-            <p className="mt-0.5 text-slate-600 dark:text-slate-300">
-              Dynamically queries your indexed knowledge base, falls back to live web search, and uses AI to synthesize answers. Upload files to discuss their contents directly.
-            </p>
+      <section className="panel flex min-h-[70vh] w-full flex-1 flex-col overflow-hidden xl:h-[calc(100dvh-9rem)]">
+        {/* Chat header */}
+        <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-500 text-white shadow-sm">
+            <Bot size={20} />
           </div>
-          <div className="space-y-4">
-            {/* Chat Messages */}
-            <div className="h-[500px] overflow-y-auto space-y-4 p-4 rounded-xl border border-slate-200 bg-white/50 dark:border-slate-700 dark:bg-slate-900/50">
-              {messages.map((msg, idx) => (
-                <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
-                  <div className={`max-w-[75%] ${msg.role === 'user' ? 'order-2' : ''}`}>
-                    <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                      msg.role === 'user'
-                        ? 'bg-ocean text-white rounded-br-none'
-                        : 'bg-slate-100 dark:bg-slate-800 rounded-bl-none'
-                    }`}>
-                      {msg.content}
-                    </div>
-                    {msg.metadata && (
-                      <div className="mt-2 flex items-center gap-2 text-xs">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${modeLabels[msg.metadata.mode]?.color || 'bg-slate-100 text-slate-700'}`}>
-                          {modeLabels[msg.metadata.mode]?.icon || <Bot size={10} />}
-                          {modeLabels[msg.metadata.mode]?.label || msg.metadata.mode}
-                        </span>
-                        {msg.metadata.rag_chunks_used > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                            <Database size={10} /> {msg.metadata.rag_chunks_used} RAG
-                          </span>
-                        )}
-                        {msg.metadata.web_results_used > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-                            <Globe size={10} /> {msg.metadata.web_results_used} Web
-                          </span>
-                        )}
-                        {msg.metadata.rag_chunks_used === 0 && msg.metadata.web_results_used === 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                            <AlertTriangle size={10} /> Unverified
-                          </span>
-                        )}
-                      </div>
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-black">{chatbotName}</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">RAG + web search + uploaded file context</p>
+          </div>
+          {loading && <Loader2 size={16} className="ms-auto animate-spin text-teal-600" />}
+        </div>
+
+        {error && (
+          <p className="mx-4 mt-3 rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300" role="alert">{error}</p>
+        )}
+
+        {/* Messages — fills remaining vertical space */}
+        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+          {messages.map((msg, idx) => (
+            <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
+              <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'order-2' : ''}`}>
+                <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+                  msg.role === 'user'
+                    ? 'rounded-br-md bg-ocean text-white'
+                    : 'rounded-bl-md border border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-200'
+                }`}>
+                  {msg.content}
+                </div>
+                {msg.metadata && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${modeLabels[msg.metadata.mode]?.color || 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}>
+                      {modeLabels[msg.metadata.mode]?.icon || <Bot size={10} />}
+                      {modeLabels[msg.metadata.mode]?.label || msg.metadata.mode}
+                    </span>
+                    {msg.metadata.rag_chunks_used > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        <Database size={10} /> {msg.metadata.rag_chunks_used} RAG
+                      </span>
                     )}
-                    {msg.metadata && (msg.metadata.sources?.length > 0 || msg.metadata.web_sources?.length > 0) && (
-                      <details className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                        <summary className="cursor-pointer select-none">Sources</summary>
-                        <div className="mt-1 space-y-1">
-                          {msg.metadata.sources?.map((s, i) => (
-                            <div key={i} className="font-mono">{s}</div>
-                          ))}
-                          {msg.metadata.web_sources?.map((w, i) => (
-                            <div key={i} className="font-mono">
-                              <a href={w.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-ocean">{w.title}</a>
-                            </div>
-                          ))}
+                    {msg.metadata.web_results_used > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                        <Globe size={10} /> {msg.metadata.web_results_used} Web
+                      </span>
+                    )}
+                    {msg.metadata.rag_chunks_used === 0 && msg.metadata.web_results_used === 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                        <AlertTriangle size={10} /> Unverified
+                      </span>
+                    )}
+                  </div>
+                )}
+                {msg.metadata && (msg.metadata.sources?.length > 0 || msg.metadata.web_sources?.length > 0) && (
+                  <details className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    <summary className="cursor-pointer select-none">Sources</summary>
+                    <div className="mt-1 space-y-1">
+                      {msg.metadata.sources?.map((s, i) => (
+                        <div key={i} className="font-mono">{s}</div>
+                      ))}
+                      {msg.metadata.web_sources?.map((w, i) => (
+                        <div key={i} className="font-mono">
+                          <a href={w.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-ocean">{w.title}</a>
                         </div>
-                      </details>
-                    )}
-                  </div>
-                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                    msg.role === 'user' ? 'bg-ocean/20 text-ocean' : 'bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300'
-                  }`}>
-                    {msg.role === 'user' ? 'U' : 'AI'}
-                  </div>
-                </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+              <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                msg.role === 'user' ? 'bg-ocean/15 text-ocean dark:bg-mint/15 dark:text-mint' : 'bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300'
+              }`}>
+                {msg.role === 'user' ? 'U' : 'AI'}
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <Loader2 size={14} className="animate-spin text-teal-600" />
+              <span className="animate-pulse">{chatbotName} is thinking…</span>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Composer */}
+        <div className="space-y-3 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
+          {fileLabel && (
+            <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">
+              <span className="flex-1 truncate">{fileLabel}</span>
+              <button className="flex-shrink-0 text-blue-400 hover:text-blue-700" onClick={() => { setFileContext(null); setFileLabel(null) }}>✕</button>
+            </div>
+          )}
+          <div className="grid gap-2 sm:grid-cols-3">
+            <input className="input text-sm" placeholder="Subject (optional)" value={subject} onChange={(e) => setSubject(e.target.value)} disabled={loading} />
+            <input className="input text-sm" placeholder="Grade level (optional)" value={gradeLevel} onChange={(e) => setGradeLevel(e.target.value)} disabled={loading} />
+            <select
+              className="input text-sm"
+              value={selectedSourceId}
+              onChange={(e) => setSelectedSourceId(e.target.value)}
+              disabled={loading}
+              title="Ask about one indexed document"
+            >
+              <option value="">All indexed documents</option>
+              {ragSources.map((source) => (
+                <option key={source.source_id || source.source_file} value={source.source_id || source.source_file}>
+                  {source.source_file || source.source_id}
+                </option>
               ))}
-              <div ref={messagesEndRef} />
+            </select>
+          </div>
+          <div className="flex items-end gap-2">
+            <textarea
+              className="input max-h-40 min-h-[56px] flex-1 resize-none py-2.5"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask me anything about your courses..."
+              disabled={loading}
+              rows={2}
+            />
+            <div className="flex flex-shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                className={`btn-soft h-10 w-10 justify-center p-0 ${listening ? 'text-red-600' : ''}`}
+                title={listening ? 'Stop voice input' : 'Speak your question'}
+                aria-label={listening ? 'Stop voice input' : 'Speak your question'}
+                disabled={loading}
+                onClick={startVoiceInput}
+              >
+                {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
+                className="btn-soft h-10 w-10 justify-center p-0"
+                title="Upload file for context"
+                disabled={fileUploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {fileUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+              </button>
+              <input ref={fileInputRef} type="file" className="hidden" accept=".txt,.md,.pdf,.docx,.csv" onChange={handleFileUpload} />
+              <button
+                type="button"
+                className="btn-primary flex h-10 w-10 items-center justify-center p-0"
+                onClick={sendMessage}
+                disabled={loading || !input.trim()}
+                aria-label="Send message"
+              >
+                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send size={18} />}
+              </button>
             </div>
-
-            {/* File upload badge */}
-            {fileLabel && (
-              <div className="flex items-center gap-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 px-3 py-2 text-xs text-blue-800 dark:text-blue-200">
-                <span className="flex-1">{fileLabel}</span>
-                <button className="text-blue-400 hover:text-blue-700" onClick={() => { setFileContext(null); setFileLabel(null) }}>✕</button>
-              </div>
-            )}
-
-            {/* Input Area */}
-            <div className="space-y-3">
-              <div className="grid gap-2 md:grid-cols-3">
-                <Field label="Subject (optional)" value={subject} onChange={(v) => setSubject(v)} placeholder="e.g., Computer Science" />
-                <Field label="Grade Level (optional)" value={gradeLevel} onChange={(v) => setGradeLevel(v)} placeholder="e.g., 12, University" />
-                <label className="space-y-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
-                  <span>Ask about one indexed document (optional)</span>
-                  <select
-                    className="input"
-                    value={selectedSourceId}
-                    onChange={(e) => setSelectedSourceId(e.target.value)}
-                    disabled={loading}
-                  >
-                    <option value="">Search all indexed documents</option>
-                    {ragSources.map((source) => (
-                      <option key={source.source_id || source.source_file} value={source.source_id || source.source_file}>
-                        {source.source_file || source.source_id} ({source.chunk_count || 0} chunks)
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="flex gap-2">
-                <textarea
-                  className="input flex-1 min-h-[80px] max-h-[200px] resize-none"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ask me anything about your courses..."
-                  disabled={loading}
-                  rows={3}
-                />
-                <div className="flex flex-col gap-2 self-end">
-                  <button
-                    type="button"
-                    className={`btn-soft px-3 py-2 text-xs ${listening ? 'text-red-600' : ''}`}
-                    title={listening ? 'Stop voice input' : 'Speak your question'}
-                    aria-label={listening ? 'Stop voice input' : 'Speak your question'}
-                    disabled={loading}
-                    onClick={startVoiceInput}
-                  >
-                    {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-soft px-3 py-2 text-xs"
-                    title="Upload file for context"
-                    disabled={fileUploading}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {fileUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : '📎'}
-                  </button>
-                  <input ref={fileInputRef} type="file" className="hidden" accept=".txt,.md,.pdf,.docx,.csv" onChange={handleFileUpload} />
-                  <button
-                    type="button"
-                    className="btn-primary px-6 py-2"
-                    onClick={sendMessage}
-                    disabled={loading || !input.trim()}
-                  >
-                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send size={20} />}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </ToolShell>
-      </div>
-
-      {/* How It Works panel */}
-      <div className="panel space-y-4">
-        <h2 className="text-lg font-bold">How It Works</h2>
-        <div className="space-y-3 text-sm text-slate-600 dark:text-slate-400">
-          <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
-            <p className="font-semibold flex items-center gap-2"><Zap className="w-4 h-4" /> Online Mode</p>
-            <p className="mt-1">RAG + Web Search + LLM (Gemini/Ollama) for comprehensive answers with citations.</p>
-          </div>
-          <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
-            <p className="font-semibold flex items-center gap-2"><Database className="w-4 h-4" /> RAG Only</p>
-            <p className="mt-1">If web search fails, uses knowledge base + LLM.</p>
-          </div>
-          <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
-            <p className="font-semibold flex items-center gap-2"><Bot className="w-4 h-4" /> File Upload</p>
-            <p className="mt-1">Attach .txt, .pdf, .docx, .md files — extracted text is injected as context into your next question.</p>
-          </div>
-          <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
-            <p className="font-semibold flex items-center gap-2"><Bot className="w-4 h-4" /> Persistent History</p>
-            <p className="mt-1">Conversations are saved to the database. Resume any past chat from the sidebar.</p>
           </div>
         </div>
-      </div>
+      </section>
+
+      {/* How It Works */}
+      <aside className="panel w-full shrink-0 space-y-4 xl:w-72">
+        <h2 className="text-base font-bold">How It Works</h2>
+        <div className="space-y-2.5 text-sm text-slate-600 dark:text-slate-400">
+          <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Zap className="h-3.5 w-3.5 text-amber-500" /> Online Mode</p>
+            <p className="mt-1 text-xs leading-relaxed">RAG + web search + LLM answers with citations.</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Database className="h-3.5 w-3.5 text-teal-600" /> RAG Only</p>
+            <p className="mt-1 text-xs leading-relaxed">If web search fails, uses your knowledge base + LLM.</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Paperclip className="h-3.5 w-3.5 text-blue-600" /> File Upload</p>
+            <p className="mt-1 text-xs leading-relaxed">Attach .txt, .pdf, .docx, .md — text is injected as context.</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Clock3 className="h-3.5 w-3.5 text-violet-600" /> Persistent History</p>
+            <p className="mt-1 text-xs leading-relaxed">Conversations are saved — resume any past chat from the sidebar.</p>
+          </div>
+        </div>
+      </aside>
     </div>
   )
 }

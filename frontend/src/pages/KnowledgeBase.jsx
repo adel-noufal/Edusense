@@ -259,7 +259,7 @@ function UploadModal({ onClose, onSuccess }) {
   )
 }
 
-function SourceCard({ src, onDelete, onPreview }) {
+function SourceCard({ src, onDelete, onPreview, onAsk }) {
   const [expanded, setExpanded] = useState(false)
   const subjectColor = { Biology:'teal', Physics:'violet', Mathematics:'amber', Chemistry:'green' }[src.subject] || 'slate'
 
@@ -289,6 +289,12 @@ function SourceCard({ src, onDelete, onPreview }) {
             title="Inspect semantic chunks"
             onClick={() => onPreview({ ...src, initialTab: 'chunks' })}>
             <Search size={15} />
+          </button>
+          <button type="button"
+            className="btn-soft p-1.5 text-violet-600 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/30"
+            title="Ask a question about only this file"
+            onClick={() => onAsk && onAsk(src)}>
+            <MessageSquare size={15} />
           </button>
           <button type="button"
             className="btn-soft p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
@@ -445,7 +451,7 @@ function PreviewPanel({ src, onClose }) {
   )
 }
 
-function QAPanel() {
+function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope = null }) {
   const [messages, setMessages] = useState([
     {
       sender: 'ai',
@@ -484,7 +490,7 @@ function QAPanel() {
     try {
       const data = await api('/rag/ask', {
         method: 'POST',
-        body: { question: q, subject: subject || null, grade_level: grade || null, top_k: 5 }
+        body: { question: q, subject: subject || null, grade_level: grade || null, top_k: 5, source_file: scopedSource || null }
       })
 
       const aiMsg = {
@@ -537,6 +543,17 @@ function QAPanel() {
           </button>
         </div>
       </div>
+
+      {scopedSource && (
+        <div className="flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800 dark:border-violet-900/50 dark:bg-violet-950/30 dark:text-violet-200">
+          <FileText size={13} className="shrink-0" />
+          <span className="font-semibold">Asking about only:</span>
+          <span className="truncate font-medium">{scopedSourceLabel || scopedSource}</span>
+          <button type="button" className="ml-auto shrink-0 rounded-full p-0.5 hover:bg-violet-200/60 dark:hover:bg-violet-900/50" onClick={onClearScope} title="Clear file scope">
+            <X size={13} />
+          </button>
+        </div>
+      )}
 
       {/* Messages Feed */}
       <div className="flex-1 space-y-4 overflow-y-auto max-h-[420px] p-2">
@@ -636,6 +653,7 @@ export default function KnowledgeBaseDashboard() {
   const [filterSubject, setFilter]    = useState('')
   const [deleting, setDeleting]       = useState(null)
   const [activeTab, setActiveTab]     = useState('library')
+  const [qaSource, setQaSource]       = useState(null)
   const [activeJob, setActiveJob]     = useState(null)
 
   useEffect(() => {
@@ -719,7 +737,6 @@ export default function KnowledgeBaseDashboard() {
     return matchSearch && matchFilter
   })
 
-  const totalChunks  = sources.reduce((a, s) => a + (s.chunk_count || 0), 0)
   const uniqueSubs   = [...new Set(sources.map(s => s.subject).filter(Boolean))].length
   const uniqueGrades = [...new Set(sources.map(s => s.grade_level).filter(Boolean))].length
 
@@ -752,9 +769,8 @@ export default function KnowledgeBaseDashboard() {
       </div>
 
       {/* ── Stats Row ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard icon={FileText}  label="Documents"    value={sources.length} color="teal"   sub="indexed PDFs" />
-        <StatCard icon={Layers}    label="Total Chunks" value={totalChunks}    color="violet" sub="vector embeddings" />
         <StatCard icon={BookOpen}  label="Subjects"     value={uniqueSubs}     color="amber"  sub="covered" />
         <StatCard icon={Zap}       label="Grade Levels" value={uniqueGrades}   color="green"  sub="available" />
       </div>
@@ -892,7 +908,8 @@ export default function KnowledgeBaseDashboard() {
                 ) : (
                   <SourceCard key={src.source_file} src={src}
                     onDelete={deleteSource}
-                    onPreview={(s) => setPreviewSrc(s)} />
+                    onPreview={(s) => setPreviewSrc(s)}
+                    onAsk={(s) => { setQaSource(s.source_id || s.source_file); setActiveTab('qa') }} />
                 )
               ))}
             </div>
@@ -901,7 +918,13 @@ export default function KnowledgeBaseDashboard() {
       )}
 
       {/* ── Q&A Tab ── */}
-      {activeTab === 'qa' && <QAPanel />}
+      {activeTab === 'qa' && (
+        <QAPanel
+          scopedSource={qaSource}
+          scopedSourceLabel={sources.find(s => (s.source_id || s.source_file) === qaSource)?.source_file || qaSource}
+          onClearScope={() => setQaSource(null)}
+        />
+      )}
 
       {/* ── Modals ── */}
       {showUpload && (

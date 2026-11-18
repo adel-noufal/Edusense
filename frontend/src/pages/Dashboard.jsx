@@ -5,6 +5,43 @@ import { EmotionDistribution, EngagementLine } from '../components/Charts'
 import { api, staticUrl } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
+import EmotionTrial from '../components/EmotionTrial'
+
+const LIVE_STATUSES = ['ongoing', 'live']
+const UPCOMING_STATUSES = ['pending', 'ongoing', 'live', 'preparing', 'scheduled', 'upcoming']
+const PAGE_SIZE = 5
+
+function paginate(items, page, pageSize = PAGE_SIZE) {
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize))
+  const safePage = Math.min(Math.max(1, page), totalPages)
+  const start = (safePage - 1) * pageSize
+  return { pageItems: items.slice(start, start + pageSize), page: safePage, totalPages, total: items.length }
+}
+
+function Pagination({ page, totalPages, total, onPage }) {
+  if (totalPages <= 1) return null
+  return (
+    <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+      <p className="text-xs text-slate-500">{total} item{total === 1 ? '' : 's'} · Page {page} of {totalPages}</p>
+      <div className="flex items-center gap-2">
+        <button type="button" className="btn-soft px-3 py-1.5 text-xs" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</button>
+        <div className="flex items-center gap-1">
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => onPage(p)}
+              className={`h-8 w-8 rounded-lg text-xs font-semibold transition ${p === page ? 'bg-ocean text-white dark:bg-mint dark:text-slate-950' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'}`}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+        <button type="button" className="btn-soft px-3 py-1.5 text-xs" disabled={page >= totalPages} onClick={() => onPage(page + 1)}>Next</button>
+      </div>
+    </div>
+  )
+}
 
 export function StudentDashboard() {
   const { t } = useLanguage()
@@ -33,13 +70,17 @@ export function StudentDashboard() {
   useEffect(() => { loadSessions() }, [])
 
   const filtered = enrolledSessions.filter((session) => {
-    if (mode === 'upcoming') return ['pending', 'ongoing', 'preparing', 'scheduled', 'upcoming'].includes(session.status)
-    if (mode === 'history') return true
+    if (mode === 'upcoming') return UPCOMING_STATUSES.includes(session.status)
+    if (mode === 'history') {
+      // History = completed/past sessions only
+      const today = new Date().toISOString().slice(0, 10)
+      return session.status === 'ended' || session.attended || (session.date && session.date < today)
+    }
     return true
   })
 
   const upcomingSessions = useMemo(
-    () => enrolledSessions.filter((session) => ['pending', 'ongoing', 'preparing', 'scheduled', 'upcoming'].includes(session.status)),
+    () => enrolledSessions.filter((session) => UPCOMING_STATUSES.includes(session.status)),
     [enrolledSessions],
   )
   const openCatalog = useMemo(
@@ -50,29 +91,32 @@ export function StudentDashboard() {
   const titles = { all: t('dashboard.student'), upcoming: t('dashboard.upcoming'), history: t('dashboard.historyTitle'), browse: t('nav.browse') }
   const upcomingCount = upcomingSessions.length
   const completedCount = enrolledSessions.filter((session) => session.attended || ['ended', 'cancelled'].includes(session.status)).length
-  const liveCount = enrolledSessions.filter((session) => session.status === 'ongoing').length
+  // Single source of truth for "Live Now": enrolled sessions currently live.
+  // Both the top stat card and the summary card below use this same count.
+  const liveCount = enrolledSessions.filter((session) => LIVE_STATUSES.includes(session.status)).length
 
   return (
     <div className="page-shell space-y-6">
       <Hero title={titles[mode]} />
       <StudentStats enrolled={enrolledSessions.length} upcoming={upcomingCount} completed={completedCount} live={liveCount} />
+      {mode === 'all' && <EmotionTrial />}
       {mode === 'upcoming' && browseData.summary && (
         <div className="grid gap-4 md:grid-cols-3">
           <HighlightCard icon={BookMarked} label="Available Sessions" value={browseData.summary.available} />
           <HighlightCard icon={Sparkles} label="Registered" value={browseData.summary.registered} />
-          <HighlightCard icon={Clock3} label="Live Now" value={browseData.summary.live_now} />
+          <HighlightCard icon={Clock3} label="Live Now" value={liveCount} />
         </div>
       )}
       {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">{error}</p>}
 
       {mode === 'history' ? (
-        <StudentHistoryView sessions={enrolledSessions} />
+        <StudentHistoryView sessions={filtered} />
       ) : (
         <div className="grid gap-6 xl:grid-cols-2">
           <div className="panel">
             <h2 className="mb-4 text-lg font-bold">{mode === 'upcoming' ? 'Your Registered Sessions' : titles[mode]}</h2>
             {mode !== 'browse' && (
-              <SessionList sessions={mode === 'upcoming' ? upcomingSessions : filtered} join={mode !== 'history'} showUnregister={mode === 'upcoming'} emptyLabel="You have not registered for any sessions yet." onReload={loadSessions} />
+              <SessionList key={mode} sessions={mode === 'upcoming' ? upcomingSessions : filtered} join={mode !== 'history'} showUnregister={mode === 'upcoming'} emptyLabel="You have not registered for any sessions yet." onReload={loadSessions} />
             )}
             {mode === 'browse' && (
               <SessionCatalog sessions={openCatalog} onReload={loadSessions} />
@@ -84,7 +128,7 @@ export function StudentDashboard() {
                 <h2 className="text-lg font-bold">Recommended for you</h2>
                 <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-ocean dark:bg-slate-800 dark:text-mint">Course-style registration</span>
               </div>
-              <SessionCatalog sessions={openCatalog.slice(0, 3)} onReload={loadSessions} />
+              <SessionCatalog sessions={openCatalog} onReload={loadSessions} />
             </div>
           ) : mode === 'browse' ? (
             <div className="panel space-y-4">
@@ -223,7 +267,8 @@ function StudentHistoryView({ sessions }) {
                   <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800/80 pt-2.5">
                     <span>Date: <strong className="text-slate-700 dark:text-slate-200">{s.date}</strong></span>
                     <span>Time: <strong className="text-slate-700 dark:text-slate-200">{s.start_time}</strong></span>
-                    <span>Duration: <strong className="text-slate-700 dark:text-slate-200">{s.duration} min</strong></span>
+                    <span>Scheduled: <strong className="text-slate-700 dark:text-slate-200">{s.scheduled_duration ?? s.duration} min</strong></span>
+                    <span>Attended: <strong className="text-slate-700 dark:text-slate-200">{s.attended ? `${s.attended_duration ?? s.duration} min` : 'No'}</strong></span>
                   </div>
 
                   {/* Expanded Resources Drawer */}
@@ -572,6 +617,8 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
   const navigate = useNavigate()
   const [editingSession, setEditingSession] = useState(null)
   const [editForm, setEditForm] = useState({})
+  const [page, setPage] = useState(1)
+  const { pageItems, page: safePage, totalPages, total } = paginate(sessions, page)
 
   async function joinSession(id) {
     await api(`/sessions/${id}/join`, { method: 'POST' })
@@ -608,7 +655,7 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
   if (!sessions.length) return <p className="mt-4 text-sm text-slate-500">{emptyLabel}</p>
   return (
     <div className="mt-4 space-y-3">
-      {sessions.map((session) => {
+      {pageItems.map((session) => {
         const isSelected = selectedSessionIds.includes(String(session.id))
         return (
         <div className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border p-4 shadow-sm dark:bg-slate-900/50 ${isSelected ? 'border-ocean bg-teal-50/70 dark:border-mint dark:bg-slate-800/70' : 'border-slate-200 bg-white/70 dark:border-slate-700'}`} key={session.id}>
@@ -634,7 +681,7 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
             {showUnregister && session.status !== 'ongoing' && (
               <button className="btn-soft text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={() => unregister(session.id)}>Unenroll</button>
             )}
-            {join && session.status === 'ongoing' && (
+            {join && LIVE_STATUSES.includes(session.status) && (
               <button className="btn-primary text-xs flex items-center gap-1.5 py-1.5 px-3 font-bold" type="button" onClick={() => joinSession(session.id)}>
                 <Video size={14} /> Join Live Now
               </button>
@@ -648,6 +695,7 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
         </div>
         )
       })}
+      <Pagination page={safePage} totalPages={totalPages} total={total} onPage={setPage} />
       {editingSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setEditingSession(null)}>
           <form className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 dark:text-slate-100" onSubmit={saveEdit} onClick={(e) => e.stopPropagation()}>
@@ -672,16 +720,20 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
 function SessionCatalog({ sessions, onReload }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+
+  useEffect(() => { setPage(1) }, [search])
 
   async function enroll(sessionId) {
     await api(`/sessions/${sessionId}/join`, { method: 'POST' })
     await onReload?.()
   }
 
-  const filtered = sessions.filter(s => 
-    s.title.toLowerCase().includes(search.toLowerCase()) || 
+  const filtered = sessions.filter(s =>
+    s.title.toLowerCase().includes(search.toLowerCase()) ||
     (s.description && s.description.toLowerCase().includes(search.toLowerCase()))
   )
+  const { pageItems, page: safePage, totalPages, total } = paginate(filtered, page)
 
   return (
     <div className="grid gap-4">
@@ -701,7 +753,7 @@ function SessionCatalog({ sessions, onReload }) {
       ) : filtered.length === 0 ? (
         <p className="text-sm text-slate-500 mt-2">No sessions match your search.</p>
       ) : (
-        filtered.map((session) => (
+        pageItems.map((session) => (
         <article key={session.id} className="group overflow-hidden rounded-[1.5rem] border border-slate-200 bg-gradient-to-br from-white via-white to-teal-50/60 p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-xl dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-2">
@@ -729,6 +781,7 @@ function SessionCatalog({ sessions, onReload }) {
           </div>
         </article>
       )))}
+      <Pagination page={safePage} totalPages={totalPages} total={total} onPage={setPage} />
     </div>
   )
 }
