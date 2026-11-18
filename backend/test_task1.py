@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -30,6 +30,11 @@ def run_verification():
 
     # 2. Collection Initialization
     print("\n[2/7] Initializing Persistent Collection...")
+    client = get_client()
+    try:
+        client.delete_collection("test_verification_collection")
+    except Exception:
+        pass
     col = init_collection("test_verification_collection")
     print(f"  - Collection Name:    {col.name}")
     print(f"  - Initial Count:      {col.count()}")

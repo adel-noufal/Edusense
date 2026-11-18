@@ -163,6 +163,30 @@ The AI Chatbot (`/instructor/ai-tools` AI Chatbot Tab) provides an interactive t
 
 ---
 
+## 🧠 Knowledge Base vs AI Chatbot — Two Different Tools
+
+EduSense deliberately ships **two separate Q&A experiences** with different contracts:
+
+| | **Knowledge Base** (`/instructor/knowledge-base` → AI Chat Assistant) | **AI Chatbot** (`/instructor/ai-tools` → AI Chatbot) |
+|---|---|---|
+| Grounding | **Strictly document-grounded (RAG-only)** | **General-purpose assistant** |
+| No relevant document | Says plainly *"I couldn't find anything about that in the uploaded course materials"* and points to the Chatbot | Answers normally from model knowledge and/or live web search |
+| File context | Scoped per document — each library card has an *"Ask a question about only this file"* button | Optional file attachment/context injection |
+| Refusals | Refuses off-material questions honestly | Never refuses merely because no source is attached |
+
+Both paths are protected by a user-facing answer sanitizer that strips any leaked internal prompt/guardrail text (`=== SCOPE GUARDRAIL ===`, `[System: ...]` scaffolding) before answers reach the UI — including template/offline fallbacks.
+
+## 😊 Emotion Recognition Trial (Student Dashboard)
+
+The student dashboard home page includes a self-contained **Emotion Recognition Trial** widget (`frontend/src/components/EmotionTrial.jsx`):
+
+- **Live Webcam mode** — analyzes the student's expression roughly once per second and shows the detected emotion + confidence.
+- **Single Photo mode** — captures one frame and returns one analysis.
+- Reuses the production detection pipeline via `POST /api/emotions/analyze-trial` (same v7 EfficientNet-B0 / DeepFace agent) — trial frames are **not** written to `emotion_logs` and no class session is required.
+- Respects the existing consent engine: webcam access is gated behind the `emotion_detection` consent modal before the camera is opened.
+
+---
+
 ## 🔄 Multi-API-Key Rotation for Google Gemini
 
 To prevent request failures caused by quota exhaustion, rate limits, or credential revocation, EduSense features an automatic API key rotation and failover engine:
