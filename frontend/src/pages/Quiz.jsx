@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { AlertCircle, Camera, Clock, Eye, EyeOff, Flag, Home, Loader2, Maximize, Minimize, RefreshCw, Shield, User, X } from 'lucide-react'
+import { AlertCircle, Camera, CheckCircle2, Clock, Eye, EyeOff, Flag, Home, Loader2, Maximize, Minimize, RefreshCw, Shield, User, X } from 'lucide-react'
 import { api } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
@@ -54,6 +54,15 @@ export default function Quiz() {
   const submittedRef = useRef(false)
   const serverStartTimeRef = useRef(null)
 
+  // Server timestamps are naive UTC ("2026-11-20 12:32:16"). new Date() would
+  // parse them as LOCAL time, inflating elapsed by the UTC offset and zeroing
+  // the timer for anyone east of UTC. Always interpret as UTC.
+  function parseServerTime(value) {
+    if (!value) return Date.now()
+    const s = String(value).trim().replace(' ', 'T')
+    return new Date(/Z$|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z').getTime()
+  }
+
   // Initialize watermark
   useEffect(() => {
     if (user?.email) {
@@ -100,11 +109,11 @@ export default function Quiz() {
         setAttempt(attemptData)
 
         // Set server start time for validation
-        serverStartTimeRef.current = new Date(attemptData.started_at).getTime()
+        serverStartTimeRef.current = parseServerTime(attemptData.started_at)
 
         // Set initial time remaining accounting for elapsed attempt time on resumption
         if (quizData.time_limit_seconds) {
-          const serverStart = attemptData?.started_at ? new Date(attemptData.started_at).getTime() : Date.now()
+          const serverStart = parseServerTime(attemptData?.started_at)
           const elapsed = Math.max(0, Math.floor((Date.now() - serverStart) / 1000))
           const remaining = Math.max(0, quizData.time_limit_seconds - elapsed)
           setTimeRemaining(remaining)
@@ -371,7 +380,6 @@ export default function Quiz() {
   // Handle locked attempt (from another tab or server)
   async function handleLockedAttempt(reason) {
     if (submittedRef.current) return
-    submittedRef.current = true
 
     setError(`Quiz locked: ${reason}`)
     toast.error(`Quiz locked: ${reason}`)
@@ -383,16 +391,15 @@ export default function Quiz() {
   // Handle time up
   async function handleTimeUp() {
     if (submittedRef.current) return
-    submittedRef.current = true
 
     toast.error('Time is up! Auto-submitting...')
     await autoSubmit('time_up', 'time_limit_exceeded')
   }
 
-  // Auto-submit quiz
+  // Auto-submit quiz. submittedRef is set HERE (once) — callers must NOT set it
+  // beforehand, and it is reset on failure so a manual retry can still submit.
   async function autoSubmit(reason, violationType) {
-    if (submittedRef.current && reason !== 'violation') return
-    if (reason === 'violation' && submittedRef.current) return
+    if (submittedRef.current) return
 
     submittedRef.current = true
     setSubmitting(true)
@@ -412,9 +419,12 @@ export default function Quiz() {
       setResults(result)
       setShowResults(true)
       cleanup()
+      toast.success(reason === 'time_up' ? 'Time is up — your quiz was submitted.' : 'Quiz submitted')
     } catch (err) {
       setError(err.message || 'Failed to submit quiz')
       toast.error(err.message || 'Failed to submit quiz')
+      // Allow the manual Submit button to retry after a failed auto-submit.
+      submittedRef.current = false
     } finally {
       setSubmitting(false)
     }
@@ -422,7 +432,7 @@ export default function Quiz() {
 
   // Manual submit
   async function handleSubmit(e) {
-    e.preventDefault()
+    e?.preventDefault()
     if (submittedRef.current) return
 
     submittedRef.current = true
@@ -618,6 +628,8 @@ export default function Quiz() {
   if (!quiz || !attempt) return null
 
   const question = quiz.questions[currentQuestion]
+  // Generated questions may lack `type` — infer it from the payload shape.
+  const questionType = question.type || (question.options?.length ? 'multiple_choice' : 'short_answer')
   const questionAnswered = answers[currentQuestion] !== undefined
   const progress = ((currentQuestion + 1) / quiz.questions.length) * 100
 
@@ -759,14 +771,14 @@ export default function Quiz() {
             <p className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2">
               Q{currentQuestion + 1}. {question.question}
             </p>
-            {question.type === 'multiple_choice' && (
+            {questionType === 'multiple_choice' && (
               <div className="space-y-3">
                 {question.options?.map((option, optIdx) => (
                   <button
                     key={optIdx}
-                    onClick={() => handleAnswer(currentQuestion, option.charAt(0).toUpperCase())}
+                    onClick={() => handleAnswer(currentQuestion, String(optIdx))}
                     className={`w-full text-left rounded-xl border-2 p-4 transition-all ${
-                      answers[currentQuestion] === option.charAt(0).toUpperCase()
+                      answers[currentQuestion] === String(optIdx)
                         ? 'border-ocean bg-ocean/10 dark:bg-ocean/20'
                         : 'border-slate-200 dark:border-slate-700 hover:border-ocean/50 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}
@@ -776,14 +788,14 @@ export default function Quiz() {
                 ))}
               </div>
             )}
-            {question.type === 'true_false' && (
+            {questionType === 'true_false' && (
               <div className="flex gap-4">
                 {['True', 'False'].map(opt => (
                   <button
                     key={opt}
-                    onClick={() => handleAnswer(currentQuestion, opt.charAt(0).toUpperCase())}
+                    onClick={() => handleAnswer(currentQuestion, opt)}
                     className={`flex-1 rounded-xl border-2 py-4 px-6 text-center font-medium transition-all ${
-                      answers[currentQuestion] === opt.charAt(0).toUpperCase()
+                      answers[currentQuestion] === opt
                         ? 'border-ocean bg-ocean/10 dark:bg-ocean/20 text-ocean'
                         : 'border-slate-200 dark:border-slate-700 hover:border-ocean/50 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}
@@ -793,7 +805,7 @@ export default function Quiz() {
                 ))}
               </div>
             )}
-            {question.type === 'short_answer' && (
+            {questionType === 'short_answer' && (
               <textarea
                 value={answers[currentQuestion] || ''}
                 onChange={(e) => handleAnswer(currentQuestion, e.target.value)}

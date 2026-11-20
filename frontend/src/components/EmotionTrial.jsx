@@ -23,6 +23,7 @@ export default function EmotionTrial() {
 
   const [mode, setMode] = useState('live') // 'live' | 'photo'
   const [active, setActive] = useState(false)
+  const [stream, setStream] = useState(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
@@ -33,15 +34,26 @@ export default function EmotionTrial() {
       clearInterval(timerRef.current)
       timerRef.current = null
     }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop())
-      streamRef.current = null
-    }
+    setStream((s) => {
+      s?.getTracks().forEach((t) => t.stop())
+      return null
+    })
+    streamRef.current = null
     if (videoRef.current) {
       videoRef.current.srcObject = null
     }
     setActive(false)
   }
+
+  // Attach the MediaStream to the <video> element once it is actually mounted.
+  // The video element only exists after `active` flips true, so assigning
+  // srcObject inside acquireCamera() hit a null ref — the black-box bug.
+  useEffect(() => {
+    if (stream && videoRef.current) {
+      videoRef.current.srcObject = stream
+      videoRef.current.play().catch(() => {})
+    }
+  }, [stream, active])
 
   // Full cleanup on unmount
   useEffect(() => () => stopCamera(), [])
@@ -61,11 +73,11 @@ export default function EmotionTrial() {
   }
 
   async function acquireCamera() {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 } })
-    streamRef.current = stream
-    if (videoRef.current) videoRef.current.srcObject = stream
+    const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 } })
+    streamRef.current = mediaStream
+    setStream(mediaStream)
     setActive(true)
-    if (mode === 'live') scheduleLoop(stream)
+    if (mode === 'live') scheduleLoop(mediaStream)
   }
 
   async function handleConsentAccept(consentType) {
