@@ -27,7 +27,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 from app.agents.base import LocalLLM, AgentResult
 from app.agents.logging_utils import LLMAuditContext
-from app.agents.prompts.scope_guardrail import build_guardrail_prompt, sanitize_user_facing_answer
+from app.agents.prompts.scope_guardrail import (
+    build_guardrail_prompt,
+    ensure_clean_user_answer,
+    sanitize_user_facing_answer,
+)
 from app.agents.tools import RAG_Search_Tool, Web_Search_Tool
 from app.core.config import get_settings
 from app.services import vector_store
@@ -394,7 +398,7 @@ Current Question: {query}
                     web_source_count=web_count,
                 ) as audit_ctx:
                     audit_ctx.set_prompt(prompt)
-                    answer = self.llm._template(prompt, subject=subject, grade_level=grade_level)
+                    answer = self.llm._template(prompt, subject=subject, grade_level=grade_level, query=query)
                     audit_ctx.set_response(answer, model_used="template", fallback_used=True)
                 mode = "offline_rag_template"
                 model_used = "template"
@@ -427,7 +431,7 @@ Current Question: {query}
             if fallback_reason:
                 fallback_reason += "; fell back to template only"
 
-        answer = sanitize_user_facing_answer(answer)
+        answer = ensure_clean_user_answer(answer)
 
         return OrchestratorResult(
             answer=answer,

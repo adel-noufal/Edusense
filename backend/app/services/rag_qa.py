@@ -12,7 +12,11 @@ from typing import Optional
 
 from app.agents.base import LocalLLM
 from app.agents.logging_utils import LLMAuditContext
-from app.agents.prompts.scope_guardrail import build_guardrail_prompt, sanitize_user_facing_answer
+from app.agents.prompts.scope_guardrail import (
+    build_guardrail_prompt,
+    ensure_clean_user_answer,
+    sanitize_user_facing_answer,
+)
 from app.agents.tools import RAG_Search_Tool
 from app.services import vector_store
 from app.services.gemini import generate_content, generate_via_ollama
@@ -143,11 +147,12 @@ def _call_llm(prompt: str, subject: Optional[str] = None, grade_level: Optional[
             return response, "ollama", True
         except Exception as exc:
             print(f"[RAG-QA] Ollama unavailable ({exc}), using fallback answer.")
-    # Use template fallback with scope check
+    # Use template fallback with scope check — pass the real question so the
+    # template can never echo prompt scaffolding back to the user.
     llm = LocalLLM()
-    # Extract query from prompt for scope check
-    query_for_check = topic or prompt
-    fallback = llm._template(prompt, subject=subject, grade_level=grade_level)
+    fallback = llm._template(
+        prompt, subject=subject, grade_level=grade_level, query=topic or None
+    )
     with LLMAuditContext(
         agent_name="RAG_QA_Service",
         method_name="answer_question",
@@ -279,7 +284,7 @@ Be concise, clear, and student-friendly. Cite sources where helpful using [Sourc
 
 Answer:"""
 
-    answer, _, _ = _call_llm(
+    answer, model_used, _ = _call_llm(
         prompt,
         subject=subject,
         grade_level=grade_level,
@@ -287,7 +292,16 @@ Answer:"""
         has_rag_sources=True,
         rag_source_count=len(chunks),
     )
-    answer = sanitize_user_facing_answer(answer).strip()
+
+    if model_used == "template":
+        # Every LLM tier failed — be honest instead of showing a pseudo-answer.
+        # The grounded source excerpts are still returned below for the user.
+        answer = (
+            "The AI writing service is temporarily unavailable, so I can't generate "
+            "a written answer right now. The most relevant excerpts from your uploaded "
+            "documents are shown below — please try again in a moment."
+        )
+    answer = ensure_clean_user_answer(answer)
 
     return {
         "question":     question,

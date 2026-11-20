@@ -341,3 +341,60 @@ def sanitize_user_facing_answer(text: str | None) -> str:
             "Please try rephrasing your question or consult your course materials."
         )
     return cleaned
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Leak-pattern validator — safety net applied to EVERY outgoing answer
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Fragments of internal prompt scaffolding that must never reach a user,
+# regardless of which code path (Gemini, Ollama, template, agent) produced them.
+_INTERNAL_LEAK_RE = _re.compile(
+    r"SCOPE GUARDRAIL"
+    r"|MUST adhere to these boundaries"
+    r"|Use ONLY the source material"
+    r"|===+\s*(?:KNOWLEDGE BASE|WEB SEARCH RESULTS|SOURCE MATERIAL|END SOURCE MATERIAL|END SCOPE GUARDRAIL)"
+    r"|^\s*You are an? [^\n]{0,160}(?:AgentOrchestrator|educational assistant|EduSense agent|RAG_QA)",
+    _re.IGNORECASE | _re.MULTILINE,
+)
+
+# Marker lines that indicate raw prompt structure was echoed (QUESTION:,
+# Conversation History:, [System:...], [User question], instruction bullets).
+_PROMPT_SCAFFOLD_RE = _re.compile(
+    r"^\s*(?:QUESTION|Current Question|Conversation History)\s*:",
+    _re.IGNORECASE | _re.MULTILINE,
+)
+_BRACKET_SCAFFOLD_RE = _re.compile(
+    r"\[(?:System|User question|Uploaded file context|Assistant|User)\s*:",
+    _re.IGNORECASE,
+)
+
+GENERIC_SAFE_ANSWER = (
+    "I don't have enough context to answer that reliably right now. "
+    "Please try rephrasing your question or consult your course materials."
+)
+
+
+def contains_internal_scaffolding(text: str | None) -> bool:
+    """True if the text still contains recognizable internal prompt scaffolding."""
+    if not text:
+        return False
+    return bool(
+        _INTERNAL_LEAK_RE.search(text)
+        or _PROMPT_SCAFFOLD_RE.search(text)
+        or _BRACKET_SCAFFOLD_RE.search(text)
+        or "GUARDRAIL" in text.upper()
+        or "MANDATORY" in text.upper()
+    )
+
+
+def ensure_clean_user_answer(text: str | None, fallback: str | None = None) -> str:
+    """
+    Shared safety net for every user-facing answer: sanitize known scaffolding,
+    then verify no leak patterns remain. If anything suspicious survives,
+    return an honest generic message instead of leaking internals.
+    """
+    cleaned = sanitize_user_facing_answer(text)
+    if contains_internal_scaffolding(cleaned):
+        return fallback or GENERIC_SAFE_ANSWER
+    return cleaned

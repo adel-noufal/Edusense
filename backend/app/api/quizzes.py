@@ -583,26 +583,75 @@ def submit_quiz_attempt(
             passed=False,
         )
 
-    # Score the quiz
+    # Score the quiz. Question payloads in the DB use inconsistent schemas
+    # ({answer|correct_answer} × {letter|option-text|missing type}), so resolve
+    # both sides to option indexes / normalized text before comparing.
+    def _resolve_option_index(value, options):
+        """Map a letter (A-D), numeric index, or option text to an option index."""
+        if value is None or not options:
+            return None
+        s = str(value).strip()
+        if not s:
+            return None
+        up = s.upper()
+        if len(up) == 1 and "A" <= up <= "D":
+            idx = ord(up) - ord("A")
+            if idx < len(options):
+                return idx
+        if s.isdigit() and int(s) < len(options):
+            return int(s)
+        for i, opt in enumerate(options):
+            if str(opt).strip().lower() == s.lower():
+                return i
+        return None
+
+    def _norm_tf(value) -> str:
+        s = str(value or "").strip().upper()
+        if s.startswith("T"):
+            return "T"
+        if s.startswith("F"):
+            return "F"
+        return ""
+
     questions = json.loads(quiz.questions_json)
     score = 0.0
     max_score = float(len(questions))
     details = []
 
     for idx, q in enumerate(questions):
-        correct_answer = q.get("answer", "").strip().upper()
-        student_answer = payload.answers.get(idx, "").strip().upper()
-        is_correct = student_answer == correct_answer
+        options = q.get("options") or []
+        correct_raw = q.get("answer") or q.get("correct_answer") or ""
+        student_raw = payload.answers.get(idx, "")
+        q_type = q.get("type") or ("multiple_choice" if options else "short_answer")
+
+        if options and q_type == "multiple_choice":
+            c_idx = _resolve_option_index(correct_raw, options)
+            s_idx = _resolve_option_index(student_raw, options)
+            is_correct = c_idx is not None and c_idx == s_idx
+            correct_display = options[c_idx] if c_idx is not None else str(correct_raw)
+            student_display = options[s_idx] if s_idx is not None else str(student_raw)
+        elif q_type == "true_false":
+            is_correct = bool(student_raw) and _norm_tf(correct_raw) == _norm_tf(student_raw)
+            correct_display = str(correct_raw)
+            student_display = str(student_raw)
+        else:
+            is_correct = (
+                bool(str(student_raw).strip())
+                and str(student_raw).strip().lower() == str(correct_raw).strip().lower()
+            )
+            correct_display = str(correct_raw)
+            student_display = str(student_raw)
+
         if is_correct:
             score += 1.0
 
         details.append({
             "question_index": idx,
             "correct": is_correct,
-            "student_answer": payload.answers.get(idx, ""),
-            "correct_answer": q.get("answer", ""),
+            "student_answer": student_display,
+            "correct_answer": correct_display,
             "explanation": q.get("explanation", ""),
-            "question_type": q.get("type", "multiple_choice"),
+            "question_type": q_type,
         })
 
     percentage = (score / max_score * 100) if max_score > 0 else 0.0
