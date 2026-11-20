@@ -17,6 +17,58 @@ class Settings(BaseSettings):
         default="gemini-2.5-flash",
         validation_alias=AliasChoices("GEMINI_MODEL", "EDUSENSE_GEMINI_MODEL", "gemini_model")
     )
+    # Ordered model fallback chains (comma-separated). Task-specific chains
+    # override the default. See app/services/gemini.py GeminiRotator.
+    gemini_models: str = Field(
+        default="",
+        validation_alias=AliasChoices("GEMINI_MODELS", "EDUSENSE_GEMINI_MODELS", "gemini_models")
+    )
+    gemini_models_chat: str = Field(
+        default="",
+        validation_alias=AliasChoices("GEMINI_MODELS_CHAT", "EDUSENSE_GEMINI_MODELS_CHAT", "gemini_models_chat")
+    )
+    gemini_models_script: str = Field(
+        default="",
+        validation_alias=AliasChoices("GEMINI_MODELS_SCRIPT", "EDUSENSE_GEMINI_MODELS_SCRIPT", "gemini_models_script")
+    )
+
+    # ── Video generation ──────────────────────────────────────────────────────
+    # Narration pace used to map requested duration -> target script word count
+    video_narration_wpm: float = Field(
+        default=140.0,
+        validation_alias=AliasChoices("VIDEO_NARRATION_WPM", "EDUSENSE_VIDEO_NARRATION_WPM", "video_narration_wpm")
+    )
+    # Allowed deviation from target word count (0.10 = ±10%)
+    video_script_tolerance: float = Field(
+        default=0.10,
+        validation_alias=AliasChoices("VIDEO_SCRIPT_TOLERANCE", "EDUSENSE_VIDEO_SCRIPT_TOLERANCE", "video_script_tolerance")
+    )
+    # Per-scene TTS timeout (seconds)
+    video_tts_timeout: float = Field(
+        default=45.0,
+        validation_alias=AliasChoices("VIDEO_TTS_TIMEOUT", "EDUSENSE_VIDEO_TTS_TIMEOUT", "video_tts_timeout")
+    )
+
+    # ── Reports ───────────────────────────────────────────────────────────────
+    # Minimum data before AI insights/scores are generated
+    report_min_emotion_samples: int = Field(
+        default=10,
+        validation_alias=AliasChoices("REPORT_MIN_EMOTION_SAMPLES", "EDUSENSE_REPORT_MIN_EMOTION_SAMPLES", "report_min_emotion_samples")
+    )
+    report_min_attended_minutes: float = Field(
+        default=2.0,
+        validation_alias=AliasChoices("REPORT_MIN_ATTENDED_MINUTES", "EDUSENSE_REPORT_MIN_ATTENDED_MINUTES", "report_min_attended_minutes")
+    )
+    report_min_participants: int = Field(
+        default=1,
+        validation_alias=AliasChoices("REPORT_MIN_PARTICIPANTS", "EDUSENSE_REPORT_MIN_PARTICIPANTS", "report_min_participants")
+    )
+    # Sanity cap for computed attended duration (minutes). Sessions left open
+    # or with broken clocks are clamped to this value, never rejected.
+    report_max_attended_minutes: float = Field(
+        default=720.0,
+        validation_alias=AliasChoices("REPORT_MAX_ATTENDED_MINUTES", "EDUSENSE_REPORT_MAX_ATTENDED_MINUTES", "report_max_attended_minutes")
+    )
     ollama_url: str = "http://localhost:11434/api/generate"
     ollama_model: str = "llama3.2"
     ollama_model_translation: str = "qwen2.5"

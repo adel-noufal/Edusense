@@ -1,6 +1,9 @@
+import csv
+import io
 import json
 from collections import Counter
 from fastapi import Request
+from fastapi.responses import Response
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -12,6 +15,7 @@ from app.core.audit import log_audit_event, log_report_access, log_student_data_
 from app.db.session import get_db
 from app.models.models import EmotionLog, Feedback, Profile, Quiz, Report, Session as ClassSession, SessionRegistration, User
 from app.services.attendance_service import calculate_session_attended_duration, calculate_student_attended_duration
+from app.services.report_data import clamp_duration
 from app.schemas.schemas import FeedbackIn
 
 router = APIRouter(tags=["Reports and Feedback"])
@@ -21,6 +25,7 @@ emotion_agent = EmotionAnalysisAgent()
 
 
 def _session_report_payload(db: Session, item: ClassSession) -> dict:
+    from app.services.report_data import assess_session_data, clamp_duration, insufficient_data_message
     attendees = db.query(SessionRegistration).filter_by(session_id=item.id).all()
     quizzes = db.query(Quiz).filter_by(session_id=item.id).all()
     emotion_logs = db.query(EmotionLog).filter_by(session_id=item.id).order_by(EmotionLog.timestamp).all()
@@ -30,7 +35,9 @@ def _session_report_payload(db: Session, item: ClassSession) -> dict:
     distribution = emotion_agent.distributions(db, item.id).data
     stored_reports = db.query(Report).filter_by(session_id=item.id).order_by(Report.generated_at.desc()).all()
     has_students = len(attendees) > 0
-    actual_attended_duration = calculate_session_attended_duration(db, item.id)
+    raw_attended = calculate_session_attended_duration(db, item.id)
+    actual_attended_duration, duration_capped = clamp_duration(raw_attended)
+    assessment = assess_session_data(db, item.id)
     return {
         "id": item.id,
         "title": item.title,
@@ -40,13 +47,23 @@ def _session_report_payload(db: Session, item: ClassSession) -> dict:
         "duration": actual_attended_duration,
         "attended_duration": actual_attended_duration,
         "scheduled_duration": item.duration,
+        "duration_capped": duration_capped,
         "status": item.status,
         "attendee_count": len(attendees),
         "has_students": has_students,
         "no_students_message": None if has_students else "No student attended yet.",
+        "sufficient_data": assessment["sufficient"],
+        "insufficient_data_message": None if assessment["sufficient"] else insufficient_data_message(assessment),
+        "data_assessment": {
+            "sufficient": assessment["sufficient"],
+            "missing": assessment["missing"],
+            "emotion_samples": assessment["emotion_samples"],
+            "participants": assessment["participants"],
+            "attended_minutes": assessment["attended_minutes"],
+        },
         "emotion_samples": len(emotion_logs),
         "quiz_count": len(quizzes),
-        "engagement_percentage": engagement.get("engagement_percentage", 0),
+        "engagement_percentage": engagement.get("engagement_percentage") if assessment["sufficient"] else None,
         "dominant_emotions": dominant_emotions,
         "emotion_distribution": distribution.get("distribution", {}),
         "reports": [
@@ -232,6 +249,119 @@ def report_session_detail(session_id: int, request: Request, db: Session = Depen
             {"table": "reports", "filter": f"session_id = {item.id}"},
         ],
     }
+
+
+# ─── CSV Export ───────────────────────────────────────────────────────────────
+
+_CSV_HEADERS = {
+    "en": {
+        "section": "Section", "field": "Field", "value": "Value",
+        "student": "Student", "email": "Email", "attended_min": "Attended (min)",
+        "samples": "Emotion Samples", "dominant": "Dominant Emotion",
+        "minute": "Minute", "emotion": "Emotion", "count": "Count", "pct": "Pct %",
+    },
+    "ar": {
+        "section": "القسم", "field": "الحقل", "value": "القيمة",
+        "student": "الطالب", "email": "البريد الإلكتروني", "attended_min": "الحضور (دقيقة)",
+        "samples": "عينات المشاعر", "dominant": "المشاعر السائدة",
+        "minute": "الدقيقة", "emotion": "المشاعر", "count": "العدد", "pct": "النسبة %",
+    },
+}
+
+
+def _csv_session_report(db: Session, item: ClassSession, lang: str = "en") -> str:
+    """Build a UTF-8-BOM CSV: session summary + per-student attendance +
+    emotion distribution + per-minute emotion buckets (downsampled timeline)."""
+    h = _CSV_HEADERS.get(lang, _CSV_HEADERS["en"])
+    out = io.StringIO()
+    writer = csv.writer(out)
+
+    payload = _session_report_payload(db, item)
+    assessment = payload["data_assessment"]
+
+    writer.writerow([h["section"], h["field"], h["value"]])
+    summary_rows = [
+        ("Session", "title", item.title),
+        ("Session", "date", str(item.date)),
+        ("Session", "status", item.status),
+        ("Session", "scheduled_duration_min", item.duration if item.duration is not None else "No limit"),
+        ("Session", "attended_duration_min", payload["attended_duration"]),
+        ("Session", "duration_capped", payload["duration_capped"]),
+        ("Session", "participants", assessment["participants"]),
+        ("Session", "emotion_samples", assessment["emotion_samples"]),
+        ("Session", "sufficient_data", assessment["sufficient"]),
+        ("Session", "engagement_pct", payload["engagement_percentage"] if payload["engagement_percentage"] is not None else "N/A"),
+    ]
+    if payload["insufficient_data_message"]:
+        summary_rows.append(("Session", "insufficient_data", payload["insufficient_data_message"]))
+    writer.writerows(summary_rows)
+    writer.writerow([])
+
+    # Per-student attendance
+    writer.writerow([h["section"], h["student"], h["email"], h["attended_min"], h["samples"], h["dominant"]])
+    regs = db.query(SessionRegistration).filter_by(session_id=item.id).all()
+    student_ids = [r.student_id for r in regs]
+    users = {u.id: u for u in db.query(User).filter(User.id.in_(student_ids)).all()} if student_ids else {}
+    for reg in regs:
+        u = users.get(reg.student_id)
+        logs = db.query(EmotionLog).filter_by(session_id=item.id, student_id=reg.student_id).all()
+        counts = Counter(l.emotion for l in logs)
+        dominant = counts.most_common(1)[0][0] if counts else ""
+        from app.services.attendance_service import calculate_student_attended_duration
+        mins, _ = clamp_duration(calculate_student_attended_duration(db, item.id, reg.student_id))
+        writer.writerow([
+            "Student",
+            u.name if u else f"student-{reg.student_id}",
+            u.email if u else "",
+            mins,
+            len(logs),
+            dominant,
+        ])
+    writer.writerow([])
+
+    # Emotion distribution
+    writer.writerow([h["section"], h["emotion"], h["count"], h["pct"]])
+    dist = payload["emotion_distribution"]
+    for emo in ("happy", "neutral", "sad", "angry", "surprise", "fear", "disgust"):
+        writer.writerow(["Emotion Distribution", emo, dist.get(emo, 0.0)])
+    writer.writerow([])
+
+    # Per-minute emotion buckets (aggregated timeline — safe for long sessions)
+    logs = db.query(EmotionLog).filter_by(session_id=item.id).order_by(EmotionLog.timestamp).all()
+    if logs:
+        writer.writerow([h["section"], h["minute"], h["emotion"], h["count"], h["pct"]])
+        base = logs[0].timestamp
+        buckets: dict[int, Counter] = {}
+        for log in logs:
+            minute_idx = int((log.timestamp - base).total_seconds() // 60)
+            buckets.setdefault(minute_idx, Counter())[log.emotion] += 1
+        for minute_idx in sorted(buckets):
+            counts = buckets[minute_idx]
+            total = sum(counts.values())
+            for emo, cnt in counts.most_common():
+                writer.writerow(["Emotion Timeline", minute_idx, emo, cnt, round(cnt * 100 / total, 1)])
+
+    # UTF-8 BOM so Excel opens Arabic text correctly
+    return "﻿" + out.getvalue()
+
+
+@router.get("/reports/sessions/{session_id}/export.csv")
+def export_session_csv(
+    session_id: int,
+    lang: str = "en",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor")),
+):
+    item = db.query(ClassSession).filter_by(id=session_id, instructor_id=user.id).first()
+    if not item:
+        raise HTTPException(404, "Session not found")
+    csv_text = _csv_session_report(db, item, lang=lang if lang in ("en", "ar") else "en")
+    filename = f"session-{session_id}-report.csv"
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/reports/sessions/{session_id}/students/{student_id}")

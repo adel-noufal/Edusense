@@ -176,6 +176,7 @@ def answer_question(
     top_k: int = 5,
     min_score: Optional[float] = None,
     source_file: Optional[str] = None,
+    history: Optional[list[dict]] = None,
 ) -> dict:
     """
     Retrieve relevant chunks from the vector store and use them to answer
@@ -267,11 +268,26 @@ def answer_question(
         has_rag_sources=True,
     )
 
+    # Bounded conversation context (already windowed by the caller)
+    history_block = ""
+    if history:
+        lines = []
+        for turn in history[-12:]:
+            role = "Student" if turn.get("role") == "user" else "Assistant"
+            content = str(turn.get("content", ""))[:600]
+            if content.strip():
+                lines.append(f"{role}: {content}")
+        if lines:
+            history_block = (
+                "\n\nCONVERSATION SO FAR (for context only — answer the latest question):\n"
+                + "\n".join(lines)
+                + "\n"
+            )
+
     prompt = f"""{guardrail}
 
 You are a helpful, accurate educational assistant for EduSense.
-A student has asked the following question:
-
+A student has asked the following question:{history_block}
 QUESTION: {question}
 
 Use ONLY the source material below to answer. If the sources do not contain enough

@@ -14,6 +14,88 @@ from app.services.gemini import generate_json_any
 
 ADK_AGENT = adk_agent("quiz_generation_agent", "Generate MCQ, true/false, and short-answer quizzes.")
 
+# Canonical difficulty enum — anything else maps to the nearest level so the
+# UI never shows mixed labels like "Medium" vs "intermediate".
+_DIFFICULTY_MAP = {
+    "easy": "Easy", "beginner": "Easy", "foundation": "Easy",
+    "medium": "Medium", "intermediate": "Medium", "moderate": "Medium", "mid": "Medium",
+    "hard": "Hard", "advanced": "Hard", "difficult": "Hard", "expert": "Hard",
+}
+
+
+def normalize_difficulty(value) -> str:
+    """Map any difficulty label to Easy|Medium|Hard (default Medium)."""
+    key = str(value or "").strip().lower()
+    return _DIFFICULTY_MAP.get(key, "Medium")
+
+
+def _pad_questions(questions: list[dict], count: int, topic: str, difficulty: str) -> list[dict]:
+    """Top up a short LLM question list with unique template questions so the
+    requested count is honored. Never duplicates an existing question text."""
+    seen = {str(q.get("question", "")).strip().lower() for q in questions if isinstance(q, dict)}
+    idx = len(questions) + 1
+    templates = [
+        (f"Which concept is most central to {topic}?",
+         ["A) The core principle that governs the topic's main behavior",
+          "B) An unrelated historical anecdote",
+          "C) A formatting convention with no functional effect",
+          "D) A deprecated feature removed in the latest version"],
+         "A"),
+        (f"What is the best first step when applying {topic} to a new problem?",
+         ["A) Define requirements and constraints before choosing a method",
+          "B) Immediately write the final implementation",
+          "C) Skip testing until the end of the project",
+          "D) Copy an unrelated example without adaptation"],
+         "A"),
+        (f"Which outcome indicates {topic} was applied correctly?",
+         ["A) The expected behavior is observed and verified by tests",
+          "B) The code compiles but no one checked the output",
+          "C) All edge cases were ignored",
+          "D) The solution was never documented"],
+         "A"),
+        (f"What is a common pitfall when working with {topic}?",
+         ["A) Ignoring edge cases and input validation",
+          "B) Writing clear documentation",
+          "C) Running unit tests regularly",
+          "D) Reviewing code with a peer"],
+         "A"),
+        (f"How does {topic} scale as data or complexity grows?",
+         ["A) Cost grows predictably and bottlenecks can be measured and optimized",
+          "B) It always requires rewriting from scratch",
+          "C) Performance is unaffected by any input size",
+          "D) It only works for tiny fixed-size inputs"],
+         "A"),
+    ]
+    ti = 0
+    while len(questions) < count and ti < len(templates) * 3:
+        text, options, answer = templates[ti % len(templates)]
+        if ti >= len(templates):
+            text = f"{text} (variant {ti // len(templates) + 1})"
+        key = text.strip().lower()
+        if key not in seen:
+            seen.add(key)
+            questions.append({
+                "type": "multiple_choice",
+                "question": text,
+                "options": options,
+                "answer": answer,
+                "explanation": f"Template question covering a core aspect of {topic}.",
+            })
+        ti += 1
+    return questions[:count]
+
+
+def normalize_questions(raw_questions, count: int, topic: str, difficulty: str) -> list[dict]:
+    """Ensure the question list is a list of dicts, truncated/padded to `count`."""
+    if not isinstance(raw_questions, list):
+        raw_questions = []
+    clean = [q for q in raw_questions if isinstance(q, dict) and str(q.get("question", "")).strip()]
+    if len(clean) > count:
+        clean = clean[:count]
+    if len(clean) < count:
+        clean = _pad_questions(clean, count, topic, difficulty)
+    return clean
+
 
 # ---------------------------------------------------------------------------
 # RAG context helpers
@@ -233,10 +315,11 @@ Return ONLY valid JSON:
                 audit_ctx.set_response(str(data), model_used="gemini", fallback_used=False)
 
             if isinstance(data, dict) and data.get("questions"):
+                questions = normalize_questions(data["questions"], count, topic, difficulty)
                 return AgentResult(self.name, {
                     "title": data.get("title") or f"{topic} Master Assessment",
-                    "difficulty": data.get("difficulty") or difficulty,
-                    "questions": data["questions"],
+                    "difficulty": normalize_difficulty(data.get("difficulty") or difficulty),
+                    "questions": questions,
                     "sources": rag_sources + web_sources,
                     "unverified": len(rag_sources + web_sources) == 0,
                     "web_sources": web_results,
@@ -308,10 +391,11 @@ Return ONLY valid JSON:
                 "explanation": "Strategy A eliminates redundant processing through intelligent caching and memoization, dramatically improving execution speed.",
                 "difficulty": difficulty,
             })
+        questions = normalize_questions(questions, count, topic, difficulty)
         return AgentResult(self.name, {
             "title": f"{topic} Master Assessment",
-            "difficulty": difficulty,
-            "questions": questions[:count],
+            "difficulty": normalize_difficulty(difficulty),
+            "questions": questions,
             "sources": rag_sources + web_sources,
             "unverified": len(rag_sources + web_sources) == 0,
             "web_sources": web_results,

@@ -17,14 +17,192 @@ import re
 import shutil
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Optional
+
+from app.core.config import get_settings
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static" / "videos"
 
 DEFAULT_SCENE_SECONDS = 8   # fallback when duration_seconds is 0 / missing
 MIN_SCENE_SECONDS = 2
 MAX_SCENE_SECONDS = 300
+
+# Scenes whose normalized narration is this similar are treated as duplicates
+DUPLICATE_SIMILARITY_THRESHOLD = 0.82
+# Max corrective LLM passes for script length / dedupe
+MAX_SCRIPT_FIX_ATTEMPTS = 2
+
+
+class VideoStageError(RuntimeError):
+    """Structured video-pipeline failure: which stage + machine-readable code."""
+
+    STAGES = ("script_generation", "tts", "render", "assembly")
+
+    def __init__(self, stage: str, code: str, message: str):
+        super().__init__(message)
+        self.stage = stage if stage in self.STAGES else "assembly"
+        self.code = code
+        self.user_message = message
+
+    def to_dict(self) -> dict:
+        return {"code": self.code, "stage": self.stage, "message": self.user_message}
+
+
+# ---------------------------------------------------------------------------
+# Script length + anti-repetition helpers
+# ---------------------------------------------------------------------------
+
+def _count_words(text: str) -> int:
+    return len(re.findall(r"\b[\w'-]+\b", text or "", flags=re.UNICODE))
+
+
+def _normalize_narration(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def find_duplicate_scene_pairs(scenes: list[dict]) -> list[tuple[int, int, float]]:
+    """Return (i, j, similarity) pairs of scenes with near-identical narration."""
+    norms = [_normalize_narration(s.get("narration") or s.get("content") or "") for s in scenes]
+    pairs = []
+    for i in range(len(norms)):
+        for j in range(i + 1, len(norms)):
+            a, b = norms[i], norms[j]
+            if len(a) < 40 or len(b) < 40:
+                continue
+            sim = SequenceMatcher(None, a, b).ratio()
+            if sim >= DUPLICATE_SIMILARITY_THRESHOLD:
+                pairs.append((i, j, round(sim, 3)))
+    return pairs
+
+
+def _scenes_word_count(scenes: list[dict]) -> int:
+    return sum(_count_words(s.get("narration") or s.get("content") or "") for s in scenes)
+
+
+def _target_words(duration_min: int) -> int:
+    settings = get_settings()
+    return int(max(1, duration_min) * max(1.0, settings.video_narration_wpm))
+
+
+def _within_tolerance(actual: int, target: int) -> bool:
+    tol = get_settings().video_script_tolerance
+    return abs(actual - target) <= target * tol
+
+
+def _llm_adjust_scenes(scenes: list[dict], duration_min: int, title: str,
+                       duplicates: list[tuple[int, int, float]] | None = None) -> list[dict] | None:
+    """
+    One corrective LLM pass: ask the model to rewrite scene narrations so the
+    total word count hits the duration target AND repeated scenes become
+    distinct. Returns adjusted scenes list or None on failure.
+    """
+    try:
+        from app.services.gemini import generate_json_any
+    except Exception:
+        return None
+    target = _target_words(duration_min)
+    total = _scenes_word_count(scenes)
+    scenes_json = json.dumps(
+        [{"index": i, "title": s.get("title", ""), "narration": s.get("narration") or s.get("content") or ""}
+         for i, s in enumerate(scenes)],
+        ensure_ascii=False,
+    )
+    dup_note = ""
+    if duplicates:
+        dup_idx = sorted({idx for pair in duplicates for idx in pair[:2]})
+        dup_note = (
+            f"\nSCENES {dup_idx} contain repeated/near-duplicate narration. Rewrite each of them "
+            "to cover a DIFFERENT aspect of the topic — do not restate earlier scenes.\n"
+        )
+    direction = "expand" if total < target else "condense"
+    prompt = f"""You are editing the narration script for an educational video titled "{title}".
+The video should run about {duration_min} minutes (~{target} words of narration at normal pace).
+Current narration totals ~{total} words ({direction} needed).
+{dup_note}
+Rules:
+- Keep the same number of scenes and their order.
+- Each scene must cover a DISTINCT point; never repeat content from other scenes.
+- Keep each scene's narration a single coherent paragraph of spoken-style text.
+- Return ONLY valid JSON: {{"scenes": [{{"index": 0, "narration": "..."}}, ...]}} with one entry per input scene.
+
+Input scenes:
+{scenes_json}
+"""
+    try:
+        data = generate_json_any(prompt, task_type="video")
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    adjusted = data.get("scenes")
+    if not isinstance(adjusted, list) or len(adjusted) != len(scenes):
+        return None
+    out = [dict(s) for s in scenes]
+    for item in adjusted:
+        try:
+            idx = int(item.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if 0 <= idx < len(out):
+            narration = str(item.get("narration") or "").strip()
+            if narration:
+                out[idx]["narration"] = narration
+                out[idx]["content"] = narration
+    return out
+
+
+def enforce_script_quality(scenes: list[dict], duration_min: int, title: str) -> tuple[list[dict], list[str]]:
+    """
+    Verify narration word count is within ±tolerance of the duration target and
+    that no two scenes are near-duplicates. Runs up to MAX_SCRIPT_FIX_ATTEMPTS
+    corrective LLM passes; duplicate scenes that survive are dropped (later
+    copy removed). Raises VideoStageError(stage=script_generation) if the word
+    count cannot be brought into tolerance.
+    Returns (scenes, warnings).
+    """
+    settings = get_settings()
+    target = _target_words(duration_min)
+    warnings: list[str] = []
+
+    if not scenes:
+        raise VideoStageError("script_generation", "EMPTY_SCRIPT",
+                              "The generated lesson produced no scenes to narrate.")
+
+    for attempt in range(MAX_SCRIPT_FIX_ATTEMPTS + 1):
+        total = _scenes_word_count(scenes)
+        dups = find_duplicate_scene_pairs(scenes)
+        length_ok = _within_tolerance(total, target)
+        if length_ok and not dups:
+            return scenes, warnings
+        if attempt >= MAX_SCRIPT_FIX_ATTEMPTS:
+            break
+        adjusted = _llm_adjust_scenes(scenes, duration_min, title, duplicates=dups or None)
+        if adjusted is None:
+            warnings.append("Script corrective pass unavailable; keeping generated script.")
+            break
+        scenes = adjusted
+
+    # Final state
+    total = _scenes_word_count(scenes)
+    dups = find_duplicate_scene_pairs(scenes)
+    # Drop later duplicates deterministically
+    drop = {j for _, j, _ in dups}
+    if drop:
+        scenes = [s for i, s in enumerate(scenes) if i not in drop]
+        warnings.append(f"Removed {len(drop)} repeated scene(s) from the script.")
+        total = _scenes_word_count(scenes)
+
+    if not _within_tolerance(total, target):
+        raise VideoStageError(
+            "script_generation", "LENGTH_OUT_OF_TOLERANCE",
+            f"Generated script is ~{total} words but a {duration_min}-minute video needs "
+            f"~{target} words (±{int(settings.video_script_tolerance * 100)}%). "
+            "Please try again or choose a shorter duration.",
+        )
+    return scenes, warnings
 
 
 # ---------------------------------------------------------------------------
@@ -97,29 +275,53 @@ def _gtts_scene(text: str, out_path: Path, lang: str = "en") -> bool:
         return False
 
 
+def _gtts_scene_timed(text: str, out_path: Path, lang: str, timeout: float) -> tuple[bool, str | None]:
+    """Run gTTS with a hard timeout; returns (ok, error_message).
+    shutdown(wait=False) so a hung worker thread cannot block the request."""
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        fut = pool.submit(_gtts_scene, text, out_path, lang)
+        try:
+            ok = fut.result(timeout=timeout)
+            return ok, None if ok else "gTTS produced no audio file"
+        except FuturesTimeout:
+            return False, f"TTS timed out after {timeout:.0f}s"
+        except Exception as exc:
+            return False, str(exc)[:200]
+    finally:
+        pool.shutdown(wait=False)
+
+
 def _tts_all_scenes(
     project_dir: Path,
     scenes: list[dict],
     lang_code: str,
-) -> tuple[bool, str | None]:
+) -> tuple[bool, str | None, list[str]]:
     """
     TTS each scene narration individually into segment-N-audio.mp3.
     Also stitches a combined narration.mp3 for the player (concatenated via ffmpeg when available,
     otherwise concatenated as a single gTTS call).
-    Returns (any_audio_succeeded, combined_audio_name | None).
+    Returns (any_audio_succeeded, combined_audio_name | None, per_scene_errors).
     """
-    any_ok = False
+    settings = get_settings()
+    timeout = max(5.0, settings.video_tts_timeout)
+    errors: list[str] = []
+    failed = 0
     for idx, scene in enumerate(scenes):
         narration = (scene.get("narration") or scene.get("content") or "").strip()
         if not narration:
             continue
         out = project_dir / f"segment-{idx}-audio.mp3"
-        ok = _gtts_scene(narration, out, lang_code)
+        ok, err = _gtts_scene_timed(narration, out, lang_code, timeout)
         if ok:
-            any_ok = True
+            continue
+        failed += 1
+        errors.append(f"scene {idx + 1}: {err or 'TTS failed'}")
+
+    any_ok = failed < sum(1 for s in scenes if (s.get("narration") or s.get("content") or "").strip())
 
     if not any_ok:
-        return False, None
+        return False, None, errors or ["All narration segments failed text-to-speech"]
 
     # Build combined narration.mp3 by concatenating all scene audio files
     combined_path = project_dir / "narration.mp3"
@@ -129,7 +331,7 @@ def _tts_all_scenes(
         if (project_dir / f"segment-{idx}-audio.mp3").exists()
     ]
     if not audio_files:
-        return False, None
+        return False, None, errors or ["No narration audio was produced"]
 
     if shutil.which("ffmpeg") and len(audio_files) > 1:
         list_file = project_dir / "audio-list.txt"
@@ -150,7 +352,7 @@ def _tts_all_scenes(
         # Single segment or no ffmpeg — use the single file / first file
         shutil.copy(str(audio_files[0]), str(combined_path))
 
-    return True, "narration.mp3"
+    return True, "narration.mp3", errors
 
 
 def _probe_audio_duration(audio_path: Path) -> float | None:
@@ -445,7 +647,8 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
                 "duration_seconds": DEFAULT_SCENE_SECONDS,
             })
 
-    # Pad to minimum scenes
+    # Pad scenes ONLY with distinct, not-yet-used script parts — never cycle
+    # back to earlier content (that produced repeated paragraphs).
     target_count = max(4, duration_min)
     if len(scenes) < target_count:
         script_parts = [
@@ -453,8 +656,14 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
             for part in re.split(r"(?<=[.!?])\s+", lesson.get("script") or "")
             if len(part.strip()) > 24
         ]
-        while len(scenes) < target_count and script_parts:
-            part = script_parts[len(scenes) % len(script_parts)]
+        used = {_normalize_narration(s.get("narration") or s.get("content") or "") for s in scenes}
+        for part in script_parts:
+            if len(scenes) >= target_count:
+                break
+            norm = _normalize_narration(part)
+            if norm in used:
+                continue
+            used.add(norm)
             scenes.append({
                 "title": f"Deep Dive {len(scenes) + 1}",
                 "narration": part,
@@ -464,6 +673,16 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
                 "duration_seconds": DEFAULT_SCENE_SECONDS,
             })
 
+    # Script quality gate: word-count vs duration target + anti-repetition.
+    # Raises VideoStageError(stage="script_generation") when it cannot be fixed.
+    try:
+        scenes, script_warnings = enforce_script_quality(scenes, duration_min, title)
+    except VideoStageError:
+        raise
+    except Exception as exc:
+        raise VideoStageError("script_generation", "SCRIPT_VALIDATION_FAILED",
+                              f"Could not validate the generated script: {exc}") from exc
+
     # Distribute total duration evenly (each scene gets equal share)
     secs_per_scene = max(DEFAULT_SCENE_SECONDS, int((duration_min * 60) / max(len(scenes), 1)))
     for scene in scenes:
@@ -472,17 +691,24 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
 
     # Persist scenes.json
     (project_dir / "scenes.json").write_text(
-        json.dumps({"title": title, "scenes": scenes}, ensure_ascii=False, indent=2),
+        json.dumps({"title": title, "scenes": scenes, "warnings": script_warnings}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
-    # Per-scene TTS
-    any_audio, audio_name = _tts_all_scenes(project_dir, scenes, lang_code)
+    # Per-scene TTS — per-scene timeout; partial failures are reported,
+    # total failure raises a structured stage error.
+    any_audio, audio_name, tts_errors = _tts_all_scenes(project_dir, scenes, lang_code)
+    if not any_audio:
+        detail = "; ".join(tts_errors[:3]) if tts_errors else "text-to-speech unavailable"
+        raise VideoStageError("tts", "TTS_FAILED",
+                              f"Narration audio could not be generated ({detail}). "
+                              "Check network access to the TTS service and try again.")
 
     # Write interactive HTML player (uses per-scene duration_seconds for timed autoplay)
     _write_player(project_dir, title, scenes, audio_name)
 
-    # ffmpeg MP4 stitching (per-scene audio + timed visuals)
+    # ffmpeg MP4 stitching (per-scene audio + timed visuals) — optional;
+    # the HTML player remains the playback path when ffmpeg is absent.
     mp4_path = _try_ffmpeg(project_id, title, scenes, duration_min)
 
     return {
@@ -491,7 +717,9 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
         "audio_url": f"/static/videos/video-{project_id}/narration.mp3" if any_audio else None,
         "mp4_url": f"/static/videos/video-{project_id}.mp4" if mp4_path else None,
         "scenes": scenes,
-        "fallback": not any_audio and not mp4_path,
+        "fallback": not mp4_path,
+        "warnings": script_warnings + ([f"Partial TTS: {'; '.join(tts_errors[:3])}"] if tts_errors else []),
+        "tts_errors": tts_errors,
     }
 
 
@@ -529,7 +757,7 @@ def rebuild_video_from_scenes(
             if old.exists():
                 old.unlink()
         (project_dir / "narration.mp3").unlink(missing_ok=True)
-        any_audio, audio_name = _tts_all_scenes(project_dir, scenes, lang_code)
+        any_audio, audio_name, tts_errors = _tts_all_scenes(project_dir, scenes, lang_code)
         if any_audio:
             measured_durations = 0
             for idx, scene in enumerate(scenes):
@@ -542,8 +770,14 @@ def rebuild_video_from_scenes(
                     measured_durations += 1
             if not measured_durations:
                 duration_warning = "Audio was regenerated, but ffprobe is unavailable; scene durations use the provided values."
+            if tts_errors:
+                duration_warning = (duration_warning + " " if duration_warning else "") + \
+                    f"Some scenes had TTS issues: {'; '.join(tts_errors[:3])}"
         else:
-            duration_warning = "Text-to-speech could not generate audio; the player will use browser speech synthesis."
+            detail = "; ".join(tts_errors[:3]) if tts_errors else ""
+            duration_warning = ("Text-to-speech could not generate audio"
+                                + (f" ({detail})" if detail else "")
+                                + "; the player will use browser speech synthesis.")
     else:
         # Check for existing per-scene audio
         for idx in range(len(scenes)):

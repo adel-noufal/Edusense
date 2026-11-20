@@ -14,7 +14,8 @@ os.chdir(BACKEND_DIR)
 from app.models.models import Base
 from app.db.seed import _ensure_schema_updates
 from app.services.gemini import (
-    GeminiKeyRotator,
+    GeminiError,
+    GeminiRotator,
     _is_rotatable_error,
     _is_rate_limit_error,
 )
@@ -89,9 +90,8 @@ def test_rotatable_error_detection():
     assert _is_rotatable_error(400, "RESOURCE_EXHAUSTED: Rate limit per-minute quota exceeded") is True
     assert _is_rotatable_error(400, "too many requests") is True
 
-    # Non-rotatable errors (client syntax errors, invalid JSON prompt, 404, 500 without capacity cues)
+    # Non-rotatable errors (client syntax errors, invalid JSON prompt, 500 without capacity cues)
     assert _is_rotatable_error(400, "Invalid JSON payload received") is False
-    assert _is_rotatable_error(404, "Model not found") is False
     assert _is_rotatable_error(500, "Internal server error") is False
 
     # Backwards compatibility alias
@@ -99,44 +99,35 @@ def test_rotatable_error_detection():
     assert _is_rate_limit_error(403, "API_KEY_INVALID") is True
 
 
-def test_rotator_failover_and_reset(monkeypatch):
-    """Verify GeminiKeyRotator advances across keys on exhaustion and can be cleanly reset."""
-    rotator = GeminiKeyRotator(cooldown_seconds=300.0)
+def test_rotator_pair_cooldown_and_reset(monkeypatch):
+    """Verify GeminiRotator cools down (key, model) pairs and can be cleanly reset."""
+    rotator = GeminiRotator()
 
     test_keys = ["AIzaSyKeyOne1111", "AIzaSyKeyTwo2222", "AIzaSyKeyThree3333"]
     monkeypatch.setattr(rotator, "get_keys", lambda: test_keys)
 
-    # Initially at key 0
-    assert rotator.get_active_key() == "AIzaSyKeyOne1111"
-    status = rotator.status()
-    assert status["total_keys"] == 3
-    assert status["active_keys"] == 3
-    assert status["exhausted_keys"] == 0
+    model = "gemini-test-model"
+    pairs = list(rotator.iter_pairs([model]))
+    assert len(pairs) == 3
+    assert [p[1] for p in pairs] == test_keys  # all keys for the model, in order
 
-    # Exhaust key 1 -> should rotate to key 2
-    next_key = rotator.mark_exhausted("AIzaSyKeyOne1111", reason="HTTP 400 API_KEY_INVALID")
-    assert next_key == "AIzaSyKeyTwo2222"
-    assert rotator.get_active_key() == "AIzaSyKeyTwo2222"
+    # Fail key1+model -> pair skipped
+    rotator.mark_failure(0, model, None, "HTTP 429 quota")
+    remaining = list(rotator.iter_pairs([model]))
+    assert [p[0] for p in remaining] == [1, 2]
 
-    status = rotator.status()
-    assert status["active_keys"] == 2
-    assert status["exhausted_keys"] == 1
+    # Fail key2+model -> only key3 remains
+    rotator.mark_failure(1, model, None, "HTTP 503")
+    remaining = list(rotator.iter_pairs([model]))
+    assert [p[0] for p in remaining] == [2]
 
-    # Exhaust key 2 -> should rotate to key 3
-    next_key = rotator.mark_exhausted("AIzaSyKeyTwo2222", reason="HTTP 429 Quota Exceeded")
-    assert next_key == "AIzaSyKeyThree3333"
-    assert rotator.get_active_key() == "AIzaSyKeyThree3333"
+    # Cooldowns are per (key, model): same key on another model still usable
+    other = list(rotator.iter_pairs(["other-model"]))
+    assert len(other) == 3
 
-    # Exhaust key 3 -> all exhausted
-    next_key = rotator.mark_exhausted("AIzaSyKeyThree3333", reason="HTTP 503")
-    assert next_key is None
-
-    # Reset rotator
+    # Reset clears everything
     rotator.reset()
-    assert rotator.get_active_key() == "AIzaSyKeyOne1111"
-    status = rotator.status()
-    assert status["active_keys"] == 3
-    assert status["exhausted_keys"] == 0
+    assert len(list(rotator.iter_pairs([model]))) == 3
 
 
 def test_generate_content_rotates_on_invalid_key(monkeypatch):
@@ -144,6 +135,7 @@ def test_generate_content_rotates_on_invalid_key(monkeypatch):
     import io
     import json
     import urllib.error
+    from unittest.mock import MagicMock
     from app.services import gemini
 
     keys = ["BAD_KEY_1", "GOOD_KEY_2"]
@@ -153,6 +145,9 @@ def test_generate_content_rotates_on_invalid_key(monkeypatch):
     class DummySettings:
         gemini_api_keys = keys
         gemini_model = "gemini-2.5-flash"
+        gemini_models = "gemini-2.5-flash"
+        gemini_models_chat = ""
+        gemini_models_script = ""
 
     monkeypatch.setattr(gemini, "get_settings", lambda: DummySettings())
 
@@ -182,9 +177,10 @@ def test_generate_content_rotates_on_invalid_key(monkeypatch):
     response = gemini.generate_content("hello")
     assert response == "Success from key 2"
     assert call_count == 2
-    # Check rotator state: BAD_KEY_1 should be marked exhausted
+    # BAD_KEY_1 pair on the primary model should now be in cooldown
     status = gemini.rotator.status()
-    assert status["exhausted_keys"] == 1
+    cooled = [p for p in status["pairs"] if p["cooling_down"]]
+    assert len(cooled) >= 1
     gemini.rotator.reset()
 
 

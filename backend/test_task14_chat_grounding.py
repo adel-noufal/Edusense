@@ -74,7 +74,7 @@ def test_general_knowledge_question_answers_in_online_general_mode(monkeypatch):
     )
     prompts = []
 
-    def generate(prompt):
+    def generate(prompt, **kwargs):
         prompts.append(prompt)
         return "Artificial intelligence is the field of creating systems that perform tasks requiring human-like intelligence."
 
@@ -85,7 +85,7 @@ def test_general_knowledge_question_answers_in_online_general_mode(monkeypatch):
     assert result.mode == "online_general_llm"
     assert "Artificial intelligence" in result.answer
     assert "don't have verified source material" not in prompts[0].lower()
-    assert "answer educational questions using general knowledge" in prompts[0].lower()
+    assert "answer general-knowledge questions from your own knowledge" in prompts[0].lower()
 
 
 def test_chatbot_selected_source_restricts_rag_to_that_document(monkeypatch):

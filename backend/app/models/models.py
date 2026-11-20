@@ -37,7 +37,7 @@ class Session(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     date: Mapped[datetime] = mapped_column(Date)
     start_time: Mapped[datetime] = mapped_column(Time)
-    duration: Mapped[int] = mapped_column(Integer)
+    duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = no time limit
     max_students: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     prep_start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -120,6 +120,8 @@ class Quiz(Base):
     is_exam: Mapped[bool] = mapped_column(Boolean, default=False)
     lock_back_navigation: Mapped[bool] = mapped_column(Boolean, default=False)
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Instructor policy: whether students see correct answers/explanations after submit
+    reveal_answers: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class QuizAttempt(Base):

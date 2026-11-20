@@ -28,6 +28,21 @@ export default function EmotionTrial() {
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [consentOpen, setConsentOpen] = useState(false)
+  const [camErrorKind, setCamErrorKind] = useState('') // 'denied' | 'in_use' | 'unavailable' | ''
+
+  function cameraErrorMessage(err) {
+    const name = err?.name || ''
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+      setCamErrorKind('denied')
+      return 'Camera permission was denied. Allow camera access in your browser settings and try again.'
+    }
+    if (name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') {
+      setCamErrorKind('in_use')
+      return 'The camera is already in use by another app or browser tab. Close it and try again.'
+    }
+    setCamErrorKind('unavailable')
+    return err?.message || 'Camera unavailable. Check that a camera is connected.'
+  }
 
   function stopCamera() {
     if (timerRef.current) {
@@ -43,6 +58,7 @@ export default function EmotionTrial() {
       videoRef.current.srcObject = null
     }
     setActive(false)
+    setCamErrorKind('')
   }
 
   // Attach the MediaStream to the <video> element once it is actually mounted.
@@ -60,6 +76,7 @@ export default function EmotionTrial() {
 
   async function startCamera() {
     setError('')
+    setCamErrorKind('')
     setResult(null)
     if (!hasConsent('emotion_detection')) {
       setConsentOpen(true)
@@ -68,7 +85,7 @@ export default function EmotionTrial() {
     try {
       await acquireCamera()
     } catch (err) {
-      setError(err.message || 'Camera unavailable.')
+      setError(cameraErrorMessage(err))
     }
   }
 
@@ -86,7 +103,7 @@ export default function EmotionTrial() {
     try {
       await acquireCamera()
     } catch (err) {
-      setError(err.message || 'Camera unavailable.')
+      setError(cameraErrorMessage(err))
     }
   }
 
@@ -155,11 +172,29 @@ export default function EmotionTrial() {
       ) : (
         <div className="space-y-3">
           <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-900 dark:border-slate-700">
-            <video ref={videoRef} autoPlay playsInline muted className="h-44 w-full -scale-x-100 object-cover" />
+            <div className="flex min-h-[50vh] max-h-[65vh] w-full items-center justify-center">
+              <video ref={videoRef} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-contain" />
+            </div>
             {analyzing && (
               <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] text-white">
                 <Loader2 size={11} className="animate-spin" /> Analyzing…
               </div>
+            )}
+            {result && !analyzing && (
+              <div className={`absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-2xl px-4 py-2.5 shadow-lg backdrop-blur ${colorClass} bg-opacity-95`}>
+                <span className="text-base font-bold capitalize">{result.emotion}</span>
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-24 overflow-hidden rounded-full bg-black/20">
+                    <span className="block h-full rounded-full bg-current" style={{ width: `${Math.round((result.confidence || 0) * 100)}%` }} />
+                  </span>
+                  <span className="text-xs font-semibold opacity-90">{Math.round((result.confidence || 0) * 100)}%</span>
+                </span>
+              </div>
+            )}
+            {result && (result.confidence || 0) < 0.4 && !analyzing && (
+              <p className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-[11px] text-white">
+                No clear face detected — move closer to the camera.
+              </p>
             )}
           </div>
 
@@ -184,17 +219,20 @@ export default function EmotionTrial() {
               {analyzing ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />} Capture &amp; Analyze
             </button>
           )}
-
-          {result && (
-            <div className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold ${colorClass}`}>
-              <span className="capitalize">{result.emotion}</span>
-              <span className="text-xs font-medium opacity-80">{Math.round((result.confidence || 0) * 100)}% confidence</span>
-            </div>
-          )}
         </div>
       )}
 
-      {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
+      {error && (
+        <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">
+          <p>{error}</p>
+          {camErrorKind && (
+            <button type="button" onClick={startCamera}
+              className="mt-1.5 font-semibold text-red-800 underline underline-offset-2 dark:text-red-200">
+              Retry camera
+            </button>
+          )}
+        </div>
+      )}
 
       <ConsentModal
         isOpen={consentOpen}

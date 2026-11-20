@@ -20,8 +20,32 @@ from app.schemas.schemas import (
     QuizCreateManual, QuizUpdateSettings
 )
 from app.models.models import SessionRegistration
+from app.agents.quiz_agent import normalize_difficulty
 
 router = APIRouter(prefix="/quizzes", tags=["Quiz Attempts"])
+
+
+def _quiz_out(quiz: Quiz, questions: list[dict], session_title: str | None = None) -> QuizOut:
+    """Single constructor for QuizOut responses — keeps reveal_answers and
+    normalized difficulty consistent across every endpoint."""
+    return QuizOut(
+        id=quiz.id,
+        session_id=quiz.session_id,
+        session_title=session_title,
+        title=quiz.title,
+        difficulty=normalize_difficulty(quiz.difficulty),
+        questions=questions,
+        created_at=quiz.created_at,
+        time_limit_seconds=quiz.time_limit_seconds,
+        time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
+        fullscreen_lock=quiz.fullscreen_lock,
+        camera_monitoring=quiz.camera_monitoring,
+        is_published=quiz.is_published,
+        is_exam=quiz.is_exam,
+        lock_back_navigation=quiz.lock_back_navigation,
+        due_date=quiz.due_date,
+        reveal_answers=quiz.reveal_answers,
+    )
 
 
 # ─── Quiz Creation & Taking ───────────────────────────────────────────────────────
@@ -59,7 +83,7 @@ def create_manual_quiz(
     quiz = Quiz(
         session_id=payload.session_id,
         title=payload.title.strip(),
-        difficulty=payload.difficulty,
+        difficulty=normalize_difficulty(payload.difficulty),
         questions_json=json.dumps(questions_data),
         is_exam=payload.is_exam,
         is_published=payload.is_published,
@@ -69,6 +93,7 @@ def create_manual_quiz(
         fullscreen_lock=payload.fullscreen_lock if payload.fullscreen_lock is not None else payload.is_exam,
         camera_monitoring=payload.camera_monitoring,
         due_date=payload.due_date,
+        reveal_answers=payload.reveal_answers,
     )
     db.add(quiz)
     db.commit()
@@ -99,22 +124,7 @@ def create_manual_quiz(
         details={"title": quiz.title, "question_count": len(questions_data), "is_exam": quiz.is_exam}
     )
 
-    return QuizOut(
-        id=quiz.id,
-        session_id=quiz.session_id,
-        title=quiz.title,
-        difficulty=quiz.difficulty,
-        questions=questions_data,
-        created_at=quiz.created_at,
-        time_limit_seconds=quiz.time_limit_seconds,
-        time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
-        fullscreen_lock=quiz.fullscreen_lock,
-        camera_monitoring=quiz.camera_monitoring,
-        is_published=quiz.is_published,
-        is_exam=quiz.is_exam,
-        lock_back_navigation=quiz.lock_back_navigation,
-        due_date=quiz.due_date,
-    )
+    return _quiz_out(quiz, questions_data)
 
 
 @router.get("/{quiz_id}", response_model=QuizOut)
@@ -157,22 +167,7 @@ def get_quiz_for_student(
     # Audit
     log_audit_event(db, action="view_quiz", user=user, resource_type="quiz", resource_id=str(quiz_id), request=request)
 
-    return QuizOut(
-        id=quiz.id,
-        session_id=quiz.session_id,
-        title=quiz.title,
-        difficulty=quiz.difficulty,
-        questions=display_questions,
-        created_at=quiz.created_at,
-        time_limit_seconds=quiz.time_limit_seconds,
-        time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
-        fullscreen_lock=quiz.fullscreen_lock,
-        camera_monitoring=quiz.camera_monitoring,
-        is_published=quiz.is_published,
-        is_exam=quiz.is_exam,
-        lock_back_navigation=quiz.lock_back_navigation,
-        due_date=quiz.due_date,
-    )
+    return _quiz_out(quiz, display_questions)
 
 
 @router.get("/session/{session_id}", response_model=list[QuizOut])
@@ -207,22 +202,7 @@ def list_quizzes_for_session(
             safe_q = {k: v for k, v in q.items() if k not in ("answer", "correct_answer")}
             safe_questions.append(safe_q)
 
-        result.append(QuizOut(
-            id=quiz.id,
-            session_id=quiz.session_id,
-            title=quiz.title,
-            difficulty=quiz.difficulty,
-            questions=safe_questions,
-            created_at=quiz.created_at,
-            time_limit_seconds=quiz.time_limit_seconds,
-            time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
-            fullscreen_lock=quiz.fullscreen_lock,
-            camera_monitoring=quiz.camera_monitoring,
-            is_published=quiz.is_published,
-            is_exam=quiz.is_exam,
-            lock_back_navigation=quiz.lock_back_navigation,
-            due_date=quiz.due_date,
-        ))
+        result.append(_quiz_out(quiz, safe_questions))
 
     return result
 
@@ -271,23 +251,7 @@ def list_student_exams(
         import json as _json
         questions = _json.loads(quiz.questions_json)
         safe_questions = [{k: v for k, v in q.items() if k not in ("answer", "correct_answer")} for q in questions]
-        result.append(QuizOut(
-            id=quiz.id,
-            session_id=quiz.session_id,
-            session_title=sessions_map.get(quiz.session_id),
-            title=quiz.title,
-            difficulty=quiz.difficulty,
-            questions=safe_questions,
-            created_at=quiz.created_at,
-            time_limit_seconds=quiz.time_limit_seconds,
-            time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
-            fullscreen_lock=quiz.fullscreen_lock,
-            camera_monitoring=quiz.camera_monitoring,
-            is_published=quiz.is_published,
-            is_exam=quiz.is_exam,
-            lock_back_navigation=quiz.lock_back_navigation,
-            due_date=quiz.due_date,
-        ))
+        result.append(_quiz_out(quiz, safe_questions, session_title=sessions_map.get(quiz.session_id)))
     return result
 
 
@@ -328,6 +292,8 @@ def publish_quiz_as_exam(
     quiz.fullscreen_lock = payload.fullscreen_lock
     quiz.camera_monitoring = payload.camera_monitoring
     quiz.due_date = payload.due_date
+    if payload.reveal_answers is not None:
+        quiz.reveal_answers = payload.reveal_answers
 
     db.commit()
     db.refresh(quiz)
@@ -346,22 +312,7 @@ def publish_quiz_as_exam(
     )
 
     questions = json.loads(quiz.questions_json)
-    return QuizOut(
-        id=quiz.id,
-        session_id=quiz.session_id,
-        title=quiz.title,
-        difficulty=quiz.difficulty,
-        questions=questions,
-        created_at=quiz.created_at,
-        time_limit_seconds=quiz.time_limit_seconds,
-        time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
-        fullscreen_lock=quiz.fullscreen_lock,
-        camera_monitoring=quiz.camera_monitoring,
-        is_published=quiz.is_published,
-        is_exam=quiz.is_exam,
-        lock_back_navigation=quiz.lock_back_navigation,
-        due_date=quiz.due_date,
-    )
+    return _quiz_out(quiz, questions)
 
 
 @router.patch("/{quiz_id}", response_model=QuizOut)
@@ -392,7 +343,7 @@ def update_quiz_or_settings(
     if payload.title is not None:
         quiz.title = payload.title.strip()
     if payload.difficulty is not None:
-        quiz.difficulty = payload.difficulty
+        quiz.difficulty = normalize_difficulty(payload.difficulty)
     if payload.questions is not None:
         questions_data = []
         for q in payload.questions:
@@ -420,6 +371,8 @@ def update_quiz_or_settings(
         quiz.camera_monitoring = payload.camera_monitoring
     if payload.due_date is not None:
         quiz.due_date = payload.due_date
+    if payload.reveal_answers is not None:
+        quiz.reveal_answers = payload.reveal_answers
 
     db.commit()
     db.refresh(quiz)
@@ -431,22 +384,7 @@ def update_quiz_or_settings(
     )
 
     questions = json.loads(quiz.questions_json)
-    return QuizOut(
-        id=quiz.id,
-        session_id=quiz.session_id,
-        title=quiz.title,
-        difficulty=quiz.difficulty,
-        questions=questions,
-        created_at=quiz.created_at,
-        time_limit_seconds=quiz.time_limit_seconds,
-        time_limit_per_question_seconds=quiz.time_limit_per_question_seconds,
-        fullscreen_lock=quiz.fullscreen_lock,
-        camera_monitoring=quiz.camera_monitoring,
-        is_published=quiz.is_published,
-        is_exam=quiz.is_exam,
-        lock_back_navigation=quiz.lock_back_navigation,
-        due_date=quiz.due_date,
-    )
+    return _quiz_out(quiz, questions)
 
 
 @router.post("/{quiz_id}/start", response_model=QuizAttemptOut)
@@ -473,6 +411,24 @@ def start_quiz_attempt(
         if not reg:
             raise HTTPException(403, "You are not enrolled in the session this quiz belongs to")
 
+    # Exams must be published and not past their due date
+    if quiz.is_exam:
+        if not quiz.is_published:
+            raise HTTPException(403, "This exam is not published yet.")
+        if quiz.due_date:
+            due = quiz.due_date
+            if due.tzinfo is None:
+                due = due.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > due:
+                raise HTTPException(403, "This exam is past its due date.")
+        # Exams allow exactly one attempt — block API replay/re-entry
+        already_submitted = db.query(QuizAttempt).filter_by(
+            quiz_id=quiz_id,
+            student_id=user.id,
+        ).filter(QuizAttempt.submitted_at.isnot(None)).first()
+        if already_submitted:
+            raise HTTPException(409, "You have already submitted this exam. Only one attempt is allowed.")
+
     # Check for existing active (unsubmitted, unlocked) attempt
     existing = db.query(QuizAttempt).filter_by(
         quiz_id=quiz_id,
@@ -480,7 +436,7 @@ def start_quiz_attempt(
         submitted_at=None
     ).first()
     if existing and not existing.is_locked:
-        # Return existing attempt instead of creating new one
+        # Return existing attempt instead of creating new one (resume after refresh)
         return QuizAttemptOut.model_validate(existing)
 
     attempt = QuizAttempt(
@@ -653,6 +609,12 @@ def submit_quiz_attempt(
             "explanation": q.get("explanation", ""),
             "question_type": q_type,
         })
+
+    # Instructor policy: hide correct answers/explanations when reveal_answers is off
+    if not quiz.reveal_answers:
+        for d in details:
+            d.pop("correct_answer", None)
+            d.pop("explanation", None)
 
     percentage = (score / max_score * 100) if max_score > 0 else 0.0
     passed = percentage >= 60.0  # 60% passing threshold

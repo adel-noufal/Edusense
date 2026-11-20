@@ -23,12 +23,17 @@ class AgentResult:
 
 
 class LocalLLM:
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, task_type: str = "general",
+                 temperature: float | None = None,
+                 max_output_tokens: int | None = None) -> str:
         settings = get_settings()
         # 1. Try Gemini (Online) first
         if settings.gemini_api_key and settings.ai_provider in ("auto", "gemini"):
             try:
-                return generate_content(prompt)
+                return generate_content(
+                    prompt, task_type=task_type,
+                    temperature=temperature, max_output_tokens=max_output_tokens,
+                )
             except Exception as exc:
                 print(f"[AI Fallback] Gemini text generation unavailable ({exc}). Switching to Ollama...")
 
@@ -56,7 +61,7 @@ class LocalLLM:
         query_for_check = (query or "").strip() or prompt
         if not query:
             # If prompt contains "Current Question:" or "QUESTION:", extract the actual question
-            for marker in ["Current Question:", "QUESTION:", "Question:"]:
+            for marker in ["Current Question:", "Student question:", "QUESTION:", "Question:"]:
                 if marker in query_for_check:
                     query_for_check = query_for_check.split(marker, 1)[1]
                     break
@@ -65,7 +70,7 @@ class LocalLLM:
         # drop bracketed scaffolding tags entirely.
         for cut in [
             "\n", "Use ONLY", "Be concise", "Answer:", "===", "If the sources",
-            "Current Question", "Conversation History", "Rules:", "- ",
+            "Current Question", "Student question", "Conversation History", "Rules:", "- ",
         ]:
             idx = query_for_check.find(cut)
             if idx > 0:

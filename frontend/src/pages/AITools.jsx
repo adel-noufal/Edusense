@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
-import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff, Mic, MicOff, MessageCircle, Paperclip } from 'lucide-react'
+import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff, Mic, MicOff, MessageCircle, Paperclip, RotateCcw, Square } from 'lucide-react'
+import MarkdownText from '../utils/markdown'
 import { api, downloadAuthenticatedRequest, staticUrl } from '../services/api'
 import { downloadBlob, downloadText, flashcardsToHtml, lessonToMarkdown, downloadLessonAsDoc, downloadLessonAsHtml, downloadLessonAsPdf, downloadLessonAsPptxHtml, downloadQuizAsDoc, downloadQuizAsHtml, downloadQuizAsPdf, downloadFlashcardsAsDoc, downloadFlashcardsAsPdf } from '../utils/download'
 import { useLanguage } from '../context/LanguageContext'
@@ -37,6 +38,21 @@ function buildAiPayload(form) {
   }
 }
 
+/** Parse structured backend job errors ({code, stage, message}) into readable text. */
+function formatJobError(raw) {
+  if (!raw) return 'Generation failed'
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && parsed.message) {
+      const stage = parsed.stage ? ` [${parsed.stage}]` : ''
+      return `${parsed.message}${stage}`
+    }
+  } catch {
+    // not JSON — plain error string
+  }
+  return raw
+}
+
 /** Sync local generator UI with a background job that keeps running across tab changes. */
 function useBackgroundGeneration(type) {
   const { startJob, job, removeJob } = useGenerationJobs(type)
@@ -55,7 +71,7 @@ function useBackgroundGeneration(type) {
     }
     if (job.status === 'error') {
       setLoading(false)
-      setError(job.error || 'Generation failed')
+      setError(formatJobError(job.error))
       return
     }
     setLoading(false)
@@ -1798,6 +1814,8 @@ export function ChatbotGenerator() {
   const fileInputRef = useRef(null)
   const recognitionRef = useRef(null)
   const messagesEndRef = useRef(null)
+  const abortRef = useRef(null)
+  const pendingUserRef = useRef(null)
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -1921,18 +1939,16 @@ export function ChatbotGenerator() {
     'offline_template_only': { label: 'Template Only (Offline)', icon: <Bot className="w-3 h-3" />, color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' },
   }
 
-  async function sendMessage() {
-    if (!input.trim() || loading) return
-    const userMessage = input.trim()
-    setInput('')
+  async function requestChat(userMessage) {
     setLoading(true)
     setError('')
-
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }])
-
+    const controller = new AbortController()
+    abortRef.current = controller
+    pendingUserRef.current = userMessage
     try {
       const response = await api('/ai/chat', {
         method: 'POST',
+        signal: controller.signal,
         body: {
           message: userMessage,
           conversation_id: conversationId || undefined,
@@ -1964,13 +1980,46 @@ export function ChatbotGenerator() {
       }])
 
     } catch (err) {
-      setError(err.message || 'Failed to get response')
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-      }])
+      if (err?.name === 'AbortError' || controller.signal.aborted) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: '_Response stopped._',
+        }])
+      } else {
+        setError(err.message || 'Failed to get response')
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Sorry, I couldn't generate a response: ${err.message || 'please try again.'}`,
+        }])
+      }
     } finally {
+      abortRef.current = null
+      pendingUserRef.current = null
       setLoading(false)
+    }
+  }
+
+  async function sendMessage() {
+    const userMessage = input.trim()
+    if (!userMessage || loading) return
+    setInput('')
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }])
+    await requestChat(userMessage)
+  }
+
+  function stopGeneration() {
+    abortRef.current?.abort()
+  }
+
+  async function regenerateLast() {
+    if (loading) return
+    // Find the last user message and re-request it
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        setMessages(prev => prev.slice(0, i + 1))
+        await requestChat(messages[i].content)
+        return
+      }
     }
   }
 
@@ -2027,6 +2076,13 @@ export function ChatbotGenerator() {
       setListening(false)
     }
   }
+
+  const lastAssistantIdx = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') return i
+    }
+    return -1
+  })()
 
   return (
     <div className="flex flex-col gap-4 xl:flex-row xl:items-stretch">
@@ -2086,7 +2142,9 @@ export function ChatbotGenerator() {
                     ? 'rounded-br-md bg-ocean text-white'
                     : 'rounded-bl-md border border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-200'
                 }`}>
-                  {msg.content}
+                  {msg.role === 'assistant'
+                    ? <MarkdownText text={msg.content} />
+                    : msg.content}
                 </div>
                 {msg.metadata && (
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
@@ -2126,6 +2184,15 @@ export function ChatbotGenerator() {
                     </div>
                   </details>
                 )}
+                {msg.role === 'assistant' && idx === lastAssistantIdx && !loading && messages.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={regenerateLast}
+                    className="mt-1.5 inline-flex items-center gap-1 text-xs text-slate-400 hover:text-teal-600"
+                  >
+                    <RotateCcw size={11} /> Regenerate
+                  </button>
+                )}
               </div>
               <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                 msg.role === 'user' ? 'bg-ocean/15 text-ocean dark:bg-mint/15 dark:text-mint' : 'bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300'
@@ -2135,9 +2202,18 @@ export function ChatbotGenerator() {
             </div>
           ))}
           {loading && (
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <Loader2 size={14} className="animate-spin text-teal-600" />
-              <span className="animate-pulse">{chatbotName} is thinking…</span>
+            <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
+              <span className="flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin text-teal-600" />
+                <span className="animate-pulse">{chatbotName} is thinking…</span>
+              </span>
+              <button
+                type="button"
+                onClick={stopGeneration}
+                className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 font-medium text-red-600 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-300"
+              >
+                <Square size={10} /> Stop
+              </button>
             </div>
           )}
           <div ref={messagesEndRef} />

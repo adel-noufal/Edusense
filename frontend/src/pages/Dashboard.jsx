@@ -267,8 +267,8 @@ function StudentHistoryView({ sessions }) {
                   <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800/80 pt-2.5">
                     <span>Date: <strong className="text-slate-700 dark:text-slate-200">{s.date}</strong></span>
                     <span>Time: <strong className="text-slate-700 dark:text-slate-200">{s.start_time}</strong></span>
-                    <span>Scheduled: <strong className="text-slate-700 dark:text-slate-200">{s.scheduled_duration ?? s.duration} min</strong></span>
-                    <span>Attended: <strong className="text-slate-700 dark:text-slate-200">{s.attended ? `${s.attended_duration ?? s.duration} min` : 'No'}</strong></span>
+                    <span>Scheduled: <strong className="text-slate-700 dark:text-slate-200">{s.scheduled_duration ?? s.duration ?? 'No limit'}{(s.scheduled_duration ?? s.duration) != null ? ' min' : ''}</strong></span>
+                    <span>Attended: <strong className="text-slate-700 dark:text-slate-200">{s.attended ? `${s.attended_duration ?? s.duration ?? 0} min` : 'No'}</strong></span>
                   </div>
 
                   {/* Expanded Resources Drawer */}
@@ -640,14 +640,20 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
       description: session.description || '',
       date: session.date,
       start_time: session.start_time,
-      duration: session.duration,
+      duration: session.duration ?? '',
+      no_limit: session.duration == null,
       max_students: session.max_students
     })
   }
 
   async function saveEdit(e) {
     e.preventDefault()
-    await api(`/sessions/${editingSession.id}`, { method: 'PUT', body: editForm })
+    const payload = {
+      ...editForm,
+      duration: editForm.no_limit || !editForm.duration ? null : Number(editForm.duration),
+    }
+    delete payload.no_limit
+    await api(`/sessions/${editingSession.id}`, { method: 'PUT', body: payload })
     setEditingSession(null)
     onReload?.()
   }
@@ -704,7 +710,13 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
             <textarea className="input w-full dark:bg-slate-800 dark:border-slate-700" placeholder="Description" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} rows={3} />
             <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} required />
             <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="time" value={editForm.start_time} onChange={(e) => setEditForm({ ...editForm, start_time: e.target.value })} required />
-            <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="number" placeholder="Duration (minutes)" value={editForm.duration} onChange={(e) => setEditForm({ ...editForm, duration: parseInt(e.target.value) })} />
+            <div className="space-y-1">
+              <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="number" min="1" placeholder="Duration (minutes)" disabled={editForm.no_limit} value={editForm.duration} onChange={(e) => setEditForm({ ...editForm, duration: e.target.value })} />
+              <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                <input type="checkbox" checked={!!editForm.no_limit} onChange={(e) => setEditForm({ ...editForm, no_limit: e.target.checked })} />
+                No time limit
+              </label>
+            </div>
             <input className="input w-full dark:bg-slate-800 dark:border-slate-700" type="number" placeholder="Max students" value={editForm.max_students || ''} onChange={(e) => setEditForm({ ...editForm, max_students: e.target.value ? parseInt(e.target.value) : null })} />
             <div className="flex gap-2 pt-2">
               <button className="btn-primary flex-1" type="submit">Save Changes</button>
@@ -770,7 +782,7 @@ function SessionCatalog({ sessions, onReload }) {
           <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-500">
             <span>{session.date}</span>
             <span>{session.start_time}</span>
-            <span>{session.duration} min</span>
+            <span>{session.duration != null ? `${session.duration} min` : 'No time limit'}</span>
             <span>{session.registration_count} registered</span>
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -793,14 +805,13 @@ export function Settings() {
     emailNotifications: localStorage.getItem('edusense_email_notifications') !== 'false',
     ambientMotion: localStorage.getItem('edusense_ambient_motion') !== 'false',
     compactCards: localStorage.getItem('edusense_compact_cards') === 'true',
-    accent: localStorage.getItem('edusense_accent') || 'teal',
   }))
 
   useEffect(() => {
     localStorage.setItem('edusense_email_notifications', String(prefs.emailNotifications))
     localStorage.setItem('edusense_ambient_motion', String(prefs.ambientMotion))
     localStorage.setItem('edusense_compact_cards', String(prefs.compactCards))
-    localStorage.setItem('edusense_accent', prefs.accent)
+    localStorage.removeItem('edusense_accent') // legacy accent palette removed; theme locked to Teal
     document.documentElement.dataset.compact = prefs.compactCards ? 'true' : 'false'
   }, [prefs])
 
@@ -828,14 +839,6 @@ export function Settings() {
               <option value="ar">العربية</option>
             </select>
             <p className="text-xs text-slate-500">{t('settingsPage.languageHint')}</p>
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-semibold">Accent</span>
-            <select className="input" value={prefs.accent} onChange={(e) => setPrefs({ ...prefs, accent: e.target.value })}>
-              <option value="teal">Teal Ocean</option>
-              <option value="blue">Calm Blue</option>
-              <option value="sunset">Sunset Coral</option>
-            </select>
           </label>
           <ToggleRow icon={Sparkles} label="Animated background" checked={prefs.ambientMotion} onChange={(value) => setPrefs({ ...prefs, ambientMotion: value })} />
           <ToggleRow icon={BookOpen} label="Compact cards" checked={prefs.compactCards} onChange={(value) => setPrefs({ ...prefs, compactCards: value })} />

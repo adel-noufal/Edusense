@@ -58,7 +58,9 @@ class SessionIn(BaseModel):
     description: str = ""
     date: date
     start_time: time
-    duration: int = Field(ge=5, le=480)
+    # Optional session time limit in minutes. None/omitted = "No time limit".
+    # Positive values only; no arbitrary upper bound (hours/days allowed).
+    duration: int | None = Field(default=None, ge=1)
     max_students: int | None = Field(default=None, ge=1, le=500)
 
 
@@ -165,6 +167,7 @@ class PublishExamRequest(BaseModel):
     camera_monitoring: bool = False
     due_date: datetime | None = None
     is_published: bool = True
+    reveal_answers: bool | None = None
 
 
 class QuizQuestionInput(BaseModel):
@@ -188,6 +191,7 @@ class QuizCreateManual(BaseModel):
     fullscreen_lock: bool | None = None
     camera_monitoring: bool = False
     due_date: datetime | None = None
+    reveal_answers: bool = True
 
 
 class QuizUpdateSettings(BaseModel):
@@ -203,6 +207,7 @@ class QuizUpdateSettings(BaseModel):
     fullscreen_lock: bool | None = None
     camera_monitoring: bool | None = None
     due_date: datetime | None = None
+    reveal_answers: bool | None = None
 
 
 class QuizOut(BaseModel):
@@ -223,6 +228,7 @@ class QuizOut(BaseModel):
     is_exam: bool = False
     lock_back_navigation: bool = False
     due_date: datetime | None = None
+    reveal_answers: bool = True
     session_title: str | None = None
 
     model_config = {"from_attributes": True}

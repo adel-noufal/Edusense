@@ -54,6 +54,7 @@ def _ensure_schema_updates(db):
     """Ensure newly added columns and tables exist in PostgreSQL or SQLite tables."""
     try:
         if "postgresql" in str(engine.url):
+            db.execute(text("ALTER TABLE sessions ALTER COLUMN duration DROP NOT NULL;"))
             db.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS prep_start_time TIMESTAMP WITH TIME ZONE;"))
             db.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS reminders_sent VARCHAR(200);"))
             db.execute(text("ALTER TABLE ai_generations ADD COLUMN IF NOT EXISTS session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL;"))
@@ -67,6 +68,7 @@ def _ensure_schema_updates(db):
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS time_limit_per_question_seconds INTEGER;"))
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS fullscreen_lock BOOLEAN DEFAULT TRUE;"))
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS camera_monitoring BOOLEAN DEFAULT FALSE;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS reveal_answers BOOLEAN NOT NULL DEFAULT TRUE;"))
             db.execute(text("""
                 CREATE TABLE IF NOT EXISTS session_resources (
                     id SERIAL PRIMARY KEY,
@@ -118,8 +120,44 @@ def _ensure_schema_updates(db):
                 );
             """))
         else:
-            res = db.execute(text("PRAGMA table_info(sessions);")).fetchall()
-            cols = [r[1] for r in res]
+            sess_info = db.execute(text("PRAGMA table_info(sessions);")).fetchall()
+            sess_col_map = {r[1]: r for r in sess_info}
+            # Session duration is now optional (NULL = no time limit). SQLite
+            # cannot drop NOT NULL via ALTER, so rebuild the table once.
+            dur_col = sess_col_map.get("duration")
+            if dur_col is not None and dur_col[3]:
+                db.execute(text("PRAGMA legacy_alter_table=ON"))
+                db.execute(text("PRAGMA foreign_keys=OFF"))
+                db.execute(text("ALTER TABLE sessions RENAME TO sessions_old"))
+                db.execute(text("""
+                    CREATE TABLE sessions (
+                        id INTEGER PRIMARY KEY,
+                        instructor_id INTEGER NOT NULL,
+                        title VARCHAR(180) NOT NULL,
+                        description TEXT DEFAULT '',
+                        date DATE NOT NULL,
+                        start_time TIME NOT NULL,
+                        duration INTEGER,
+                        max_students INTEGER,
+                        status VARCHAR(20) DEFAULT 'pending',
+                        prep_start_time DATETIME,
+                        reminder_sent BOOLEAN DEFAULT 0,
+                        reminders_sent VARCHAR(200)
+                    );
+                """))
+                db.execute(text("""
+                    INSERT INTO sessions
+                        (id, instructor_id, title, description, date, start_time, duration,
+                         max_students, status, prep_start_time, reminder_sent, reminders_sent)
+                    SELECT id, instructor_id, title, description, date, start_time, duration,
+                           max_students, status, prep_start_time, reminder_sent, reminders_sent
+                    FROM sessions_old;
+                """))
+                db.execute(text("DROP TABLE sessions_old"))
+                db.execute(text("PRAGMA foreign_keys=ON"))
+                db.execute(text("PRAGMA legacy_alter_table=OFF"))
+
+            cols = list(sess_col_map.keys())
             if "prep_start_time" not in cols:
                 db.execute(text("ALTER TABLE sessions ADD COLUMN prep_start_time DATETIME;"))
             if "reminders_sent" not in cols:
@@ -152,6 +190,8 @@ def _ensure_schema_updates(db):
                 db.execute(text("ALTER TABLE quizzes ADD COLUMN fullscreen_lock BOOLEAN NOT NULL DEFAULT 1;"))
             if "camera_monitoring" not in quiz_cols:
                 db.execute(text("ALTER TABLE quizzes ADD COLUMN camera_monitoring BOOLEAN NOT NULL DEFAULT 0;"))
+            if "reveal_answers" not in quiz_cols:
+                db.execute(text("ALTER TABLE quizzes ADD COLUMN reveal_answers BOOLEAN NOT NULL DEFAULT 1;"))
 
             db.execute(text("""
                 CREATE TABLE IF NOT EXISTS session_resources (

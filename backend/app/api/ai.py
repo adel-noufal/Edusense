@@ -1,4 +1,6 @@
 import json
+import urllib.error
+import urllib.request
 import uuid
 import threading
 import time
@@ -11,7 +13,7 @@ from pydantic import BaseModel
 from app.agents.engagement_agent import StudentEngagementAgent
 from app.agents.flashcard_agent import FlashcardGenerationAgent
 from app.agents.lesson_agent import LessonGenerationAgent
-from app.agents.quiz_agent import QuizGenerationAgent
+from app.agents.quiz_agent import QuizGenerationAgent, normalize_difficulty
 from app.agents.recommendation_agent import RecommendationAgent
 from app.agents.workflow import EduSenseAgentWorkflow
 from app.agents.orchestrator import AgentOrchestrator
@@ -277,8 +279,31 @@ def _serialize_video_project(project: VideoProject) -> dict:
     }
 
 
+def _format_video_job_error(exc: Exception) -> str:
+    """Structured error payload for video jobs: {code, stage, message} as JSON."""
+    from app.services.video import VideoStageError
+    from app.services.gemini import GeminiError
+    if isinstance(exc, VideoStageError):
+        return json.dumps(exc.to_dict())
+    if isinstance(exc, GeminiError):
+        return json.dumps({"code": exc.code, "stage": "script_generation", "message": exc.user_message})
+    return json.dumps({"code": "INTERNAL", "stage": "assembly", "message": str(exc)[:500]})
+
+
+def _raise_video_http(exc: Exception):
+    """Convert pipeline exceptions into a 502 with structured detail."""
+    from app.services.video import VideoStageError
+    from app.services.gemini import GeminiError
+    if isinstance(exc, VideoStageError):
+        raise HTTPException(status_code=502, detail=exc.to_dict())
+    if isinstance(exc, GeminiError):
+        raise HTTPException(status_code=502, detail={"code": exc.code, "stage": "script_generation", "message": exc.user_message})
+    raise
+
+
 def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
     db = SessionLocal()
+    project = None
     try:
         source = _get_source_context(db, payload.source_session_id, instructor_id)
         notes = _append_source(payload.notes, source)
@@ -295,6 +320,7 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
         db.add(project)
         db.commit()
         db.refresh(project)
+        _update_job_progress(job_id, progress=10, message="Generating lesson script...")
         lesson = lessons.generate(
             LessonRequest(
                 topic=payload.title,
@@ -307,7 +333,9 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
                 source_session_id=payload.source_session_id,
             )
         ).data
+        _update_job_progress(job_id, progress=40, message="Building scenes and narration...")
         video = generate_educational_video(project.id, project.title, lesson)
+        _update_job_progress(job_id, progress=85, message="Finalizing video...")
         project.video_path = video["video_url"]
         project.status = "completed"
         if payload.session_id:
@@ -324,10 +352,18 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
         db.refresh(project)
         result = _serialize_video_project(project)
         result["lesson"] = lesson
+        if video.get("warnings"):
+            result["warnings"] = video["warnings"]
         _finish_job(job_id, "done", result)
     except Exception as exc:
         db.rollback()
-        _finish_job(job_id, "error", error=str(exc))
+        if project is not None:
+            try:
+                project.status = "failed"
+                db.commit()
+            except Exception:
+                db.rollback()
+        _finish_job(job_id, "error", error=_format_video_job_error(exc))
     finally:
         db.close()
 
@@ -348,6 +384,7 @@ def _run_video_edit_bg(job_id: str, video_id: int, payload: VideoRequest, instru
         project.notes = notes
         project.status = "processing"
         db.commit()
+        _update_job_progress(job_id, progress=10, message="Generating lesson script...")
         lesson = lessons.generate(
             LessonRequest(
                 topic=payload.title,
@@ -360,17 +397,21 @@ def _run_video_edit_bg(job_id: str, video_id: int, payload: VideoRequest, instru
                 source_session_id=payload.source_session_id,
             )
         ).data
+        _update_job_progress(job_id, progress=40, message="Building scenes and narration...")
         video = generate_educational_video(project.id, project.title, lesson)
+        _update_job_progress(job_id, progress=85, message="Finalizing video...")
         project.video_path = video["video_url"]
         project.status = "completed"
         db.commit()
         db.refresh(project)
         result = _serialize_video_project(project)
         result["lesson"] = lesson
+        if video.get("warnings"):
+            result["warnings"] = video["warnings"]
         _finish_job(job_id, "done", result)
     except Exception as exc:
         db.rollback()
-        _finish_job(job_id, "error", error=str(exc))
+        _finish_job(job_id, "error", error=_format_video_job_error(exc))
     finally:
         db.close()
 
@@ -568,7 +609,7 @@ def list_quizzes(db: Session = Depends(get_db), _: User = Depends(require_role("
             "id": q.id,
             "session_id": q.session_id,
             "title": q.title,
-            "difficulty": q.difficulty,
+            "difficulty": normalize_difficulty(q.difficulty),
             "created_at": q.created_at,
             "questions": json.loads(q.questions_json),
             "is_published": getattr(q, "is_published", True),
@@ -880,7 +921,13 @@ def _run_recommendations_bg(job_id: str, session_id_arg: str | int, instructor_i
 
             emotion_report = workflow.emotions.distributions(db, s.id).data
             engagement_report = workflow.engagement.calculate(db, s.id).data
-            rec_report = workflow.recommendations.recommend(engagement_report, emotion_report).data
+            from app.services.report_data import assess_session_data, session_metrics
+            _assessment = assess_session_data(db, s.id)
+            _metrics = session_metrics(db, s.id, _assessment)
+            _metrics["sufficient_data"] = _assessment["sufficient"]
+            rec_report = workflow.recommendations.recommend(
+                engagement_report, emotion_report, metrics=_metrics
+            ).data
 
             res_item = {
                 "session_id": s.id,
@@ -895,6 +942,7 @@ def _run_recommendations_bg(job_id: str, session_id_arg: str | int, instructor_i
         _update_job_progress(job_id, progress=85, message="Synthesizing pedagogical recommendations...")
 
         rec_list = list(dict.fromkeys(r for res in results for r in res.get("recommendations", {}).get("recommendations", [])))
+        insufficient = any(res.get("recommendations", {}).get("insufficient_data") for res in results)
         aggregate_dist = {}
         for res in results:
             dist = res.get("emotion_report", {}).get("distribution", {})
@@ -904,10 +952,10 @@ def _run_recommendations_bg(job_id: str, session_id_arg: str | int, instructor_i
         final_result = {
             "session_id": session_id_arg,
             "recommendations": {
-                "recommendations": rec_list if rec_list else [
-                    "Maintain active student engagement with periodic concept checks.",
-                    "Incorporate interactive discussions and problem-solving exercises."
-                ]
+                "recommendations": rec_list,
+                "insufficient_data": insufficient,
+                "message": ("Not enough session data to generate recommendations yet."
+                            if insufficient else None),
             },
             "emotion_report": {"distribution": aggregate_dist},
             "engagement_report": results[0].get("engagement_report", {"attention_timeline": []}) if results else {"attention_timeline": []},
@@ -971,13 +1019,20 @@ def create_video(payload: VideoRequest, db: Session = Depends(get_db), user: Use
     db.add(project)
     db.commit()
     db.refresh(project)
-    lesson = lessons.generate(LessonRequest(topic=payload.title, prompt=payload.prompt, language=payload.language, teaching_style=payload.style, duration=payload.duration, additional_notes=notes, session_id=payload.session_id, source_session_id=payload.source_session_id)).data
-    video = generate_educational_video(project.id, project.title, lesson)
+    try:
+        lesson = lessons.generate(LessonRequest(topic=payload.title, prompt=payload.prompt, language=payload.language, teaching_style=payload.style, duration=payload.duration, additional_notes=notes, session_id=payload.session_id, source_session_id=payload.source_session_id)).data
+        video = generate_educational_video(project.id, project.title, lesson)
+    except Exception as exc:
+        project.status = "failed"
+        db.commit()
+        _raise_video_http(exc)
     project.video_path = video["video_url"]
     project.status = "completed"
     db.commit()
     result = _serialize_video_project(project)
     result["lesson"] = lesson
+    if video.get("warnings"):
+        result["warnings"] = video["warnings"]
     return result
 
 
@@ -1002,24 +1057,31 @@ def edit_video(
     project.status = "processing"
     db.commit()
 
-    lesson = lessons.generate(
-        LessonRequest(
-            topic=payload.title,
-            prompt=payload.prompt,
-            language=payload.language,
-            teaching_style=payload.style,
-            duration=payload.duration,
-            additional_notes=notes,
-            session_id=payload.session_id,
-            source_session_id=payload.source_session_id,
-        )
-    ).data
-    video = generate_educational_video(project.id, project.title, lesson)
+    try:
+        lesson = lessons.generate(
+            LessonRequest(
+                topic=payload.title,
+                prompt=payload.prompt,
+                language=payload.language,
+                teaching_style=payload.style,
+                duration=payload.duration,
+                additional_notes=notes,
+                session_id=payload.session_id,
+                source_session_id=payload.source_session_id,
+            )
+        ).data
+        video = generate_educational_video(project.id, project.title, lesson)
+    except Exception as exc:
+        project.status = "failed"
+        db.commit()
+        _raise_video_http(exc)
     project.video_path = video["video_url"]
     project.status = "completed"
     db.commit()
     response = _serialize_video_project(project)
     response["lesson"] = lesson
+    if video.get("warnings"):
+        response["warnings"] = video["warnings"]
     return response
 
 
@@ -1086,6 +1148,65 @@ def delete_video(video_id: int, db: Session = Depends(get_db), user: User = Depe
     if not deleted:
         raise HTTPException(404, "Video not found")
     return {"message": "Video deleted"}
+
+
+# ─── Gemini Health Diagnostics ───────────────────────────────────────────────
+
+@router.get("/gemini-health")
+def gemini_health(user: User = Depends(require_role("instructor"))):
+    """
+    Probe every configured (key, model) pair with a tiny prompt.
+    Returns masked keys only — never key material.
+    """
+    from app.services.gemini import rotator
+    import concurrent.futures
+
+    keys = rotator.get_keys()
+    models = rotator.model_chain("general")
+    pairs = [(i, k, m) for i, k in enumerate(keys) for m in models]
+
+    def probe(idx, key, model):
+        t0 = time.time()
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{model}:generateContent?key={key}")
+        body = json.dumps({"contents": [{"parts": [{"text": "Reply with the word: ok"}]}],
+                           "generationConfig": {"maxOutputTokens": 8}}).encode()
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                payload = json.loads(r.read().decode())
+            text = "".join(p.get("text", "") for p in (payload.get("candidates") or [{}])[0].get("content", {}).get("parts") or [])
+            return {"key_index": idx, "key_masked": rotator.mask_key(key), "model": model,
+                    "healthy": bool(text.strip()), "latency_ms": round((time.time() - t0) * 1000),
+                    "response": text.strip()[:40]}
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode()[:200]
+            except Exception:
+                pass
+            return {"key_index": idx, "key_masked": rotator.mask_key(key), "model": model,
+                    "healthy": False, "latency_ms": round((time.time() - t0) * 1000),
+                    "error": f"HTTP {exc.code}: {detail[:120]}"}
+        except Exception as exc:
+            return {"key_index": idx, "key_masked": rotator.mask_key(key), "model": model,
+                    "healthy": False, "latency_ms": round((time.time() - t0) * 1000),
+                    "error": str(exc)[:120]}
+
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+        futures = [ex.submit(probe, i, k, m) for i, k, m in pairs]
+        for f in concurrent.futures.as_completed(futures):
+            results.append(f.result())
+    results.sort(key=lambda r: (r["key_index"], r["model"]))
+    return {
+        "total_keys": len(keys),
+        "models_tested": models,
+        "healthy_pairs": sum(1 for r in results if r["healthy"]),
+        "total_pairs": len(results),
+        "results": results,
+        "rotator_state": rotator.status(),
+    }
 
 
 # ─── Chat Endpoint ────────────────────────────────────────────────────────────

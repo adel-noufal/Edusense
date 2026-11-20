@@ -137,11 +137,6 @@ export default function StudentExams() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-base font-semibold">{exam.title}</h2>
                     <ExamStatusBadge isPast={isPast} dueDate={exam.due_date} />
-                    {submitted && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                        <CheckCircle size={10} /> Submitted
-                      </span>
-                    )}
                   </div>
                   <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                     {exam.session_title ? <span className="font-medium text-slate-700 dark:text-slate-300">{exam.session_title} · </span> : null}

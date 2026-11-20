@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertCircle, BookOpen, Brain, CheckCircle2, ChevronDown, ChevronRight,
-  Database, Download, ExternalLink, Eye, FileText, Filter, Layers, Loader2, MessageSquare, Plus,
+  Database, Download, ExternalLink, Eye, FileText, Filter, Layers, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus,
   RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, Upload, X, Zap
 } from 'lucide-react'
 import { api } from '../services/api'
@@ -452,25 +452,96 @@ function PreviewPanel({ src, onClose }) {
 }
 
 function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope = null }) {
-  const [messages, setMessages] = useState([
-    {
-      sender: 'ai',
-      text: 'Hello! I am your EduSense AI Assistant. Ask me anything about your uploaded course materials or general academic topics.',
-      sources: [],
-      chunks_used: 0,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
-  ])
-  const [input, setInput]       = useState('')
-  const [subject, setSubject]   = useState('')
-  const [grade, setGrade]       = useState('')
-  const [loading, setLoading]   = useState(false)
-  const [error, setError]       = useState('')
+  const GREETING = {
+    sender: 'ai',
+    text: 'Hello! I am your EduSense AI Assistant. Ask me anything about your uploaded course materials.',
+    sources: [],
+    chunks_used: 0,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  const [messages, setMessages]   = useState([GREETING])
+  const [input, setInput]         = useState('')
+  const [subject, setSubject]     = useState('')
+  const [grade, setGrade]         = useState('')
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState('')
+  const [conversations, setConversations] = useState([])
+  const [activeConvId, setActiveConvId]   = useState(null)
+  const [convSearch, setConvSearch]       = useState('')
+  const [sidebarOpen, setSidebarOpen]     = useState(false)
+  const [listLoading, setListLoading]     = useState(false)
   const chatEndRef              = useRef(null)
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
+
+  const loadConversations = useCallback(async () => {
+    setListLoading(true)
+    try {
+      const data = await api('/rag/chat/conversations')
+      setConversations(Array.isArray(data) ? data : [])
+    } catch (_) {
+      setConversations([])
+    } finally {
+      setListLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadConversations() }, [loadConversations])
+
+  async function openConversation(convId) {
+    if (convId === activeConvId) { setSidebarOpen(false); return }
+    setError('')
+    try {
+      const data = await api(`/rag/chat/conversations/${encodeURIComponent(convId)}`)
+      const loaded = (data.messages || []).map(m => ({
+        sender: m.role === 'user' ? 'user' : 'ai',
+        text: m.content,
+        sources: m.metadata?.sources || [],
+        chunks_used: m.metadata?.chunks_used || 0,
+        timestamp: m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+      }))
+      setMessages(loaded.length ? loaded : [GREETING])
+      setActiveConvId(convId)
+      setSidebarOpen(false)
+    } catch (e) {
+      setError(e.message || 'Failed to load conversation')
+    }
+  }
+
+  function newChat() {
+    setMessages([GREETING])
+    setActiveConvId(null)
+    setError('')
+    setSidebarOpen(false)
+  }
+
+  async function renameConversation(conv) {
+    const title = window.prompt('Rename conversation', conv.title || '')
+    if (!title || !title.trim()) return
+    try {
+      await api(`/rag/chat/conversations/${encodeURIComponent(conv.conversation_id)}`, {
+        method: 'PATCH',
+        body: { title: title.trim() },
+      })
+      setConversations(prev => prev.map(c =>
+        c.conversation_id === conv.conversation_id ? { ...c, title: title.trim(), is_renamed: true } : c))
+    } catch (e) {
+      setError(e.message || 'Rename failed')
+    }
+  }
+
+  async function deleteConversation(conv) {
+    if (!window.confirm(`Delete conversation "${conv.title}"? This cannot be undone.`)) return
+    try {
+      await api(`/rag/chat/conversations/${encodeURIComponent(conv.conversation_id)}`, { method: 'DELETE' })
+      setConversations(prev => prev.filter(c => c.conversation_id !== conv.conversation_id))
+      if (activeConvId === conv.conversation_id) newChat()
+    } catch (e) {
+      setError(e.message || 'Delete failed')
+    }
+  }
 
   async function sendMessage(textToSend) {
     const q = (textToSend || input).trim()
@@ -490,7 +561,15 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
     try {
       const data = await api('/rag/ask', {
         method: 'POST',
-        body: { question: q, subject: subject || null, grade_level: grade || null, top_k: 5, source_file: scopedSource || null }
+        body: {
+          question: q,
+          subject: subject || null,
+          grade_level: grade || null,
+          top_k: 5,
+          source_file: scopedSource || null,
+          conversation_id: activeConvId,
+          persist: true,
+        }
       })
 
       const aiMsg = {
@@ -501,6 +580,10 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
       setMessages(prev => [...prev, aiMsg])
+      if (data.conversation_id && data.conversation_id !== activeConvId) {
+        setActiveConvId(data.conversation_id)
+      }
+      loadConversations()
     } catch (e) {
       setError(e.message || 'Failed to get answer from AI')
     } finally {
@@ -515,11 +598,62 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
     'Create 3 review questions on cell division'
   ]
 
+  const filteredConvs = conversations.filter(c =>
+    !convSearch || (c.title || '').toLowerCase().includes(convSearch.toLowerCase()))
+
   return (
-    <div className="panel flex flex-col space-y-4 min-h-[500px]">
+    <div className="flex items-start gap-4">
+      {/* ── Conversation sidebar (desktop: inline, mobile: overlay) ── */}
+      <aside className={`${sidebarOpen ? 'fixed inset-x-3 top-32 z-30 flex' : 'hidden'} lg:static lg:z-auto lg:flex w-full lg:w-64 shrink-0 flex-col gap-2`}>
+        <div className="panel flex flex-col gap-2 p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Chats</p>
+            <button type="button" onClick={newChat}
+              className="flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-teal-700">
+              <Plus size={12} /> New
+            </button>
+          </div>
+          <div className="relative">
+            <Search size={13} className="absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input className="input w-full py-1.5 ps-8 text-xs" placeholder="Search chats…"
+              value={convSearch} onChange={(e) => setConvSearch(e.target.value)} />
+          </div>
+          <div className="max-h-[55vh] space-y-1 overflow-y-auto">
+            {listLoading && <p className="px-2 py-3 text-center text-xs text-slate-400"><Loader2 size={13} className="inline animate-spin" /></p>}
+            {!listLoading && filteredConvs.length === 0 && (
+              <p className="px-2 py-3 text-center text-xs text-slate-400">
+                {conversations.length === 0 ? 'No saved chats yet' : 'No chats match'}
+              </p>
+            )}
+            {filteredConvs.map(c => (
+              <div key={c.conversation_id}
+                className={`group flex items-center gap-1 rounded-xl px-2 py-1.5 text-xs cursor-pointer transition
+                  ${activeConvId === c.conversation_id
+                    ? 'bg-teal-50 text-teal-800 dark:bg-teal-950/40 dark:text-teal-200'
+                    : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                onClick={() => openConversation(c.conversation_id)}>
+                <MessageSquare size={12} className="shrink-0 opacity-60" />
+                <span className="min-w-0 flex-1 truncate font-medium">{c.title}</span>
+                <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+                  <button type="button" title="Rename" onClick={(e) => { e.stopPropagation(); renameConversation(c) }}
+                    className="rounded p-0.5 hover:bg-slate-200 dark:hover:bg-slate-700"><Pencil size={11} /></button>
+                  <button type="button" title="Delete" onClick={(e) => { e.stopPropagation(); deleteConversation(c) }}
+                    className="rounded p-0.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"><Trash2 size={11} /></button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </aside>
+
+    <div className="panel flex flex-1 min-w-0 flex-col space-y-4 min-h-[500px]">
       {/* Header & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
         <div className="flex items-center gap-3">
+          <button type="button" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden dark:hover:bg-slate-800"
+            onClick={() => setSidebarOpen(v => !v)} title="Chats">
+            {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+          </button>
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 text-white shadow-sm">
             <Sparkles size={20} />
           </div>
@@ -538,8 +672,8 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
             <option value="">All Grades</option>
             {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
           </select>
-          <button type="button" className="btn-soft text-xs py-1.5 px-3" onClick={() => setMessages([messages[0]])}>
-            Clear Chat
+          <button type="button" className="btn-soft text-xs py-1.5 px-3" onClick={newChat}>
+            New Chat
           </button>
         </div>
       </div>
@@ -638,6 +772,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
           <span>Send</span>
         </button>
       </form>
+    </div>
     </div>
   )
 }

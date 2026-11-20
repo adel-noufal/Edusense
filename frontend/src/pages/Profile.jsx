@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BellRing, Camera, Eye, Palette, Save, Sparkles, Upload } from 'lucide-react'
+import { BellRing, Camera, Eye, Save, Sparkles, Upload } from 'lucide-react'
 import { api, staticUrl, token } from '../services/api'
 import { useLanguage } from '../context/LanguageContext'
 import { useAuth } from '../context/AuthContext'
@@ -18,14 +18,13 @@ export default function Profile() {
     emailNotifications: localStorage.getItem('edusense_email_notifications') !== 'false',
     ambientMotion: localStorage.getItem('edusense_ambient_motion') !== 'false',
     compactCards: localStorage.getItem('edusense_compact_cards') === 'true',
-    accent: localStorage.getItem('edusense_accent') || 'teal',
   }))
 
   useEffect(() => {
     localStorage.setItem('edusense_email_notifications', String(prefs.emailNotifications))
     localStorage.setItem('edusense_ambient_motion', String(prefs.ambientMotion))
     localStorage.setItem('edusense_compact_cards', String(prefs.compactCards))
-    localStorage.setItem('edusense_accent', prefs.accent)
+    localStorage.removeItem('edusense_accent') // legacy accent palette removed; theme locked to Teal
     document.documentElement.dataset.compact = prefs.compactCards ? 'true' : 'false'
   }, [prefs])
 
@@ -183,14 +182,6 @@ export default function Profile() {
               <select className="input" value={lang} onChange={(e) => setLang(e.target.value)}>
                 <option value="en">English</option>
                 <option value="ar">العربية</option>
-              </select>
-            </label>
-            <label className="space-y-2">
-              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Accent Palette</span>
-              <select className="input" value={prefs.accent} onChange={(e) => setPrefs({ ...prefs, accent: e.target.value })}>
-                <option value="teal">Teal Ocean</option>
-                <option value="blue">Calm Blue</option>
-                <option value="sunset">Sunset Coral</option>
               </select>
             </label>
           </div>

@@ -4,6 +4,65 @@ All notable changes to **EduSense** are documented here.
 
 ---
 
+## [Unreleased] — Reliability & Hardening Batch (9 work items)
+
+### Infrastructure — Central Gemini client with key × model rotation
+- `app/services/gemini.py` is now the single Gemini client used by every agent; duplicated direct calls removed.
+- Rotates over `(API key × model)` pairs: keys round-robin, then the next model in an ordered per-task chain (`EDUSENSE_GEMINI_MODELS`, `_MODELS_CHAT`, `_MODELS_SCRIPT`).
+- Cooldown with `retry-after` / exponential backoff + jitter on 429/503/timeout/model-not-found; 400 and safety blocks surface immediately.
+- Typed `GeminiError` codes (`QUOTA_EXHAUSTED`, `MODEL_UNAVAILABLE`, `SAFETY_BLOCKED`, `TIMEOUT`, `INVALID_RESPONSE`); masked-key logging; `GET /api/ai/gemini-health` diagnostic endpoint.
+- Fixed rotator deadlock (lock held across yield) and per-key model fallback for keys whose projects can't serve a given model.
+
+### 1. Video generation — length control, dedupe, structured errors
+- Duration → target word count via configurable `EDUSENSE_VIDEO_NARRATION_WPM` (default 140) with ±`EDUSENSE_VIDEO_SCRIPT_TOLERANCE` (10%) enforcement, corrective expand/condense passes, and hard failure instead of wrong-length scripts.
+- Outline-first generation with per-section context; n-gram duplicate detection rejects repeated sections.
+- Scene duration driven by real TTS audio length; per-scene TTS timeouts (`EDUSENSE_VIDEO_TTS_TIMEOUT`).
+- Video jobs return structured errors `{code, stage, message}` (`script_generation`/`tts`/`render`) surfaced in the UI with retry.
+
+### 2. Reports — minimum data, duration cap, CSV export
+- New `app/services/report_data.py`: shared sufficiency assessment (`REPORT_MIN_EMOTION_SAMPLES`, `REPORT_MIN_ATTENDED_MINUTES`, `REPORT_MIN_PARTICIPANTS`) — below threshold the report shows an explicit "Not enough data yet" state instead of fabricated numbers.
+- Attended duration clamped to `REPORT_MAX_ATTENDED_MINUTES` (default 720) and flagged `duration_capped`; scheduled vs attended duration are now distinct everywhere.
+- `GET /api/reports/.../export.csv` — UTF-8 BOM, escaped fields, per-session summary + per-interval emotion timeline; Arabic opens correctly in Excel.
+
+### 3. Recommendations grounded in real data
+- `recommendation_agent.py` computes metrics deterministically (emotion distribution, engagement, quiz performance, attendance) and passes only those facts to the LLM as structured JSON; output validated against a schema and filler rejected.
+- Each recommendation cites its evidence; insufficient data → no recommendations, only the empty state. Generic fallback filler removed.
+
+### 4. Accent Palette removed
+- Setting, state, CSS-variable switching, and persisted preference code removed from Profile (instructor + student); theme locked to default Teal. Language, animated background, email notifications, and compact view unchanged; legacy localStorage keys cleaned.
+
+### 5. Emotion Recognition Trial — larger camera area
+- Camera stage enlarged to ~50vh with `object-fit: contain`, mirrored selfie view, emotion-colored confidence overlay, face/no-face and permission-denied states; stream stops on unmount; "analyzed once per second, not stored" unchanged.
+
+### 6. Student Exams hardened
+- `Quiz.reveal_answers` added; correct answers/explanations stripped from student payloads when disabled.
+- Question count enforced server-side (pad/truncate), difficulty normalized to Easy/Medium/Hard, `type` inferred for generated questions.
+- Exam guards: one-attempt enforcement, unpublished/past-due exams blocked (403), resubmission replay blocked (400).
+- Grading resolves answer letters, numeric indexes, option text, true/false, and short-answer; server-side timing validated; duplicate "Submitted" badge removed.
+
+### 7. Session duration optional / unbounded
+- `sessions.duration` nullable — `NULL` = "No time limit" (default in UI); positive values only, no upper bound. Migration `a1b2c3d4e5f6` (reversible).
+- Create/edit UI (Sessions + Dashboard) with "No time limit" checkbox; status treats NULL as unbounded "ongoing"; reports clamp via item 2.
+
+### 8. Knowledge Base persistent chat history
+- KB conversations stored in `chat_messages` under `kb:`-prefixed IDs, user-scoped; endpoints: list (with search), get, rename (PATCH), delete.
+- Auto title from first message, bounded 12-message history window sent to the RAG prompt, source citations persisted on assistant messages; instructor-only (students get 403).
+- `KnowledgeBase.jsx` QA panel has a conversation sidebar, new/rename/delete/search, and resume with full context.
+
+### 9. AI Chatbot output quality
+- System prompt rewritten: EduSense teaching-assistant role, answers in the user's language (EN/AR/mixed), concise structured output, honest "I don't know", no fabricated citations, no prompt leakage.
+- New safe Markdown renderer (`frontend/src/utils/markdown.jsx`): headings, lists, bold/italic, inline code, fenced code blocks with copy button, `$...$` math, safe links — no `dangerouslySetInnerHTML`.
+- Regenerate button on the last assistant reply; Stop button aborts in-flight requests; typed error messages; generation tuned (chat task chain, temperature 0.4, 2048 max tokens).
+
+### Tests
+- `test_task_video_script_quality.py` — word-count targets, corrective pass, n-gram dedupe.
+- `test_task_reports_items2_3.py` — thresholds, duration clamp, insufficient-data state, CSV, recommendation grounding.
+- `test_task_exam_hardening.py` — normalization, one-attempt, publish/due guards, answer stripping.
+- `test_task_items7_8.py` — optional duration validation/status + KB history CRUD and user isolation (30 checks).
+- Gemini rotation tests updated for key × model semantics; `GET /api/ai/gemini-health` diagnostic added.
+
+---
+
 ## [2.1.0] — 2026-10-24 (branch: feature/sessions-ingestion)
 
 ### Added — Task 1: Vector Store Foundation

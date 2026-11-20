@@ -187,31 +187,48 @@ The student dashboard home page includes a self-contained **Emotion Recognition 
 
 ---
 
-## 🔄 Multi-API-Key Rotation for Google Gemini
+## 🔄 Multi-Key × Multi-Model Rotation for Google Gemini
 
-To prevent request failures caused by quota exhaustion, rate limits, or credential revocation, EduSense features an automatic API key rotation and failover engine:
+All AI features (video scripts, reports, recommendations, Knowledge Base chat, AI Chatbot, quizzes, flashcards, exams) share **one central Gemini client** — `backend/app/services/gemini.py`. There are no scattered direct Gemini calls.
 
 ### ⚙️ Configuration
-You can supply multiple keys using a comma-separated variable or numbered variables:
 
 ```env
-# Primary & secondary keys:
-GEMINI_API_KEY=AIzaSyA1...,AIzaSyB2...
+# API keys — comma-separated or numbered variables (auto-discovered):
+EDUSENSE_GEMINI_API_KEY=AIzaSyA1...,AIzaSyB2...
+EDUSENSE_GEMINI_API_KEY_1=AIzaSyA1...
+EDUSENSE_GEMINI_API_KEY_2=AIzaSyB2...
+EDUSENSE_GEMINI_API_KEY_3=AIzaSyC3...
+# Optional dedicated chatbot key (uses the main pool if unset):
+EDUSENSE_CHATBOT_GEMINI_API_KEY=AIzaSyC4...
 
-# Dedicated chatbot key (optional 3rd key):
-EDUSENSE_CHATBOT_GEMINI_API_KEY=AIzaSyC3...
-
-# OR numbered variables (automatically discovered):
-GEMINI_API_KEY_1=AIzaSyA1...
-GEMINI_API_KEY_2=AIzaSyB2...
-GEMINI_API_KEY_3=AIzaSyC3...
+# Ordered model fallback chains (comma-separated, optional overrides):
+EDUSENSE_GEMINI_MODELS=gemini-2.5-flash,gemini-2.5-flash-lite,gemini-flash-latest
+EDUSENSE_GEMINI_MODELS_CHAT=gemini-2.5-flash,gemini-flash-latest
+EDUSENSE_GEMINI_MODELS_SCRIPT=gemini-2.5-flash,gemini-2.5-pro
 ```
 
 ### 🛡️ Rotation & Failover Mechanics
-1. **Multi-Failure Classification (`_is_rotatable_error`)**: Automatically rotates keys not only on HTTP 429 rate limits, but also on HTTP 503 capacity errors, and HTTP 400/403 invalid/suspended key errors (`API_KEY_INVALID`, `permission_denied`, `billing_not_enabled`).
-2. **Instant Failover**: If an active key fails with any rotatable error, the rotator immediately marks it exhausted and repeats the call on the next candidate key without failing user requests.
-3. **Automatic Cooldown Recovery**: Exhausted keys enter an exponential cooldown (default: 60s) and automatically re-enter the active pool once the cooldown passes.
-4. **Security Masking**: All logging and status inspection mask private key tokens (e.g., `AIza...4f2a`).
+1. **Key × Model pairs**: the rotator iterates `(key, model)` combinations — keys round-robin first, then the next model in the task's chain.
+2. **Failure classes**: 429/quota, 503/overloaded, timeouts, and model-not-found put that pair on a cooldown (honors `retry-after`, else exponential backoff with jitter). 400/invalid-request and safety blocks are surfaced immediately — never retried.
+3. **Typed errors**: when every combination is exhausted, callers get a `GeminiError` with a machine-readable code (`QUOTA_EXHAUSTED`, `MODEL_UNAVAILABLE`, `SAFETY_BLOCKED`, `TIMEOUT`, `INVALID_RESPONSE`, ...).
+4. **Observability**: server logs record which key index (masked to last 4 chars) and model served each request, latency, and failures. `GET /api/ai/gemini-health` reports per-pair health for diagnostics.
+5. **Task chains**: `chat` uses the fast/cheap chain; long-form `script`/`report` tasks use the stronger chain; everything else uses `EDUSENSE_GEMINI_MODELS`.
+
+### 🎬 Video generation tuning
+```env
+EDUSENSE_VIDEO_NARRATION_WPM=140        # words/min used for duration -> script length
+EDUSENSE_VIDEO_SCRIPT_TOLERANCE=0.10    # ±10% allowed deviation before corrective pass
+EDUSENSE_VIDEO_TTS_TIMEOUT=45           # per-scene TTS timeout (seconds)
+```
+
+### 📊 Report thresholds & duration cap
+```env
+EDUSENSE_REPORT_MIN_EMOTION_SAMPLES=10
+EDUSENSE_REPORT_MIN_ATTENDED_MINUTES=2
+EDUSENSE_REPORT_MIN_PARTICIPANTS=1
+EDUSENSE_REPORT_MAX_ATTENDED_MINUTES=720   # sanity cap; open/left-running sessions clamp, never reject
+```
 
 ---
 

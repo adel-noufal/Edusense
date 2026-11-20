@@ -10,7 +10,8 @@ const initialForm = {
   description: '',
   date: new Date().toISOString().slice(0, 10),
   start_time: '10:00',
-  duration: 60,
+  duration: '',
+  no_limit: true,
   max_students: '',
 }
 
@@ -63,6 +64,7 @@ export default function Sessions() {
     try {
       const payload = {
         ...form,
+        duration: form.no_limit || !form.duration ? null : Number(form.duration),
         max_students: form.max_students ? Number(form.max_students) : null
       }
       const created = await api('/sessions', { method: 'POST', body: payload })
@@ -109,7 +111,8 @@ export default function Sessions() {
       description: session.description || '',
       date: session.date,
       start_time: session.start_time,
-      duration: session.duration,
+      duration: session.duration ?? '',
+      no_limit: session.duration == null,
       max_students: session.max_students || '',
     })
     const currentlyLinked = session.linked_content?.[0]
@@ -121,6 +124,7 @@ export default function Sessions() {
     try {
       const payload = {
         ...editForm,
+        duration: editForm.no_limit || !editForm.duration ? null : Number(editForm.duration),
         max_students: editForm.max_students ? Number(editForm.max_students) : null
       }
       await api(`/sessions/${editingSession.id}`, { method: 'PUT', body: payload })
@@ -283,7 +287,21 @@ export default function Sessions() {
         <input className="input" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
         <input className="input" type="time" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} />
         <div className="grid grid-cols-2 gap-3">
-          <input className="input" type="number" min="5" max="480" value={form.duration} onChange={(e) => setForm({ ...form, duration: Number(e.target.value) })} />
+          <div className="space-y-1">
+            <input
+              className="input"
+              type="number"
+              min="1"
+              placeholder="Duration (min)"
+              disabled={form.no_limit}
+              value={form.duration}
+              onChange={(e) => setForm({ ...form, duration: e.target.value })}
+            />
+            <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <input type="checkbox" checked={form.no_limit} onChange={(e) => setForm({ ...form, no_limit: e.target.checked })} />
+              No time limit
+            </label>
+          </div>
           <input className="input" type="number" min="1" max="500" placeholder="Seats (Optional)" value={form.max_students} onChange={(e) => setForm({ ...form, max_students: e.target.value })} />
         </div>
         <label className="block space-y-2">
@@ -408,7 +426,21 @@ export default function Sessions() {
             <input className="input dark:bg-slate-800 dark:border-slate-700" type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} required />
             <input className="input dark:bg-slate-800 dark:border-slate-700" type="time" value={editForm.start_time} onChange={(e) => setEditForm({ ...editForm, start_time: e.target.value })} required />
             <div className="grid grid-cols-2 gap-3">
-              <input className="input dark:bg-slate-800 dark:border-slate-700" type="number" min="5" max="480" placeholder="Duration (min)" value={editForm.duration} onChange={(e) => setEditForm({ ...editForm, duration: Number(e.target.value) })} />
+              <div className="space-y-1">
+                <input
+                  className="input dark:bg-slate-800 dark:border-slate-700"
+                  type="number"
+                  min="1"
+                  placeholder="Duration (min)"
+                  disabled={editForm.no_limit}
+                  value={editForm.duration}
+                  onChange={(e) => setEditForm({ ...editForm, duration: e.target.value })}
+                />
+                <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  <input type="checkbox" checked={!!editForm.no_limit} onChange={(e) => setEditForm({ ...editForm, no_limit: e.target.checked })} />
+                  No time limit
+                </label>
+              </div>
               <input className="input dark:bg-slate-800 dark:border-slate-700" type="number" min="1" max="500" placeholder="Seats (Optional)" value={editForm.max_students} onChange={(e) => setEditForm({ ...editForm, max_students: e.target.value })} />
             </div>
             <label className="block space-y-2">

@@ -94,28 +94,36 @@ def test_task7_video_generation():
     fake_generation_data = {
         "title": "Python Basics",
         "language": "English",
+        "duration": 3,
         "slides": [
             {
                 "title": "Variables",
-                "content": "In Python, variables are used to store data values.",
+                "content": "In Python, variables are used to store data values. A variable is created the moment you assign a value to it, and Python infers the data type automatically from that value. You can store numbers, text, lists, and more in variables, and you can change what a variable holds at any time during your program. Good variable names are short but meaningful, so that anyone reading your code can understand what each value represents without guessing. Unlike some languages, you do not need to declare a type before using a variable, which makes Python fast to write and easy for beginners to learn.",
             },
             {
                 "title": "Loops",
-                "content": "Loops repeat a block of code while a condition is met.",
+                "content": "Loops repeat a block of code while a condition is met. The most common loop is the for loop, which iterates over each item in a sequence such as a list or range of numbers. The while loop keeps running as long as its condition stays true, so you must make sure the condition eventually becomes false or the program will run forever. Loops save time by avoiding repeated lines of code and make programs shorter and easier to maintain. You can also control the flow inside a loop with break and continue statements.",
             },
             {
                 "title": "Functions",
-                "content": "A function is a block of code which only runs when it is called.",
+                "content": "A function is a block of code which only runs when it is called. You define a function with the def keyword, give it a name, and optionally pass arguments inside parentheses. Functions help you reuse code, keep programs organized, and test small pieces of logic independently. A function can return a value back to the caller using the return statement, which lets you store or use the result of the calculation elsewhere in your program.",
+            },
+            {
+                "title": "Data Structures",
+                "content": "Python provides built-in data structures such as lists, tuples, dictionaries, and sets. A list is ordered and mutable, so you can add, remove, or change items after creation. A dictionary stores key-value pairs and lets you look up values quickly by key. Choosing the right structure makes your programs faster and your code easier to read, because each structure is designed for a particular kind of data and access pattern.",
             },
             {
                 "title": "Summary",
-                "content": "That concludes the Python Basics overview.",
+                "content": "That concludes the Python Basics overview. You learned how variables store values, how loops repeat work efficiently, how functions organize reusable logic, and how data structures help you model information. Practice writing small programs that combine these ideas, and you will build a strong foundation for more advanced Python topics.",
             },
         ],
     }
 
     try:
-        with patch("app.services.video._gtts_scene", side_effect=_mock_gtts_scene):
+        # Pin the corrective LLM pass off so the test is deterministic — the
+        # fixture script is sized to the duration target on purpose.
+        with patch("app.services.video._gtts_scene", side_effect=_mock_gtts_scene), \
+             patch("app.services.video._llm_adjust_scenes", return_value=None):
             result = generate_educational_video(99901, "Python Basics", fake_generation_data)
 
         check("returns dict", isinstance(result, dict))

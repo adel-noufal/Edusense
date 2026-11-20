@@ -38,6 +38,9 @@ class ReportGenerationAgent:
         has_students: bool = True,
         attended_duration: float | int | None = None,
         scheduled_duration: int | None = None,
+        sufficient_data: bool = True,
+        insufficient_message: str = "Not enough data yet.",
+        duration_capped: bool = False,
     ) -> AgentResult:
         """
         Build a session report.
@@ -68,6 +71,34 @@ class ReportGenerationAgent:
                 },
             )
 
+        # Insufficient data: honest empty state instead of fabricated scores
+        if not sufficient_data:
+            duration_note = ""
+            if attended_duration is not None:
+                duration_note = f"Attended duration: {attended_duration} min. "
+                if duration_capped:
+                    duration_note += "(capped at the configured maximum) "
+            summary = (
+                f"Session '{session_title}' does not have enough data for AI insights yet, "
+                f"{instructor_name}. {duration_note}{insufficient_message}"
+            )
+            pdf_path = self._pdf_insufficient(session_id, instructor_name, session_title,
+                                              insufficient_message, attended_duration, scheduled_duration)
+            return AgentResult(
+                self.name,
+                {
+                    "summary": summary,
+                    "pdf_path": pdf_path,
+                    "has_students": True,
+                    "sufficient_data": False,
+                    "insufficient_message": insufficient_message,
+                    "attended_duration": attended_duration,
+                    "scheduled_duration": scheduled_duration,
+                    "duration_capped": duration_capped,
+                },
+            )
+
+        emotion_labels: list[str] = []
         engagement_pct = engagement.get("engagement_percentage")
         dominant_emotions = recommendations.get("dominant_emotions", [])
         recs = recommendations.get("recommendations", ["Review pacing"])
@@ -102,6 +133,8 @@ class ReportGenerationAgent:
             duration_note = ""
             if attended_duration is not None:
                 duration_note = f"Attended duration: {attended_duration} min. "
+            if duration_capped:
+                duration_note += "(capped at the configured maximum — the session may have been left open) "
             summary = (
                 f"{verdict} "
                 f"{duration_note}"
@@ -128,6 +161,8 @@ class ReportGenerationAgent:
                 "has_students": True,
                 "attended_duration": attended_duration,
                 "scheduled_duration": scheduled_duration,
+                "duration_capped": duration_capped,
+                "sufficient_data": True,
             },
         )
 
@@ -190,6 +225,36 @@ class ReportGenerationAgent:
                 c.showPage()
                 y = 740
 
+        c.save()
+        return str(path)
+
+    def _pdf_insufficient(
+        self,
+        session_id: int,
+        instructor_name: str,
+        session_title: str,
+        insufficient_message: str,
+        attended_duration: float | int | None = None,
+        scheduled_duration: int | None = None,
+    ) -> str:
+        path = self._out_path(session_id)
+        c = canvas.Canvas(str(path), pagesize=letter)
+        c.setTitle("EduSense Session Report")
+        c.setFont("Helvetica-Bold", 18)
+        c.drawString(72, 740, "EduSense Session Report")
+        c.setFont("Helvetica", 11)
+        c.drawString(72, 710, f"Session: {session_title}")
+        c.drawString(72, 690, f"Instructor: {instructor_name}")
+        if attended_duration is not None:
+            c.drawString(72, 670, f"Attended Duration: {attended_duration} min"
+                         + (f" (Scheduled: {scheduled_duration} min)" if scheduled_duration else ""))
+        c.setFont("Helvetica-Bold", 13)
+        c.drawString(72, 630, "Not enough data yet")
+        c.setFont("Helvetica", 11)
+        for i, line in enumerate(insufficient_message.split(". ")):
+            if i > 6:
+                break
+            c.drawString(90, 600 - i * 18, (line + ".")[:110])
         c.save()
         return str(path)
 
