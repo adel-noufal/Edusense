@@ -10,7 +10,15 @@ from app.core.audit import log_audit_event
 import time
 
 router = APIRouter(prefix="/emotions", tags=["emotions"])
-agent = EmotionAnalysisAgent()
+_agent: "EmotionAnalysisAgent | None" = None
+
+
+def _get_agent() -> "EmotionAnalysisAgent":
+    """Lazy-init: load TF/DeepFace only on first emotion request, not at import time."""
+    global _agent
+    if _agent is None:
+        _agent = EmotionAnalysisAgent()
+    return _agent
 
 # --- Simple in-memory rate limiter (per user, max 1 frame per 1.5 seconds) ---
 _last_call: dict[int, float] = defaultdict(float)
@@ -34,7 +42,7 @@ def analyze_frame(
     user: User = Depends(require_consent("emotion_detection"))
 ):
     _check_rate_limit(user.id)
-    return agent.analyze_frame(db, payload.session_id, user.id, payload.image).data
+    return _get_agent().analyze_frame(db, payload.session_id, user.id, payload.image).data
 
 
 @router.post("/analyze-trial")
@@ -51,7 +59,7 @@ def analyze_trial(
     image = payload.get("image")
     if not image:
         raise HTTPException(400, "image is required")
-    detail = agent._detect_detailed(image)
+    detail = _get_agent()._detect_detailed(image)
     return {
         "emotion": detail.get("emotion"),
         "confidence": detail.get("confidence", 0.0),
@@ -91,7 +99,7 @@ def receive_frame(
     # For quiz monitoring, we analyze but don't rate limit as strictly
     if quiz_monitoring:
         try:
-            result = agent.analyze_frame(db, session_id, user.id, image).data
+            result = _get_agent().analyze_frame(db, session_id, user.id, image).data
             # Log audit for quiz monitoring
             log_audit_event(db, action="quiz_camera_frame", user=user, resource_type="quiz_attempt", resource_id=str(attempt_id), request=request, details={
                 "session_id": session_id,
@@ -105,7 +113,7 @@ def receive_frame(
 
     # Standard rate-limited analysis
     _check_rate_limit(user.id)
-    return agent.analyze_frame(db, session_id, user.id, image).data
+    return _get_agent().analyze_frame(db, session_id, user.id, image).data
 
 
 @router.post("")
@@ -124,7 +132,7 @@ def session_emotions(session_id: int, db: Session = Depends(get_db), _: User = D
 
 @router.get("/session/{session_id}/distribution")
 def distribution(session_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return agent.distributions(db, session_id).data
+    return _get_agent().distributions(db, session_id).data
 
 
 # ─── Consent Endpoints ────────────────────────────────────────────────────────

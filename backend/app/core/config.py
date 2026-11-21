@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://edusense:edusense@localhost:5432/edusense"
     access_token_minutes: int = 1440
     engagement_threshold: int = 62
+    allow_paid_models: bool = Field(default=False, validation_alias=AliasChoices("ALLOW_PAID_MODELS", "allow_paid_models"))
     ai_provider: str = "gemini"
     gemini_api_key: str = Field(
         default="",

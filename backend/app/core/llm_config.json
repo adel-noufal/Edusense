@@ -7,7 +7,6 @@
       "auth_style": "query_param",
       "default_models": [
         "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
         "gemini-2.0-flash",
         "gemini-flash-latest",
         "gemini-2.5-pro"
@@ -20,10 +19,7 @@
       "auth_style": "bearer",
       "default_models": [
         "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "openai/gpt-oss-120b",
-        "qwen/qwen3.8-27b",
-        "openai/gpt-oss-20b"
+        "llama-3.1-8b-instant"
       ]
     },
     "cerebras": {
@@ -42,11 +38,10 @@
       "base_url": "https://openrouter.ai/api/v1",
       "auth_style": "bearer",
       "default_models": [
-        "meta-llama/llama-3.3-70b-instruct",
-        "google/gemini-2.0-flash-001",
-        "deepseek/deepseek-chat",
-        "openai/gpt-4o-mini",
-        "qwen/qwen-2.5-72b-instruct"
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemini-2.0-flash-exp:free",
+        "deepseek/deepseek-r1:free",
+        "qwen/qwen-2.5-72b-instruct:free"
       ]
     },
     "nvidia": {
@@ -56,9 +51,9 @@
       "auth_style": "bearer",
       "default_models": [
         "meta/llama-3.3-70b-instruct",
-        "deepseek-ai/deepseek-v3.1",
+        "deepseek-ai/deepseek-r1",
         "qwen/qwen2.5-72b-instruct",
-        "deepseek-ai/deepseek-r1"
+        "deepseek-ai/deepseek-v3.1"
       ]
     },
     "deepinfra": {
@@ -86,7 +81,8 @@
         "free_rpd": 1500,
         "free_tpm": 1000000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       },
       "gemini-2.5-flash-lite": {
         "context_window": 1048576,
@@ -99,7 +95,8 @@
         "free_rpd": 1500,
         "free_tpm": 1000000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": false
       },
       "gemini-2.0-flash": {
         "context_window": 1048576,
@@ -112,7 +109,8 @@
         "free_rpd": 1500,
         "free_tpm": 1000000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       },
       "gemini-flash-latest": {
         "context_window": 1048576,
@@ -125,7 +123,8 @@
         "free_rpd": 1500,
         "free_tpm": 1000000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       },
       "gemini-2.5-pro": {
         "context_window": 2097152,
@@ -138,7 +137,8 @@
         "free_rpd": 50,
         "free_tpm": 32000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       }
     },
     "groq": {
@@ -153,7 +153,8 @@
         "free_rpd": 14400,
         "free_tpm": 6000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       },
       "llama-3.1-8b-instant": {
         "context_window": 128000,
@@ -166,7 +167,8 @@
         "free_rpd": 14400,
         "free_tpm": 20000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       },
       "openai/gpt-oss-120b": {
         "context_window": 8192,
@@ -179,7 +181,8 @@
         "free_rpd": 14400,
         "free_tpm": 10000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": false
       },
       "qwen/qwen3.8-27b": {
         "context_window": 32768,
@@ -192,7 +195,8 @@
         "free_rpd": 14400,
         "free_tpm": 10000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": false
       },
       "openai/gpt-oss-20b": {
         "context_window": 8192,
@@ -205,7 +209,8 @@
         "free_rpd": 14400,
         "free_tpm": 10000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": false
       }
     },
     "cerebras": {
@@ -220,7 +225,8 @@
         "free_rpd": 14400,
         "free_tpm": 60000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       },
       "llama3.1-8b": {
         "context_window": 8192,
@@ -233,7 +239,8 @@
         "free_rpd": 14400,
         "free_tpm": 60000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       }
     },
     "nvidia": {
@@ -248,7 +255,8 @@
         "free_rpd": 5000,
         "free_tpm": 20000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       },
       "deepseek-ai/deepseek-v3.1": {
         "context_window": 64000,
@@ -261,7 +269,8 @@
         "free_rpd": 5000,
         "free_tpm": 20000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       },
       "qwen/qwen2.5-72b-instruct": {
         "context_window": 32768,
@@ -274,7 +283,8 @@
         "free_rpd": 5000,
         "free_tpm": 20000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       },
       "deepseek-ai/deepseek-r1": {
         "context_window": 64000,
@@ -287,7 +297,8 @@
         "free_rpd": 5000,
         "free_tpm": 20000,
         "cost": "free",
-        "may_train_on_data": false
+        "may_train_on_data": false,
+        "free_tier": true
       }
     },
     "openrouter": {
@@ -301,8 +312,9 @@
         "free_rpm": 20,
         "free_rpd": 1000,
         "free_tpm": 15000,
-        "cost": "free",
-        "may_train_on_data": false
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
       },
       "google/gemini-2.0-flash-001": {
         "context_window": 1048576,
@@ -314,8 +326,9 @@
         "free_rpm": 20,
         "free_rpd": 1000,
         "free_tpm": 15000,
-        "cost": "free",
-        "may_train_on_data": false
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
       },
       "deepseek/deepseek-chat": {
         "context_window": 64000,
@@ -327,8 +340,9 @@
         "free_rpm": 20,
         "free_rpd": 1000,
         "free_tpm": 15000,
-        "cost": "free",
-        "may_train_on_data": false
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
       },
       "openai/gpt-4o-mini": {
         "context_window": 128000,
@@ -340,8 +354,9 @@
         "free_rpm": 20,
         "free_rpd": 1000,
         "free_tpm": 15000,
-        "cost": "free",
-        "may_train_on_data": false
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
       },
       "qwen/qwen-2.5-72b-instruct": {
         "context_window": 32768,
@@ -353,7 +368,60 @@
         "free_rpm": 20,
         "free_rpd": 1000,
         "free_tpm": 15000,
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
+      },
+      "meta-llama/llama-3.3-70b-instruct:free": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 200,
         "cost": "free",
+        "free_tier": true,
+        "may_train_on_data": false
+      },
+      "google/gemini-2.0-flash-exp:free": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 200,
+        "cost": "free",
+        "free_tier": true,
+        "may_train_on_data": false
+      },
+      "deepseek/deepseek-r1:free": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 200,
+        "cost": "free",
+        "free_tier": true,
+        "may_train_on_data": false
+      },
+      "qwen/qwen-2.5-72b-instruct:free": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 200,
+        "cost": "free",
+        "free_tier": true,
         "may_train_on_data": false
       }
     },
@@ -368,8 +436,9 @@
         "free_rpm": 30,
         "free_rpd": 3000,
         "free_tpm": 20000,
-        "cost": "free",
-        "may_train_on_data": false
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
       },
       "Qwen/Qwen2.5-72B-Instruct": {
         "context_window": 32768,
@@ -381,8 +450,9 @@
         "free_rpm": 30,
         "free_rpd": 3000,
         "free_tpm": 20000,
-        "cost": "free",
-        "may_train_on_data": false
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
       },
       "deepseek-ai/DeepSeek-V3": {
         "context_window": 64000,
@@ -394,8 +464,9 @@
         "free_rpm": 30,
         "free_rpd": 3000,
         "free_tpm": 20000,
-        "cost": "free",
-        "may_train_on_data": false
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
       }
     }
   },
@@ -406,7 +477,11 @@
       "min_arabic_quality": "high",
       "coherence_needed": true,
       "strict_json": false,
-      "provider_affinity": ["gemini", "openrouter", "nvidia"],
+      "provider_affinity": [
+        "gemini",
+        "openrouter",
+        "nvidia"
+      ],
       "description": "Long output + long context + high Arabic quality + coherence"
     },
     "kb_chat": {
@@ -416,7 +491,12 @@
       "speed_priority": "high",
       "streaming_preferred": true,
       "strict_json": false,
-      "provider_affinity": ["groq", "gemini", "openrouter", "nvidia"],
+      "provider_affinity": [
+        "groq",
+        "gemini",
+        "openrouter",
+        "nvidia"
+      ],
       "description": "Low latency + streaming + good Arabic + moderate context"
     },
     "chatbot": {
@@ -426,7 +506,12 @@
       "speed_priority": "high",
       "streaming_preferred": true,
       "strict_json": false,
-      "provider_affinity": ["groq", "gemini", "openrouter", "nvidia"],
+      "provider_affinity": [
+        "groq",
+        "gemini",
+        "openrouter",
+        "nvidia"
+      ],
       "description": "Low latency + streaming + good Arabic + moderate context"
     },
     "quizzes": {
@@ -434,7 +519,13 @@
       "min_output": 1500,
       "strict_json": true,
       "throughput_priority": "high",
-      "provider_affinity": ["nvidia", "openrouter", "deepinfra", "groq", "gemini"],
+      "provider_affinity": [
+        "nvidia",
+        "openrouter",
+        "deepinfra",
+        "groq",
+        "gemini"
+      ],
       "description": "Reliable strict JSON, short outputs, high throughput"
     },
     "flashcards": {
@@ -442,7 +533,13 @@
       "min_output": 1500,
       "strict_json": true,
       "throughput_priority": "high",
-      "provider_affinity": ["nvidia", "openrouter", "deepinfra", "groq", "gemini"],
+      "provider_affinity": [
+        "nvidia",
+        "openrouter",
+        "deepinfra",
+        "groq",
+        "gemini"
+      ],
       "description": "Reliable strict JSON, short outputs, high throughput"
     },
     "exams": {
@@ -450,7 +547,13 @@
       "min_output": 2500,
       "strict_json": true,
       "throughput_priority": "high",
-      "provider_affinity": ["nvidia", "openrouter", "deepinfra", "groq", "gemini"],
+      "provider_affinity": [
+        "nvidia",
+        "openrouter",
+        "deepinfra",
+        "groq",
+        "gemini"
+      ],
       "description": "Reliable strict JSON, structured schema, high throughput"
     },
     "reports": {
@@ -460,7 +563,11 @@
       "analytical_reasoning": true,
       "deterministic": true,
       "default_temperature": 0.2,
-      "provider_affinity": ["gemini", "groq", "nvidia"],
+      "provider_affinity": [
+        "gemini",
+        "groq",
+        "nvidia"
+      ],
       "description": "Strict JSON + analytical reasoning, deterministic (low temp)"
     },
     "recommendations": {
@@ -470,7 +577,11 @@
       "analytical_reasoning": true,
       "deterministic": true,
       "default_temperature": 0.2,
-      "provider_affinity": ["gemini", "groq", "nvidia"],
+      "provider_affinity": [
+        "gemini",
+        "groq",
+        "nvidia"
+      ],
       "description": "Strict JSON + analytical reasoning, deterministic"
     },
     "question_bank": {
@@ -480,8 +591,16 @@
       "strict_json": true,
       "min_arabic_quality": "high",
       "answer_verification": true,
-      "provider_affinity": ["groq", "cerebras", "gemini"],
-      "verification_provider_affinity": ["gemini", "nvidia", "openrouter"],
+      "provider_affinity": [
+        "groq",
+        "cerebras",
+        "gemini"
+      ],
+      "verification_provider_affinity": [
+        "gemini",
+        "nvidia",
+        "openrouter"
+      ],
       "description": "Bulk volume + JSON reliability + Arabic/English/Mixed + answer verification"
     },
     "prompt_enhance": {
@@ -490,14 +609,26 @@
       "strict_json": false,
       "speed_priority": true,
       "min_arabic_quality": "high",
-      "provider_affinity": ["groq", "gemini", "nvidia", "openrouter"],
+      "provider_affinity": [
+        "groq",
+        "gemini",
+        "nvidia",
+        "openrouter"
+      ],
       "description": "Fast low-latency prompt rewriting preserving language, duration and counts"
     },
     "general": {
       "min_context": 4000,
       "min_output": 1000,
       "strict_json": false,
-      "provider_affinity": ["gemini", "groq", "openrouter", "nvidia", "deepinfra", "cerebras"],
+      "provider_affinity": [
+        "gemini",
+        "groq",
+        "openrouter",
+        "nvidia",
+        "deepinfra",
+        "cerebras"
+      ],
       "description": "General task fallback"
     }
   }

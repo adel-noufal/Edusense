@@ -379,6 +379,13 @@ export function InstructorDashboard() {
       return null
     }
   })
+  const [submittedCount, setSubmittedCount] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem(DASHBOARD_REPORT_KEY)
+      const r = saved ? JSON.parse(saved) : null
+      return r?.recommendations?.selected_sessions ?? 0
+    } catch { return 0 }
+  })
   const [analyzing, setAnalyzing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressMessage, setProgressMessage] = useState('')
@@ -426,7 +433,7 @@ export function InstructorDashboard() {
       if (raw) {
         const stored = JSON.parse(raw)
         if (stored?.jobId) {
-          pollAnalysisJob(stored.jobId)
+          pollAnalysisJob(stored.jobId, stored.selectedCount)
         }
       }
     } catch {
@@ -434,7 +441,7 @@ export function InstructorDashboard() {
     }
   }, [])
 
-  async function pollAnalysisJob(jobId) {
+  async function pollAnalysisJob(jobId, selectedCount) {
     setAnalyzing(true)
     setError('')
 
@@ -446,9 +453,16 @@ export function InstructorDashboard() {
         if (res.message) setProgressMessage(res.message)
 
         if (res.status === 'done' && res.result) {
-          setReport(res.result)
+          const enriched = {
+            ...res.result,
+            recommendations: {
+              ...res.result.recommendations,
+              selected_sessions: selectedCount ?? res.result.recommendations?.total_sessions,
+            },
+          }
+          setReport(enriched)
           try {
-            sessionStorage.setItem(DASHBOARD_REPORT_KEY, JSON.stringify(res.result))
+            sessionStorage.setItem(DASHBOARD_REPORT_KEY, JSON.stringify(enriched))
           } catch {}
           localStorage.removeItem(DASHBOARD_JOB_KEY)
           setAnalyzing(false)
@@ -495,6 +509,7 @@ export function InstructorDashboard() {
     setProgress(10)
     setProgressMessage('Initializing background analysis...')
     setError('')
+    setSubmittedCount(targetIds.length)
 
     try {
       const res = await api('/ai/recommendations/queue', {
@@ -502,13 +517,21 @@ export function InstructorDashboard() {
         body: {
           session_id: targetIds.length === 1 ? targetIds[0] : 'all',
           session_ids: targetIds.length > 1 ? targetIds.map(Number) : null,
+          selected_count: targetIds.length,
         },
       })
 
       if (res.status === 'done' && res.result) {
-        setReport(res.result)
+        const enriched = {
+          ...res.result,
+          recommendations: {
+            ...res.result.recommendations,
+            selected_sessions: targetIds.length,
+          },
+        }
+        setReport(enriched)
         try {
-          sessionStorage.setItem(DASHBOARD_REPORT_KEY, JSON.stringify(res.result))
+          sessionStorage.setItem(DASHBOARD_REPORT_KEY, JSON.stringify(enriched))
         } catch {}
         setAnalyzing(false)
         setProgress(100)
@@ -516,8 +539,8 @@ export function InstructorDashboard() {
       }
 
       if (res.job_id) {
-        localStorage.setItem(DASHBOARD_JOB_KEY, JSON.stringify({ jobId: res.job_id, startedAt: Date.now() }))
-        pollAnalysisJob(res.job_id)
+        localStorage.setItem(DASHBOARD_JOB_KEY, JSON.stringify({ jobId: res.job_id, startedAt: Date.now(), selectedCount: targetIds.length }))
+        pollAnalysisJob(res.job_id, targetIds.length)
       } else {
         throw new Error('Could not queue feedback loop analysis.')
       }
@@ -591,7 +614,7 @@ export function InstructorDashboard() {
                 <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-xs dark:border-slate-700 dark:bg-slate-800/40 space-y-2">
                   <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200/60 pb-1.5 dark:border-slate-700/60">
                     <span>
-                      {report.recommendations.total_sessions} of {report.recommendations.total_sessions} selected sessions accounted for
+                      {report.recommendations.total_sessions} of {report.recommendations.selected_sessions ?? report.recommendations.total_sessions} selected sessions accounted for
                     </span>
                     <span className="font-semibold text-ocean dark:text-mint">
                       {report.recommendations.sufficient_sessions || 0} analyzed

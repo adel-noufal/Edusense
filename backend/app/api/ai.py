@@ -136,7 +136,18 @@ def _finish_job(job_id: str, status: str, result=None, error: str | None = None)
     _cache_job(job_id, status, result=result, error=error)
 
 
-def _get_source_context(db: Session, source_session_id: int | None, instructor_id: int) -> str:
+def _get_source_context(
+    db: Session,
+    source_session_id: int | None,
+    instructor_id: int,
+    source_resource_ids: list[int] | None = None
+) -> str:
+    if source_resource_ids:
+        resources = db.query(SessionResource).filter(
+            SessionResource.id.in_(source_resource_ids),
+            SessionResource.instructor_id == instructor_id
+        ).all()
+        return build_session_source_context(resources)
     if not source_session_id:
         return ""
     resources = db.query(SessionResource).filter_by(session_id=source_session_id, instructor_id=instructor_id).all()
@@ -155,7 +166,12 @@ def _run_lesson_bg(job_id: str, payload: LessonRequest, instructor_id: int):
     try:
         db = SessionLocal()
         try:
-            source = _get_source_context(db, payload.source_session_id, instructor_id)
+            source = _get_source_context(
+            db,
+            payload.source_session_id,
+            instructor_id,
+            getattr(payload, "source_resource_ids", None)
+        )
             enriched = payload.model_copy(update={
                 "additional_notes": _append_source(payload.additional_notes, source),
             })
@@ -183,7 +199,12 @@ def _run_flashcard_bg(job_id: str, payload: FlashcardRequest, instructor_id: int
     try:
         db = SessionLocal()
         try:
-            source = _get_source_context(db, payload.source_session_id, instructor_id)
+            source = _get_source_context(
+            db,
+            payload.source_session_id,
+            instructor_id,
+            getattr(payload, "source_resource_ids", None)
+        )
             prompt = _append_source(payload.prompt, source)
             result = flashcards.generate(
                 payload.topic, payload.count, payload.language, prompt,
@@ -212,7 +233,12 @@ def _run_quiz_bg(job_id: str, payload: QuizRequest, instructor_id: int):
     try:
         db = SessionLocal()
         try:
-            source = _get_source_context(db, payload.source_session_id, instructor_id)
+            source = _get_source_context(
+            db,
+            payload.source_session_id,
+            instructor_id,
+            getattr(payload, "source_resource_ids", None)
+        )
             prompt = _append_source(payload.prompt, source)
             result = quizzes.generate(
                 payload.topic, payload.difficulty, payload.count, prompt,
@@ -316,7 +342,12 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
     db = SessionLocal()
     project = None
     try:
-        source = _get_source_context(db, payload.source_session_id, instructor_id)
+        source = _get_source_context(
+            db,
+            payload.source_session_id,
+            instructor_id,
+            getattr(payload, "source_resource_ids", None)
+        )
         notes = _append_source(payload.notes, source)
         project = VideoProject(
             instructor_id=instructor_id,
@@ -385,7 +416,12 @@ def _run_video_edit_bg(job_id: str, video_id: int, payload: VideoRequest, instru
         project = db.query(VideoProject).filter_by(id=video_id, instructor_id=instructor_id).first()
         if not project:
             raise HTTPException(404, "Video not found")
-        source = _get_source_context(db, payload.source_session_id, instructor_id)
+        source = _get_source_context(
+            db,
+            payload.source_session_id,
+            instructor_id,
+            getattr(payload, "source_resource_ids", None)
+        )
         notes = _append_source(payload.notes, source)
         project.title = payload.title
         project.prompt = payload.prompt
@@ -429,7 +465,12 @@ def _run_video_edit_bg(job_id: str, video_id: int, payload: VideoRequest, instru
 
 @router.post("/flashcards")
 def generate_flashcards(payload: FlashcardRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
-    source = _get_source_context(db, payload.source_session_id, user.id)
+    source = _get_source_context(
+        db,
+        payload.source_session_id,
+        user.id,
+        getattr(payload, "source_resource_ids", None)
+    )
     prompt = _append_source(payload.prompt, source)
     result = flashcards.generate(
         payload.topic, payload.count, payload.language, prompt,
@@ -739,7 +780,12 @@ def download_video_subtitles_srt(video_id: int, db: Session = Depends(get_db), u
 
 @router.post("/lessons")
 def generate_lesson(payload: LessonRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
-    source = _get_source_context(db, payload.source_session_id, user.id)
+    source = _get_source_context(
+        db,
+        payload.source_session_id,
+        user.id,
+        getattr(payload, "source_resource_ids", None)
+    )
     enriched = payload.model_copy(update={
         "additional_notes": _append_source(payload.additional_notes, source),
     })
@@ -762,7 +808,12 @@ def generate_lesson(payload: LessonRequest, db: Session = Depends(get_db), user:
 
 @router.post("/quizzes")
 def generate_quiz(payload: QuizRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
-    source = _get_source_context(db, payload.source_session_id, user.id)
+    source = _get_source_context(
+        db,
+        payload.source_session_id,
+        user.id,
+        getattr(payload, "source_resource_ids", None)
+    )
     prompt = _append_source(payload.prompt, source)
     result = quizzes.generate(
         payload.topic, payload.difficulty, payload.count, prompt,
@@ -1101,24 +1152,46 @@ def poll_job(job_id: str, db: Session = Depends(get_db), user: User = Depends(re
 def available_models(user: User = Depends(get_current_user)):
     """Healthy models across configured LLM providers for UI dropdowns.
 
-    A model is listed when at least one (provider, key, model) candidate for
-    the 'general' chain is neither disabled (404) nor currently cooling down.
+    Returns "Auto" first, followed by free-tier models (when ALLOW_PAID_MODELS=false),
+    and permanently excludes dead or cooling models.
     """
     from app.services import llm
+    from app.core.config import get_settings
+    settings = get_settings()
+    allow_paid = getattr(settings, "allow_paid_models", False)
+
     now = time.time()
-    healthy = []
+    healthy = [
+        {"provider": "auto", "model": "auto", "label": "Auto (best free model)"}
+    ]
     seen = set()
     for provider, key_idx, _, model in llm.router.candidates("general"):
         if (provider, model) in seen:
             continue
+
+        # C16: Filter by free tier if paid models not allowed
+        if not allow_paid:
+            profile = llm.router.get_model_profile(provider, model)
+            is_free = profile.get("free_tier", profile.get("cost") == "free")
+            if provider == "openrouter" and not model.endswith(":free"):
+                is_free = False
+            if provider == "deepinfra":
+                is_free = False
+            if not is_free:
+                continue
+
         st = llm.router._states.get((provider, key_idx, model))
         gb = llm.router._group_blocked(provider, llm.router.key_group(provider, key_idx), model)
         disabled = bool(st and st.disabled)
         cooling = bool((st and st.cooldown_until > now) or gb > 0)
         if not disabled and not cooling:
             seen.add((provider, model))
-            healthy.append({"provider": provider, "model": model,
-                            "label": f"{provider}: {model}"})
+            healthy.append({
+                "provider": provider,
+                "model": model,
+                "label": f"{provider}: {model}",
+                "free_tier": True
+            })
     return {"models": healthy}
 
 
@@ -1130,6 +1203,7 @@ def get_engagement(session_id: int, db: Session = Depends(get_db), _: User = Dep
 class RecommendationsQueueRequest(BaseModel):
     session_id: str | int = "all"
     session_ids: list[int] | None = None
+    selected_count: int | None = None  # number of sessions the user requested
 
 
 def _resolve_recommendation_sessions(db: Session, instructor_id: int,
@@ -1141,18 +1215,18 @@ def _resolve_recommendation_sessions(db: Session, instructor_id: int,
 
     query = db.query(ClassSession).filter(
         ClassSession.instructor_id == instructor_id,
+        ClassSession.status == "ended",
     )
     if session_ids:
         query = query.filter(ClassSession.id.in_([int(i) for i in session_ids]))
     elif str(session_id_arg) != "all":
         query = query.filter(ClassSession.id == int(session_id_arg))
-    else:
-        query = query.filter(ClassSession.status == "ended")
     return query.all()
 
 
 def _run_recommendations_bg(job_id: str, session_id_arg: str | int,
-                            session_ids: list[int] | None, instructor_id: int):
+                            session_ids: list[int] | None, instructor_id: int,
+                            selected_count: int | None = None):
     """Runs feedback loop analysis in background thread so it survives tab closes."""
     db = SessionLocal()
     try:
@@ -1235,6 +1309,7 @@ def _run_recommendations_bg(job_id: str, session_id_arg: str | int,
                 "insufficient_data": insufficient,
                 "sufficient_sessions": sufficient_count,
                 "total_sessions": len(results),
+                "selected_sessions": selected_count if selected_count is not None else len(results),
                 "insufficient_sessions": insufficient_sessions,
                 "session_breakdown": session_breakdown,
                 "message": (f"{sufficient_count} of {len(results)} selected session(s) analyzed."
@@ -1271,7 +1346,7 @@ def queue_recommendations(
     job_id = str(uuid.uuid4())
     _persist_job(job_id, user.id, "analytics", "Dashboard Analysis")
     t = threading.Thread(target=_run_recommendations_bg,
-                         args=(job_id, payload.session_id, payload.session_ids, user.id), daemon=True)
+                         args=(job_id, payload.session_id, payload.session_ids, user.id, payload.selected_count), daemon=True)
     t.start()
     return {"job_id": job_id, "status": "pending"}
 
@@ -1297,7 +1372,12 @@ def decide_recommendation(session_id: int, payload: RecommendationDecision, _: U
 
 @router.post("/videos")
 def create_video(payload: VideoRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
-    source = _get_source_context(db, payload.source_session_id, user.id)
+    source = _get_source_context(
+        db,
+        payload.source_session_id,
+        user.id,
+        getattr(payload, "source_resource_ids", None)
+    )
     notes = _append_source(payload.notes, source)
     project = VideoProject(instructor_id=user.id, title=payload.title, prompt=payload.prompt, language=payload.language, style=payload.style, duration=payload.duration, notes=notes, status="processing")
     db.add(project)
@@ -1330,7 +1410,12 @@ def edit_video(
     project = db.query(VideoProject).filter_by(id=video_id, instructor_id=user.id).first()
     if not project:
         raise HTTPException(404, "Video not found")
-    source = _get_source_context(db, payload.source_session_id, user.id)
+    source = _get_source_context(
+        db,
+        payload.source_session_id,
+        user.id,
+        getattr(payload, "source_resource_ids", None)
+    )
     notes = _append_source(payload.notes, source)
     project.title = payload.title
     project.prompt = payload.prompt

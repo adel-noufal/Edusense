@@ -93,8 +93,8 @@ def startup():
     # so the first KB query doesn't block the first user request.
     def _warmup_kb():
         try:
-            from app.services.vector_store import get_collection
-            get_collection()   # loads ChromaDB + embedding model once
+            from app.services.vector_store import init_collection
+            init_collection()   # loads ChromaDB + embedding model once
             print("KB warm-up complete")
         except Exception as e:
             print(f"KB warm-up skipped: {e}")

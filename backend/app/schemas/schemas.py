@@ -98,6 +98,7 @@ class LessonRequest(BaseModel):
     additional_notes: str | None = None
     session_id: int | None = None
     source_session_id: int | None = None
+    source_resource_ids: list[int] | None = None
     # RAG context filters (optional; when provided, RAG chunks are retrieved)
     subject: str | None = None
     grade_level: str | None = None
@@ -106,6 +107,7 @@ class LessonRequest(BaseModel):
 class QuizRequest(BaseModel):
     session_id: int | None = None
     source_session_id: int | None = None
+    source_resource_ids: list[int] | None = None
     topic: str
     prompt: str = ""
     difficulty: str = "Medium"
@@ -130,6 +132,7 @@ class VideoRequest(BaseModel):
     notes: str | None = None
     session_id: int | None = None
     source_session_id: int | None = None
+    source_resource_ids: list[int] | None = None
 
 
 class VideoSceneInput(BaseModel):
@@ -154,6 +157,7 @@ class FlashcardRequest(BaseModel):
     language: str = "English"
     session_id: int | None = None
     source_session_id: int | None = None
+    source_resource_ids: list[int] | None = None
     # RAG context filters
     subject: str | None = None
     grade_level: str | None = None

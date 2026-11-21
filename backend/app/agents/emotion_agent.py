@@ -16,8 +16,20 @@ from pathlib import Path
 import cv2
 import numpy as np
 from sqlalchemy.orm import Session
-from app.agents.base import AgentResult, adk_agent
 from app.models.models import EmotionLog
+
+
+# Lightweight inline result type — avoids importing the full LLM-laden base module
+from dataclasses import dataclass
+
+@dataclass
+class AgentResult:
+    name: str
+    data: dict
+
+
+def adk_agent(name: str, description: str):
+    return {"name": name, "description": description}
 
 SUPPORTED_EMOTIONS = ["happy", "neutral", "sad", "angry", "surprise", "fear", "disgust"]
 

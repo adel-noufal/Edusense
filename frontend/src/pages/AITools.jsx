@@ -1984,6 +1984,24 @@ export function ChatbotGenerator() {
   // B10: attach from KB files
   const [attachKbOpen, setAttachKbOpen] = useState(false)
   const [attachedKbIds, setAttachedKbIds] = useState([])
+  // C12: chatbot modes ('none' | 'selected' | 'all', OFF by default, saved per conversation)
+  const [fileMode, setFileMode] = useState('none')
+
+  useEffect(() => {
+    if (conversationId) {
+      const saved = localStorage.getItem(`edusense_chat_mode_${conversationId}`)
+      setFileMode(saved === 'selected' || saved === 'all' ? saved : 'none')
+    } else {
+      setFileMode('none')
+    }
+  }, [conversationId])
+
+  function handleModeChange(newMode) {
+    setFileMode(newMode)
+    if (conversationId) {
+      localStorage.setItem(`edusense_chat_mode_${conversationId}`, newMode)
+    }
+  }
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -2121,10 +2139,14 @@ export function ChatbotGenerator() {
           message: userMessage,
           conversation_id: conversationId || undefined,
           conversation_history: conversationId ? [] : messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
-          file_context: fileContext || undefined,
-          source_id: selectedSourceId || undefined,
-          // B10: multi-select KB source IDs
-          source_ids: attachedKbIds.length > 0 ? attachedKbIds : undefined,
+          file_context: fileMode === 'none' ? undefined : (fileContext || undefined),
+          source_id: fileMode === 'selected' ? (selectedSourceId || undefined) : undefined,
+          // C12: multi-select KB source IDs based on mode
+          source_ids: fileMode === 'selected'
+            ? (attachedKbIds.length > 0 ? attachedKbIds : undefined)
+            : fileMode === 'all'
+              ? (ragSources.map(s => s.source_id || s.source_file).filter(Boolean))
+              : undefined,
         }
       })
 
@@ -2293,7 +2315,34 @@ export function ChatbotGenerator() {
             <h2 className="truncate text-base font-black">{chatbotName}</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">RAG + web search + uploaded file context</p>
           </div>
-          {loading && <Loader2 size={16} className="ms-auto animate-spin text-teal-600" />}
+          {/* C12: Chatbot file modes toggle (no files / selected files / all files, OFF by default) */}
+          <div className="ms-auto flex items-center gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800 text-xs font-semibold">
+            <button
+              type="button"
+              className={`rounded-lg px-2.5 py-1 transition ${fileMode === 'none' ? 'bg-white shadow text-slate-900 dark:bg-slate-700 dark:text-slate-100' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'}`}
+              onClick={() => handleModeChange('none')}
+              title="No file context — free general conversation"
+            >
+              No files
+            </button>
+            <button
+              type="button"
+              className={`rounded-lg px-2.5 py-1 transition ${fileMode === 'selected' ? 'bg-white shadow text-teal-700 dark:bg-slate-700 dark:text-teal-300' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'}`}
+              onClick={() => handleModeChange('selected')}
+              title="Ground chat in selected library files"
+            >
+              Selected files {attachedKbIds.length > 0 ? `(${attachedKbIds.length})` : ''}
+            </button>
+            <button
+              type="button"
+              className={`rounded-lg px-2.5 py-1 transition ${fileMode === 'all' ? 'bg-white shadow text-ocean dark:bg-slate-700 dark:text-mint' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'}`}
+              onClick={() => handleModeChange('all')}
+              title="Ground chat in all indexed files"
+            >
+              All files {ragSources.length > 0 ? `(${ragSources.length})` : ''}
+            </button>
+          </div>
+          {loading && <Loader2 size={16} className="animate-spin text-teal-600" />}
         </div>
 
         {error && (
@@ -2394,14 +2443,21 @@ export function ChatbotGenerator() {
 
         {/* Composer */}
         <div className="space-y-3 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
-          {fileLabel && (
+          {fileMode === 'all' && (
+            <div className="flex items-center gap-1.5 rounded-lg bg-teal-50 px-3 py-1.5 text-xs text-teal-800 dark:bg-teal-950/40 dark:text-teal-200">
+              <Database size={13} />
+              <span>Grounded in all {ragSources.length} indexed library documents</span>
+            </div>
+          )}
+
+          {fileLabel && fileMode === 'selected' && (
             <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">
               <span className="flex-1 truncate">{fileLabel}</span>
               <button className="flex-shrink-0 text-blue-400 hover:text-blue-700" onClick={() => { setFileContext(null); setFileLabel(null) }}>✕</button>
             </div>
           )}
-          {/* B10: Attached KB source chips */}
-          {attachedKbIds.length > 0 && (
+          {/* B10: Attached KB source chips (only in selected mode) */}
+          {fileMode === 'selected' && attachedKbIds.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pb-1">
               {attachedKbIds.map((sid) => {
                 const src = ragSources.find(x => (x.source_id || x.source_file) === sid)
@@ -2416,7 +2472,7 @@ export function ChatbotGenerator() {
           )}
 
           {/* B10: KB file attach picker */}
-          {attachKbOpen && (
+          {fileMode === 'selected' && attachKbOpen && (
             <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 p-2 dark:border-slate-700">
               {ragSources.length === 0 && <p className="px-2 py-3 text-xs text-slate-400">No uploaded KB sources yet.</p>}
               {ragSources.map((src) => {
@@ -2460,7 +2516,10 @@ export function ChatbotGenerator() {
                 className="btn-soft h-10 w-10 justify-center p-0"
                 title="Upload file for context"
                 disabled={fileUploading}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  handleModeChange('selected')
+                  fileInputRef.current?.click()
+                }}
               >
                 {fileUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
               </button>
@@ -2471,7 +2530,10 @@ export function ChatbotGenerator() {
                 className={`btn-soft h-10 w-10 justify-center p-0 ${attachKbOpen || attachedKbIds.length ? 'text-teal-600' : ''}`}
                 title="Attach from Knowledge Base"
                 disabled={loading}
-                onClick={() => setAttachKbOpen(o => !o)}
+                onClick={() => {
+                  handleModeChange('selected')
+                  setAttachKbOpen(o => !o)
+                }}
               >
                 <Database className="h-4 w-4" />
               </button>

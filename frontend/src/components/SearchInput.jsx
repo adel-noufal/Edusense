@@ -19,7 +19,8 @@ export default function SearchInput({ value, onChange, placeholder, className = 
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        className="input w-full ps-9"
+        className="input w-full !ps-10"
+        style={{ paddingInlineStart: '2.5rem' }}
         {...rest}
       />
     </div>

@@ -604,6 +604,14 @@ class LLMRouter:
                         continue
                     if touch_student_data and profile.get("may_train_on_data", False):
                         continue
+                    if not getattr(get_settings(), "allow_paid_models", False):
+                        is_free = profile.get("free_tier", profile.get("cost") == "free")
+                        if pname == "openrouter" and not m.endswith(":free"):
+                            is_free = False
+                        if pname == "deepinfra":
+                            is_free = False
+                        if not is_free:
+                            continue
                     triples.append((pname, m))
 
         out: list[tuple[str, int, str, str]] = []

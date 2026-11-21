@@ -655,6 +655,92 @@ async def upload_session_resource(
     }
 
 
+@router.get("/resources/library")
+def list_library_resources(db: DbSession = Depends(get_db), user: User = Depends(require_role("instructor"))):
+    """List all uploaded resources in the instructor's library across all sessions."""
+    resources = db.query(SessionResource).filter_by(instructor_id=user.id).order_by(SessionResource.uploaded_at.desc()).all()
+    session_ids = {r.session_id for r in resources if r.session_id}
+    sessions_map = {}
+    if session_ids:
+        sess_rows = db.query(Session.id, Session.title).filter(Session.id.in_(session_ids)).all()
+        sessions_map = {s.id: s.title for s in sess_rows}
+
+    result = []
+    for resource in resources:
+        stored_path = Path(resource.file_path) if resource.file_path else None
+        filename = stored_path.name if stored_path else ""
+        path = stored_path if stored_path and stored_path.is_file() else RESOURCE_DIR / filename
+        available = bool(filename and path.is_file())
+        result.append({
+            "id": resource.id,
+            "session_id": resource.session_id,
+            "session_title": sessions_map.get(resource.session_id, "General Library"),
+            "name": resource.name,
+            "file_type": resource.file_type,
+            "file_size": resource.file_size,
+            "uploaded_at": resource.uploaded_at.isoformat(),
+            "url": f"/static/resources/{filename}" if available else None,
+            "available": available,
+        })
+    return result
+
+
+@router.post("/resources/library")
+async def upload_library_resource(
+    file: UploadFile = File(...),
+    session_ids: Optional[str] = Form(None),
+    db: DbSession = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """Upload a file to the instructor library with optional many-to-many session tags."""
+    parsed_sids = []
+    if session_ids:
+        for s in session_ids.split(","):
+            s = s.strip()
+            if s.isdigit():
+                parsed_sids.append(int(s))
+    
+    if not parsed_sids:
+        first_sess = db.query(Session).filter_by(instructor_id=user.id).first()
+        if first_sess:
+            parsed_sids = [first_sess.id]
+        else:
+            any_sess = db.query(Session).first()
+            parsed_sids = [any_sess.id] if any_sess else [1]
+
+    RESOURCE_DIR.mkdir(parents=True, exist_ok=True)
+    original_name = file.filename or "resource"
+    safe_filename = Path(original_name.replace("\\", "/")).name.replace(" ", "_")
+    safe_name = f"library-{user.id}-{uuid.uuid4().hex}-{safe_filename}"
+    dest = RESOURCE_DIR / safe_name
+    content = await file.read()
+    dest.write_bytes(content)
+
+    created_ids = []
+    for sid in parsed_sids:
+        res = SessionResource(
+            session_id=sid,
+            instructor_id=user.id,
+            name=original_name,
+            file_path=str(dest),
+            file_type=file.content_type or "application/octet-stream",
+            file_size=len(content),
+        )
+        db.add(res)
+        db.flush()
+        created_ids.append(res.id)
+    db.commit()
+
+    return {
+        "id": created_ids[0] if created_ids else None,
+        "ids": created_ids,
+        "name": original_name,
+        "file_size": len(content),
+        "url": f"/static/resources/{safe_name}",
+        "session_ids": parsed_sids,
+    }
+
+
 @router.get("/{session_id}/resources")
 def list_session_resources(session_id: int, db: DbSession = Depends(get_db), user: User = Depends(get_current_user)):
     """List all uploaded resources for a session (instructor + enrolled students)."""
