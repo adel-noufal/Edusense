@@ -163,11 +163,22 @@ export default function EmotionTrial() {
       canvas.height = 240
       canvas.getContext('2d').drawImage(video, 0, 0, 320, 240)
       const image = canvas.toDataURL('image/jpeg', 0.7)
-      const res = await api('/emotions/analyze-trial', { method: 'POST', body: { image } })
+      
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Analysis timed out (3s)')), 3000)
+      )
+      const res = await Promise.race([
+        api('/emotions/analyze-trial', { method: 'POST', body: { image } }),
+        timeoutPromise
+      ])
+      
       setResult(smoothResult(res))
       setError('')
     } catch (err) {
-      if (showResult) setError(err.message || 'Analysis failed.')
+      if (showResult) {
+        setError(err.message || 'Analysis failed.')
+        setResult({ face_detected: false, hint: 'detection_error' })
+      }
     } finally {
       busyRef.current = false
       setAnalyzing(false)

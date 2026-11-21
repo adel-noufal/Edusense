@@ -3,6 +3,7 @@ import { BarChart3, BookOpen, Brain, Bot, Clapperboard, ClipboardList, Compass, 
 import { useEffect, useState } from 'react'
 import AnimatedBackground from './AnimatedBackground'
 import PageTransition from './PageTransition'
+import BackendOfflineBanner from './BackendOfflineBanner'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useGenerationJobs } from '../context/GenerationJobContext'
@@ -143,6 +144,7 @@ export default function Layout() {
       )}
 
       <main className="flex min-h-0 flex-col md:ps-56 xl:ps-64" style={{ height: '100dvh' }}>
+        <BackendOfflineBanner />
         <header className="sticky top-0 z-10 flex shrink-0 min-h-16 flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 bg-white/90 px-3 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 sm:px-4 md:hidden">
           <div className="flex min-w-0 items-center gap-3">
             <button type="button" className="btn-soft md:hidden" onClick={() => setMobileOpen(true)}><Menu size={18} /></button>
@@ -168,8 +170,8 @@ export default function Layout() {
             )}
           </div>
         </header>
-        <div className={`page-shell min-h-0 flex-1 overflow-y-auto${isFullHeight ? ' p-0 overflow-hidden' : ' p-3 sm:p-4 md:p-6'}`}>
-          <PageTransition>
+        <div className={`page-shell min-h-0 flex-1 ${isFullHeight ? 'p-0 overflow-hidden h-full flex flex-col' : 'overflow-y-auto p-3 sm:p-4 md:p-6'}`}>
+          <PageTransition className={isFullHeight ? 'h-full min-h-0 flex flex-col flex-1' : ''}>
             <Outlet />
           </PageTransition>
         </div>

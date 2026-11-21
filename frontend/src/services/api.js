@@ -1,7 +1,15 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+const API_URL = import.meta.env.VITE_API_URL || '/api'
 
 export function token() {
   return localStorage.getItem('edusense_token')
+}
+
+export function notifyBackendStatus(online, message = '') {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('edusense-backend-status', {
+      detail: { online, message, url: API_URL }
+    }))
+  }
 }
 
 function stringifyValue(value) {
@@ -58,17 +66,20 @@ export async function api(path, options = {}) {
       throw error
     }
 
+    notifyBackendStatus(true)
     return data
   } catch (error) {
     if (error instanceof TypeError && /Failed to fetch|NetworkError/i.test(error.message)) {
-      throw new Error(`Cannot reach the backend at ${API_URL.replace('/api', '')}. Start the FastAPI server on port 8000.`)
+      const targetDesc = API_URL.startsWith('http') ? API_URL : `${window.location.origin}/api`
+      notifyBackendStatus(false, `Cannot reach backend at ${targetDesc}`)
+      throw new Error(`Cannot reach the backend server at ${targetDesc}. Run start-backend.bat or start-all.bat.`)
     }
     throw error
   }
 }
 
 export function staticUrl(path) {
-  const base = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace(/\/api\/?$/, '')
+  const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/api\/?$/, '')
   return `${base}${path.startsWith('/') ? path : `/${path}`}`
 }
 

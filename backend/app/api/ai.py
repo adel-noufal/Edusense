@@ -1152,8 +1152,10 @@ def poll_job(job_id: str, db: Session = Depends(get_db), user: User = Depends(re
 def available_models(user: User = Depends(get_current_user)):
     """Healthy models across configured LLM providers for UI dropdowns.
 
-    Returns "Auto" first, followed by free-tier models (when ALLOW_PAID_MODELS=false),
-    and permanently excludes dead or cooling models.
+    Returns "Auto" first, followed by:
+      - Free-tier cloud models for providers with valid API keys (live-probed at startup)
+      - Installed Ollama local models with "Offline" badge (if Ollama is reachable)
+    Dead, cooling, or providers with no keys are excluded.
     """
     from app.services import llm
     from app.core.config import get_settings
@@ -1164,9 +1166,23 @@ def available_models(user: User = Depends(get_current_user)):
     healthy = [
         {"provider": "auto", "model": "auto", "label": "Auto (best free model)"}
     ]
-    seen = set()
+    seen: set[tuple[str, str]] = set()
+
     for provider, key_idx, _, model in llm.router.candidates("general"):
         if (provider, model) in seen:
+            continue
+
+        # Ollama local models get the "Offline" badge — always free
+        if provider == "ollama":
+            seen.add((provider, model))
+            healthy.append({
+                "provider": "ollama",
+                "model": model,
+                "label": f"ollama: {model}",
+                "free_tier": True,
+                "is_local": True,
+                "badge": "Offline",
+            })
             continue
 
         # C16: Filter by free tier if paid models not allowed
@@ -1190,7 +1206,7 @@ def available_models(user: User = Depends(get_current_user)):
                 "provider": provider,
                 "model": model,
                 "label": f"{provider}: {model}",
-                "free_tier": True
+                "free_tier": True,
             })
     return {"models": healthy}
 

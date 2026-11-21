@@ -66,6 +66,18 @@
         "Qwen/Qwen2.5-72B-Instruct",
         "deepseek-ai/DeepSeek-V3"
       ]
+    },
+    "ollama": {
+      "name": "ollama",
+      "kind": "openai",
+      "base_url": "http://localhost:11434/v1",
+      "auth_style": "none",
+      "default_models": [
+        "llama3.1:latest",
+        "qwen2.5:latest",
+        "mistral:latest",
+        "llama3.2:latest"
+      ]
     }
   },
   "model_profiles": {
@@ -96,7 +108,7 @@
         "free_tpm": 1000000,
         "cost": "free",
         "may_train_on_data": false,
-        "free_tier": false
+        "free_tier": true
       },
       "gemini-2.0-flash": {
         "context_window": 1048576,
@@ -108,9 +120,9 @@
         "free_rpm": 15,
         "free_rpd": 1500,
         "free_tpm": 1000000,
-        "cost": "free",
+        "cost": "deprecated",
         "may_train_on_data": false,
-        "free_tier": true
+        "free_tier": false
       },
       "gemini-flash-latest": {
         "context_window": 1048576,
@@ -122,9 +134,9 @@
         "free_rpm": 15,
         "free_rpd": 1500,
         "free_tpm": 1000000,
-        "cost": "free",
+        "cost": "experiencing_spikes",
         "may_train_on_data": false,
-        "free_tier": true
+        "free_tier": false
       },
       "gemini-2.5-pro": {
         "context_window": 2097152,
@@ -152,9 +164,9 @@
         "free_rpm": 30,
         "free_rpd": 14400,
         "free_tpm": 6000,
-        "cost": "free",
+        "cost": "deprecated_or_unreachable",
         "may_train_on_data": false,
-        "free_tier": true
+        "free_tier": false
       },
       "llama-3.1-8b-instant": {
         "context_window": 128000,
@@ -166,9 +178,9 @@
         "free_rpm": 30,
         "free_rpd": 14400,
         "free_tpm": 20000,
-        "cost": "free",
+        "cost": "deprecated_or_unreachable",
         "may_train_on_data": false,
-        "free_tier": true
+        "free_tier": false
       },
       "openai/gpt-oss-120b": {
         "context_window": 8192,
@@ -381,8 +393,8 @@
         "streaming": true,
         "free_rpm": 20,
         "free_rpd": 200,
-        "cost": "free",
-        "free_tier": true,
+        "cost": "deprecated_or_unreachable",
+        "free_tier": false,
         "may_train_on_data": false
       },
       "google/gemini-2.0-flash-exp:free": {
@@ -394,8 +406,8 @@
         "streaming": true,
         "free_rpm": 20,
         "free_rpd": 200,
-        "cost": "free",
-        "free_tier": true,
+        "cost": "deprecated_or_unreachable",
+        "free_tier": false,
         "may_train_on_data": false
       },
       "deepseek/deepseek-r1:free": {
@@ -407,8 +419,8 @@
         "streaming": true,
         "free_rpm": 20,
         "free_rpd": 200,
-        "cost": "free",
-        "free_tier": true,
+        "cost": "deprecated_or_unreachable",
+        "free_tier": false,
         "may_train_on_data": false
       },
       "qwen/qwen-2.5-72b-instruct:free": {
@@ -420,8 +432,8 @@
         "streaming": true,
         "free_rpm": 20,
         "free_rpd": 200,
-        "cost": "free",
-        "free_tier": true,
+        "cost": "deprecated_or_unreachable",
+        "free_tier": false,
         "may_train_on_data": false
       }
     },
@@ -467,6 +479,98 @@
         "cost": "paid",
         "may_train_on_data": false,
         "free_tier": false
+      }
+    },
+    "ollama": {
+      "llama3.1:latest": {
+        "context_window": 32768,
+        "max_output_tokens": 8192,
+        "speed": "medium-high",
+        "arabic_quality": "medium",
+        "json_reliability": "high",
+        "streaming": true,
+        "cost": "free",
+        "is_local": true,
+        "offline": true,
+        "may_train_on_data": false,
+        "free_tier": true,
+        "task": "quizzes/assessments"
+      },
+      "qwen2.5:latest": {
+        "context_window": 32768,
+        "max_output_tokens": 8192,
+        "speed": "medium-high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "cost": "free",
+        "is_local": true,
+        "offline": true,
+        "may_train_on_data": false,
+        "free_tier": true,
+        "task": "translation/Arabic"
+      },
+      "mistral:latest": {
+        "context_window": 32768,
+        "max_output_tokens": 8192,
+        "speed": "medium-high",
+        "arabic_quality": "medium",
+        "json_reliability": "high",
+        "streaming": true,
+        "cost": "free",
+        "is_local": true,
+        "offline": true,
+        "may_train_on_data": false,
+        "free_tier": true,
+        "task": "lessons/scripts"
+      },
+      "llama3.2:latest": {
+        "context_window": 32768,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "medium",
+        "json_reliability": "high",
+        "streaming": true,
+        "cost": "free",
+        "is_local": true,
+        "offline": true,
+        "may_train_on_data": false,
+        "free_tier": true,
+        "task": "flashcards/general"
+      }
+    },
+    "nvidia": {
+      "meta/llama-3.3-70b-instruct": {
+        "context_window": 32768,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "cost": "free credits",
+        "free_tier": false,
+        "may_train_on_data": false
+      },
+      "deepseek-ai/deepseek-r1": {
+        "context_window": 32768,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "cost": "free credits",
+        "free_tier": false,
+        "may_train_on_data": false
+      },
+      "qwen/qwen2.5-72b-instruct": {
+        "context_window": 32768,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "cost": "free credits",
+        "free_tier": false,
+        "may_train_on_data": false
+      },
+      "deepseek-ai/deepseek-v3.1": {
+        "context_window": 32768,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "cost": "free credits",
+        "free_tier": false,
+        "may_train_on_data": false
       }
     }
   },

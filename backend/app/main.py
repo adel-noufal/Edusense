@@ -78,20 +78,23 @@ def startup():
     try:
         from app.db.session import SessionLocal
         from app.api.sessions import reconcile_session_statuses
+        from app.services.generation_jobs import cleanup_stuck_jobs_on_startup
         _db = SessionLocal()
         try:
             n = reconcile_session_statuses(_db)
             if n:
                 print(f"Startup: reconciled {n} stale session statuses")
+            cleared = cleanup_stuck_jobs_on_startup(_db)
+            if cleared:
+                print(f"Startup: cleared {cleared} stale pending/processing background jobs")
         finally:
             _db.close()
     except Exception as exc:
-        print(f"Startup session reconcile skipped: {exc}")
+        print(f"Startup session/job reconcile skipped: {exc}")
     start_scheduler()
 
-    # C9: Warm up vector-store + sentence-transformers in a background thread
-    # so the first KB query doesn't block the first user request.
-    def _warmup_kb():
+    # C9 & P0-3: Warm up vector-store and emotion analysis agent in background threads
+    def _warmup_services():
         try:
             from app.services.vector_store import init_collection
             init_collection()   # loads ChromaDB + embedding model once
@@ -99,7 +102,15 @@ def startup():
         except Exception as e:
             print(f"KB warm-up skipped: {e}")
 
-    threading.Thread(target=_warmup_kb, daemon=True).start()
+        try:
+            from app.agents.emotion_agent import EmotionAnalysisAgent
+            agent = EmotionAnalysisAgent()
+            agent.warm_up()
+            print("Emotion detector warm-up complete")
+        except Exception as e:
+            print(f"Emotion warm-up skipped: {e}")
+
+    threading.Thread(target=_warmup_services, daemon=True).start()
 
 @app.on_event("shutdown")
 def shutdown():

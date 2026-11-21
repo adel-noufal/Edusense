@@ -9,10 +9,6 @@ import { normalizeSources } from '../utils/sources'
 import SearchInput from '../components/SearchInput'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const SUBJECTS = ['Mathematics', 'Physics', 'Chemistry', 'Biology', 'History',
-  'Geography', 'English', 'Arabic', 'Computer Science', 'Economics', 'Other']
-const GRADES   = ['1','2','3','4','5','6','7','8','9','10','11','12','University']
-
 function Pill({ label, color = 'slate' }) {
   const map = {
     slate:  'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
@@ -249,7 +245,6 @@ function UploadModal({ onClose, onSuccess }) {
 
 function SourceCard({ src, onDelete, onPreview, onAsk }) {
   const [expanded, setExpanded] = useState(false)
-  const subjectColor = { Biology:'teal', Physics:'violet', Mathematics:'amber', Chemistry:'green' }[src.subject] || 'slate'
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-900/70">
@@ -260,9 +255,7 @@ function SourceCard({ src, onDelete, onPreview, onAsk }) {
         <div className="min-w-0 flex-1">
           <p className="truncate font-bold text-sm">{src.source_file}</p>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            {src.subject     && <Pill label={src.subject}            color={subjectColor} />}
-            {src.grade_level && <Pill label={`Grade ${src.grade_level}`} color="slate" />}
-            {src.topic       && <Pill label={src.topic}              color="slate" />}
+            {src.topic && <Pill label={src.topic} color="teal" />}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -597,18 +590,20 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
   return (
     <div className="flex h-full min-h-0 items-stretch gap-4">
       {/* ── Conversation sidebar (desktop: inline, mobile: overlay) ── */}
-      <aside className={`${sidebarOpen ? 'fixed inset-x-3 top-32 z-30 flex' : 'hidden'} lg:static lg:z-auto lg:flex w-full lg:w-64 shrink-0 flex-col gap-2`}>
-        <div className="panel flex flex-col gap-2 p-3">
-          <div className="flex items-center justify-between">
+      <aside className={`${sidebarOpen ? 'fixed inset-x-3 top-32 z-30 flex' : 'hidden'} lg:static lg:z-auto lg:flex w-full lg:w-64 shrink-0 flex-col gap-2 h-full min-h-0 overflow-hidden`}>
+        <div className="panel flex flex-col gap-2 p-3 h-full min-h-0">
+          <div className="flex shrink-0 items-center justify-between">
             <p className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Chats</p>
             <button type="button" onClick={newChat}
               className="flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-teal-700">
               <Plus size={12} /> New
             </button>
           </div>
-          <SearchInput value={convSearch} onChange={(e) => setConvSearch(e.target.value)}
-            placeholder="Search chats…" className="[&_input]:py-1.5 [&_input]:text-xs" />
-          <div className="max-h-[55vh] space-y-1 overflow-y-auto">
+          <div className="shrink-0">
+            <SearchInput value={convSearch} onChange={(e) => setConvSearch(e.target.value)}
+              placeholder="Search chats…" className="[&_input]:py-1.5 [&_input]:text-xs" />
+          </div>
+          <div className="flex-1 min-h-0 space-y-1 overflow-y-auto pr-1">
             {listLoading && <p className="px-2 py-3 text-center text-xs text-slate-400"><Loader2 size={13} className="inline animate-spin" /></p>}
             {!listLoading && filteredConvs.length === 0 && (
               <p className="px-2 py-3 text-center text-xs text-slate-400">
@@ -636,9 +631,9 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
         </div>
       </aside>
 
-    <div className="panel flex flex-1 min-h-0 min-w-0 flex-col gap-0">
+    <div className="panel flex flex-1 min-h-0 min-w-0 flex-col h-full overflow-hidden p-0">
       {/* Header & Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
+      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
         <div className="flex items-center gap-3">
           <button type="button" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden dark:hover:bg-slate-800"
             onClick={() => setSidebarOpen(v => !v)} title="Chats">
@@ -661,7 +656,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
       </div>
 
       {scopedSource && (
-        <div className="flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800 dark:border-violet-900/50 dark:bg-violet-950/30 dark:text-violet-200">
+        <div className="mx-4 mt-2 flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800 dark:border-violet-900/50 dark:bg-violet-950/30 dark:text-violet-200">
           <FileText size={13} className="shrink-0" />
           <span className="font-semibold">Asking about only:</span>
           <span className="truncate font-medium">{scopedSourceLabel || scopedSource}</span>
@@ -672,7 +667,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
       )}
 
       {/* Messages Feed */}
-      <div className="flex-1 space-y-4 overflow-y-auto p-2 min-h-0">
+      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3 min-h-0">
         {messages.map((m, idx) => (
           <div key={idx} className={`flex gap-3 ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
             {m.sender === 'ai' && (
@@ -774,7 +769,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
       )}
 
       {/* Input Form */}
-      <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} className="flex shrink-0 items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+      <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} className="flex shrink-0 items-center gap-2 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
         <button type="button" onClick={() => setAttachOpen(o => !o)} title="Attach from uploaded files"
           className={attachOpen || selectedSources.length ? 'bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}>
           <Paperclip size={16} />
@@ -805,7 +800,6 @@ export default function KnowledgeBaseDashboard() {
   const [showUpload, setShowUpload]   = useState(false)
   const [previewSrc, setPreviewSrc]   = useState(null)
   const [searchQ, setSearchQ]         = useState('')
-  const [filterSubject, setFilter]    = useState('')
   const [deleting, setDeleting]       = useState(null)
   const [activeTab, setActiveTab]     = useState('library')
   const [qaSource, setQaSource]       = useState(null)
@@ -885,20 +879,14 @@ export default function KnowledgeBaseDashboard() {
 
   const filtered = sources.filter(s => {
     const q = searchQ.toLowerCase()
-    const matchSearch = !q || s.source_file?.toLowerCase().includes(q)
-      || s.subject?.toLowerCase().includes(q)
+    return !q || s.source_file?.toLowerCase().includes(q)
       || s.topic?.toLowerCase().includes(q)
-    const matchFilter = !filterSubject || s.subject === filterSubject
-    return matchSearch && matchFilter
   })
 
-  const uniqueSubs   = [...new Set(sources.map(s => s.subject).filter(Boolean))].length
-  const uniqueGrades = [...new Set(sources.map(s => s.grade_level).filter(Boolean))].length
-
   return (
-    <div className="page-shell space-y-6">
+    <div className="flex flex-col h-full min-h-0 w-full overflow-hidden p-3 sm:p-4 gap-3">
       {/* ── Page Header ── */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-1 flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 text-white">
@@ -906,7 +894,7 @@ export default function KnowledgeBaseDashboard() {
             </div>
             <h1 className="text-2xl font-black">Knowledge Base</h1>
           </div>
-          <p className="max-w-2xl text-sm text-slate-500 dark:text-slate-400">
+          <p className="max-w-2xl text-xs sm:text-sm text-slate-500 dark:text-slate-400">
             <span className="font-semibold text-slate-700 dark:text-slate-200">Document Repository & Vector Index:</span> Upload and manage PDFs and textbooks. Documents here are parsed into semantic chunks to ground AI lesson planning, exam questions, and curriculum alignment.
           </p>
         </div>
@@ -924,15 +912,13 @@ export default function KnowledgeBaseDashboard() {
       </div>
 
       {/* ── Stats Row ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <StatCard icon={FileText}  label="Documents"    value={sources.length} color="teal"   sub="indexed PDFs" />
-        <StatCard icon={BookOpen}  label="Subjects"     value={uniqueSubs}     color="amber"  sub="covered" />
-        <StatCard icon={Zap}       label="Grade Levels" value={uniqueGrades}   color="green"  sub="available" />
+      <div className="grid shrink-0 grid-cols-1 sm:grid-cols-3 gap-3">
+        <StatCard icon={FileText} label="Documents" value={sources.length} color="teal" sub="indexed PDFs" />
       </div>
 
       {/* Background ingestion banner */}
       {activeJob && activeJob.status !== 'completed' && (
-        <div className={`flex items-center justify-between gap-4 rounded-2xl border p-4 ${
+        <div className={`shrink-0 flex items-center justify-between gap-4 rounded-2xl border p-3 ${
           ['stale', 'failed'].includes(activeJob.status)
             ? 'border-amber-200 bg-amber-50/80 dark:border-amber-900/50 dark:bg-amber-950/30'
             : 'border-teal-200 bg-teal-50/80 dark:border-teal-900/50 dark:bg-teal-950/30'
@@ -971,7 +957,7 @@ export default function KnowledgeBaseDashboard() {
       )}
 
       {/* ── Tabs ── */}
-      <div className="flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-900/50 w-fit">
+      <div className="shrink-0 flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-900/50 w-fit">
         {[['library', Database, 'Library'], ['qa', Sparkles, 'AI Chat Assistant']].map(([id, Icon, label]) => (
           <button key={id} type="button" id={`kb-tab-${id}`}
             className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all
@@ -986,21 +972,14 @@ export default function KnowledgeBaseDashboard() {
 
       {/* ── Library Tab ── */}
       {activeTab === 'library' && (
-        <div className="space-y-4">
+        <div className="flex flex-col flex-1 min-h-0 gap-3 overflow-hidden">
           {/* Filter bar */}
-          <div className="panel flex flex-wrap items-center gap-3">
+          <div className="panel shrink-0 flex flex-wrap items-center gap-3">
             <SearchInput id="kb-search" className="flex-1 min-w-48" value={searchQ}
-              onChange={(e) => setSearchQ(e.target.value)} placeholder="Search by filename, subject, topic…" />
-            <div className="flex items-center gap-2">
-              <Filter size={15} className="text-slate-400" />
-              <select id="kb-filter-subject" className="input w-40" value={filterSubject} onChange={(e) => setFilter(e.target.value)}>
-                <option value="">All subjects</option>
-                {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            {(searchQ || filterSubject) && (
+              onChange={(e) => setSearchQ(e.target.value)} placeholder="Search by filename or topic…" />
+            {searchQ && (
               <button type="button" className="btn-soft gap-1.5 text-sm"
-                onClick={() => { setSearchQ(''); setFilter('') }}>
+                onClick={() => setSearchQ('')}>
                 <X size={14} />Clear
               </button>
             )}
@@ -1009,7 +988,7 @@ export default function KnowledgeBaseDashboard() {
 
           {/* Error */}
           {error && (
-            <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-900/40 dark:bg-red-950/20">
+            <div className="shrink-0 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-900/40 dark:bg-red-950/20">
               <AlertCircle size={18} className="mt-0.5 shrink-0 text-red-500" />
               <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
             </div>
@@ -1038,7 +1017,7 @@ export default function KnowledgeBaseDashboard() {
                 <p className="mt-1 text-sm text-slate-400">
                   {sources.length === 0
                     ? 'Upload a PDF to start building your AI knowledge base.'
-                    : 'Try clearing your search or subject filter.'}
+                    : 'Try clearing your search query.'}
                 </p>
               </div>
               {sources.length === 0 && (
@@ -1049,9 +1028,9 @@ export default function KnowledgeBaseDashboard() {
             </div>
           )}
 
-          {/* Source list */}
+          {/* Source list with internal scroll */}
           {!loading && filtered.length > 0 && (
-            <div className="space-y-2">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
               {filtered.map(src => (
                 deleting === src.source_file ? (
                   <div key={src.source_file} className="flex h-16 items-center justify-center rounded-2xl border border-red-200 bg-red-50 text-sm text-red-600 dark:border-red-900/40 dark:bg-red-950/20">
@@ -1071,11 +1050,13 @@ export default function KnowledgeBaseDashboard() {
 
       {/* ── Q&A Tab ── */}
       {activeTab === 'qa' && (
-        <QAPanel
-          scopedSource={qaSource}
-          scopedSourceLabel={sources.find(s => (s.source_id || s.source_file) === qaSource)?.source_file || qaSource}
-          onClearScope={() => setQaSource(null)}
-        />
+        <div className="flex-1 min-h-0 h-full overflow-hidden">
+          <QAPanel
+            scopedSource={qaSource}
+            scopedSourceLabel={sources.find(s => (s.source_id || s.source_file) === qaSource)?.source_file || qaSource}
+            onClearScope={() => setQaSource(null)}
+          />
+        </div>
       )}
 
       {/* ── Modals ── */}

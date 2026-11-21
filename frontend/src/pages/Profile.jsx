@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BellRing, Camera, Eye, Save, Sparkles, Upload } from 'lucide-react'
-import { api, staticUrl, token } from '../services/api'
+import { api, staticUrl, token, API_URL } from '../services/api'
 import { useLanguage } from '../context/LanguageContext'
 import { useAuth } from '../context/AuthContext'
 import PasswordInput from '../components/PasswordInput'
@@ -78,7 +78,7 @@ export default function Profile() {
     try {
       const body = new FormData()
       body.append('file', file)
-      const response = await fetch('http://localhost:8000/api/users/profile/avatar', {
+      const response = await fetch(`${API_URL}/users/profile/avatar`, {
         method: 'POST',
         headers: token() ? { Authorization: `Bearer ${token()}` } : {},
         body,

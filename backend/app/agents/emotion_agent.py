@@ -76,6 +76,24 @@ class EmotionAnalysisAgent:
 
     name = "Emotion Analysis Agent"
 
+    def warm_up(self) -> None:
+        """Preload Haar cascade and the EfficientNet-B0 model used for inference."""
+        global _face_cascade
+        if _CASCADE_PATH.exists() and hasattr(cv2, "CascadeClassifier") and _face_cascade is None:
+            _face_cascade = cv2.CascadeClassifier(str(_CASCADE_PATH))
+
+        if not hasattr(self, "_pytorch_model"):
+            backend_root = Path(__file__).resolve().parents[2]
+            project_root = backend_root.parent
+            candidates = [
+                backend_root / "static" / "models" / "emotion_model.pth",
+                project_root / "emotion_model_v7.pth",
+                project_root / "emotion_model.pth",
+            ]
+            model_path = next((p for p in candidates if p.exists()), None)
+            if model_path is not None:
+                self._pytorch_model, self._pytorch_tf = self._load_pytorch_model(str(model_path))
+
     # ---------- public API ----------
 
     def analyze_frame(

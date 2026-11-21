@@ -98,7 +98,8 @@ function formatJobError(raw) {
 function useBackgroundGeneration(type) {
   const { startJob, job, removeJob } = useGenerationJobs(type)
   const [loading, setLoading] = useState(() => job?.status === 'pending')
-  const [error, setError] = useState(() => (job?.status === 'error' ? job.error : ''))
+  // Don't pre-populate error from stale failed jobs — errors are only shown during active session
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (!job) {
@@ -1311,80 +1312,137 @@ function LessonResult({ result, request }) {
   const language = lesson?.language || request?.language || ''
   const style = lesson?.style || request?.teaching_style || ''
   const duration = lesson?.duration ?? request?.duration
+  const isRtl = language === 'Arabic' || language === 'ar'
   const subtitle = [language, style, duration != null ? `${duration} min` : null].filter(Boolean).join(' · ')
   const slug = (lesson?.topic || 'lesson').replace(/\s+/g, '-').toLowerCase()
+  const [openSection, setOpenSection] = useState(null)
+
   return (
-    <div className="space-y-5 rounded-md border border-slate-200 p-4 dark:border-slate-700">
-      <ResultHeader title={lesson?.topic} subtitle={subtitle || undefined} model={request?.model} sources={lesson?.sources} unverified={lesson?.unverified} />
-      <DownloadBar
-        items={[
-          {
-            label: 'Word (.doc)',
-            onClick: () => downloadLessonAsDoc(lesson, `${slug}.doc`),
-          },
-          {
-            label: 'PowerPoint (.pptx)',
-            onClick: () => postDownload('/ai/export/pptx', { title: lesson?.topic || 'Lesson', content: lesson }, `${slug}.pptx`),
-          },
-          {
-            label: 'PDF Document (.pdf)',
-            onClick: () => postDownload('/ai/export/pdf', { title: lesson?.topic || 'Lesson', content: lesson }, `${slug}.pdf`),
-          },
-          {
-            label: 'HTML (.html)',
-            onClick: () => downloadLessonAsHtml(lesson, `${slug}.html`),
-          },
-          {
-            label: 'Markdown (.md)',
-            onClick: () => downloadText(lessonToMarkdown(lesson), `${slug}.md`, 'text/markdown'),
-          },
-        ]}
-      />
-      {lesson.overview && (
-        <Section title={t('ai.overview')}>
-          <p className="text-sm leading-7 text-slate-700 dark:text-slate-300">{lesson.overview}</p>
-        </Section>
-      )}
-      <Section title={t('ai.objectives')}>
-        <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
-          {lesson.learning_objectives?.map((objective) => <li key={objective}>• {objective}</li>)}
-        </ul>
-      </Section>
-      {lesson.sections?.length > 0 && (
-        <Section title={t('ai.sections')}>
-          <div className="grid gap-3">
-            {lesson.sections.map((section) => (
-              <article key={section.heading} className="rounded-md bg-slate-100 p-4 dark:bg-slate-800">
-                <p className="font-bold">{section.heading}</p>
-                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{section.content}</p>
-                {section.example && <p className="mt-2 text-xs uppercase tracking-wide text-ocean dark:text-mint">Example: {section.example}</p>}
-              </article>
+    <div className="space-y-6" dir={isRtl ? 'rtl' : 'ltr'}>
+      {/* ── Hero Header ── */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-teal-600 via-teal-500 to-cyan-500 p-6 text-white shadow-lg">
+        <div className="absolute inset-0 opacity-10" style={{backgroundImage:'radial-gradient(circle at 70% 50%, white 1px, transparent 1px)', backgroundSize:'24px 24px'}} />
+        <div className="relative">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {request?.model && request.model !== 'auto' && (
+              <span className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-semibold backdrop-blur-sm">{request.model}</span>
+            )}
+            {subtitle && subtitle.split(' · ').map(s => (
+              <span key={s} className="rounded-full bg-white/15 px-2.5 py-0.5 text-xs">{s}</span>
             ))}
           </div>
-        </Section>
+          <h1 className="text-2xl font-black leading-tight tracking-tight">{lesson?.topic || 'AI Lesson'}</h1>
+          {lesson.overview && <p className="mt-2 text-sm leading-relaxed text-teal-50/90 line-clamp-3">{lesson.overview}</p>}
+        </div>
+      </div>
+
+      {/* ── Download Bar ── */}
+      <DownloadBar
+        items={[
+          { label: 'Word (.doc)', onClick: () => downloadLessonAsDoc(lesson, `${slug}.doc`) },
+          { label: 'PowerPoint (.pptx)', onClick: () => postDownload('/ai/export/pptx', { title: lesson?.topic || 'Lesson', content: lesson }, `${slug}.pptx`) },
+          { label: 'PDF (.pdf)', onClick: () => postDownload('/ai/export/pdf', { title: lesson?.topic || 'Lesson', content: lesson }, `${slug}.pdf`) },
+          { label: 'HTML (.html)', onClick: () => downloadLessonAsHtml(lesson, `${slug}.html`) },
+          { label: 'Markdown (.md)', onClick: () => downloadText(lessonToMarkdown(lesson), `${slug}.md`, 'text/markdown') },
+        ]}
+      />
+
+      {/* ── Learning Objectives ── */}
+      {lesson.learning_objectives?.length > 0 && (
+        <div className="rounded-2xl border border-teal-200 bg-teal-50/60 p-5 dark:border-teal-900/40 dark:bg-teal-950/20">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-teal-700 dark:text-teal-300">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-600 text-xs text-white">✓</span>
+            {t('ai.objectives')}
+          </h2>
+          <ul className="space-y-2">
+            {lesson.learning_objectives.map((obj, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-100 text-xs font-bold text-teal-700 dark:bg-teal-900/60 dark:text-teal-300">{i + 1}</span>
+                {obj}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
-      <Section title={t('ai.slides')}>
-        <div className="grid gap-3 md:grid-cols-2">
-          {lesson.slides?.map((slide) => (
-            <article key={slide.title} className="rounded-md bg-slate-100 p-4 dark:bg-slate-800">
-              <p className="font-bold">{slide.title}</p>
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{slide.content}</p>
-              {slide.diagram && <p className="mt-2 text-xs uppercase tracking-wide text-slate-500">{slide.diagram}</p>}
-            </article>
+
+      {/* ── Sections (accordion) ── */}
+      {lesson.sections?.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('ai.sections')}</h2>
+          {lesson.sections.map((section, i) => (
+            <div key={i} className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setOpenSection(openSection === i ? null : i)}
+                className="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+              >
+                <span className="font-semibold text-slate-800 dark:text-slate-100">{section.heading}</span>
+                <span className="shrink-0 text-slate-400">{openSection === i ? '▲' : '▼'}</span>
+              </button>
+              {openSection === i && (
+                <div className="border-t border-slate-200 bg-slate-50/50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800/30">
+                  <p className="text-sm leading-7 text-slate-700 dark:text-slate-300">{section.content}</p>
+                  {section.example && (
+                    <div className="mt-3 rounded-lg border-l-4 border-teal-400 bg-teal-50/60 p-3 text-sm dark:border-teal-600 dark:bg-teal-950/20">
+                      <span className="font-semibold text-teal-700 dark:text-teal-300">Example: </span>
+                      <span className="text-slate-700 dark:text-slate-300">{section.example}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           ))}
         </div>
-      </Section>
-      {lesson.key_points?.length > 0 && (
-        <Section title={t('ai.keyPoints')}>
-          <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
-            {lesson.key_points.map((point) => <li key={point}>• {point}</li>)}
-          </ul>
-        </Section>
       )}
+
+      {/* ── Slides grid ── */}
+      {lesson.slides?.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('ai.slides')}</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {lesson.slides.map((slide, i) => (
+              <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/60">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-teal-100 text-xs font-bold text-teal-700 dark:bg-teal-900/50 dark:text-teal-300">{i + 1}</span>
+                  <p className="font-semibold text-slate-800 dark:text-slate-100">{slide.title}</p>
+                </div>
+                <p className="text-sm leading-6 text-slate-600 dark:text-slate-400">{slide.content}</p>
+                {slide.diagram && (
+                  <p className="mt-2 rounded-md bg-violet-50 px-3 py-1.5 text-xs text-violet-700 dark:bg-violet-950/30 dark:text-violet-300">
+                    📊 {slide.diagram}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Key Terms ── */}
+      {lesson.key_points?.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 dark:border-amber-900/40 dark:bg-amber-950/15">
+          <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400">{t('ai.keyPoints')}</h2>
+          <div className="flex flex-wrap gap-2">
+            {lesson.key_points.map((point, i) => (
+              <span key={i} className="rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                {point}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Summary ── */}
       {lesson.summary && (
-        <Section title={t('ai.summary')}>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-800/40">
+          <h2 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('ai.summary')}</h2>
           <p className="text-sm leading-7 text-slate-700 dark:text-slate-300">{lesson.summary}</p>
-        </Section>
+        </div>
+      )}
+
+      {/* ── Sources ── */}
+      {(lesson?.sources?.length > 0 || lesson?.unverified) && (
+        <ResultHeader title="" subtitle="" model={undefined} sources={lesson?.sources} unverified={lesson?.unverified} />
       )}
     </div>
   )
@@ -2189,8 +2247,8 @@ export function ChatbotGenerator() {
     }
   }
 
-  async function sendMessage() {
-    const userMessage = input.trim()
+  async function sendMessage(customText) {
+    const userMessage = (typeof customText === 'string' ? customText : input).trim()
     if (!userMessage || loading) return
     setInput('')
     setMessages(prev => [...prev, { role: 'user', content: userMessage }])
@@ -2215,10 +2273,7 @@ export function ChatbotGenerator() {
 
   function startNewConversation() {
     setConversationId(null)
-    setMessages([{
-      role: 'assistant',
-      content: `Hello! I'm ${chatbotName}. How can I help you today?`
-    }])
+    setMessages([])
     setFileContext(null)
     setFileLabel(null)
     setSelectedSourceId('')
@@ -2275,10 +2330,10 @@ export function ChatbotGenerator() {
   })()
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 xl:flex-row xl:items-stretch">
+    <div className="flex h-full min-h-0 w-full overflow-hidden p-3 sm:p-4 flex-col xl:flex-row gap-3 xl:items-stretch">
       {/* History Sidebar */}
-      <aside className="panel flex w-full shrink-0 flex-col space-y-3 xl:w-64 xl:h-full xl:overflow-y-auto">
-        <div className="flex items-center justify-between">
+      <aside className="panel flex w-full shrink-0 flex-col xl:w-64 xl:h-full min-h-0 overflow-hidden">
+        <div className="flex shrink-0 items-center justify-between pb-2">
           <h2 className="flex items-center gap-2 text-sm font-bold"><MessageCircle size={16} className="text-ocean dark:text-mint" /> Conversations</h2>
           <button className="btn-soft text-xs px-2.5 py-1.5" onClick={startNewConversation}>+ New</button>
         </div>
@@ -2286,7 +2341,7 @@ export function ChatbotGenerator() {
         {!historyLoading && conversations.length === 0 && (
           <p className="text-xs text-slate-400 italic">No past conversations</p>
         )}
-        <div className="max-h-56 space-y-1 overflow-y-auto xl:max-h-none xl:flex-1 xl:overflow-y-auto">
+        <div className="flex-1 min-h-0 space-y-1 overflow-y-auto pr-1">
           {conversations.map(conv => (
             <div
               key={conv.conversation_id}
@@ -2305,9 +2360,9 @@ export function ChatbotGenerator() {
       </aside>
 
       {/* Main Chat Panel */}
-      <section className="panel flex min-h-0 h-full w-full flex-1 flex-col overflow-hidden" style={{ minHeight: '500px' }}>
+      <section className="panel flex min-h-0 min-w-0 h-full w-full flex-1 flex-col overflow-hidden p-0">
         {/* Chat header */}
-        <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+        <div className="flex shrink-0 items-center gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-500 text-white shadow-sm">
             <Bot size={20} />
           </div>
@@ -2346,12 +2401,47 @@ export function ChatbotGenerator() {
         </div>
 
         {error && (
-          <p className="mx-4 mt-3 rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300" role="alert">{error}</p>
+          <p className="shrink-0 mx-4 mt-3 rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300" role="alert">{error}</p>
         )}
 
         {/* Messages — fills remaining vertical space */}
-        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
-          {messages.map((msg, idx) => (
+        <div className="flex-1 min-h-0 space-y-4 overflow-y-auto px-4 py-4">
+          {messages.length === 0 ? (
+            <div className="flex h-full min-h-[280px] flex-col items-center justify-center text-center px-4 py-6">
+              <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-teal-500 to-cyan-500 text-white shadow-lg shadow-teal-500/20 mb-3">
+                <Bot size={32} />
+              </div>
+              <h3 className="text-xl font-black text-slate-800 dark:text-slate-100 mb-1">
+                Welcome to EduSense AI
+              </h3>
+              <p className="max-w-md text-xs sm:text-sm text-slate-500 dark:text-slate-400 mb-6">
+                Your intelligent teaching & curriculum assistant. Ask any educational question, explore your knowledge base, or try a prompt below.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-xl text-left">
+                {[
+                  { title: 'Summarize Key Concepts', desc: 'Synthesize the main ideas from my uploaded course materials.', prompt: 'Summarize the core concepts and key takeaways from our course materials.' },
+                  { title: 'Draft Review Questions', desc: 'Generate 5 conceptual check questions with answers.', prompt: 'Create 5 conceptual review questions with concise explanations on our recent topic.' },
+                  { title: 'Explain Complex Topics', desc: 'Break down an intricate topic using an intuitive real-world analogy.', prompt: 'Explain the most challenging concept in this topic step-by-step using a real-world analogy.' },
+                  { title: 'Interactive Lesson Ideas', desc: 'Suggest active learning activities and discussion prompts.', prompt: 'Suggest 3 interactive classroom activities and discussion questions for this topic.' },
+                ].map((card, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => { setInput(card.prompt); sendMessage(card.prompt) }}
+                    className="group rounded-2xl border border-slate-200 bg-white p-3.5 transition-all hover:border-teal-400 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900/60"
+                  >
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-teal-600 dark:group-hover:text-teal-400">
+                      {card.title}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500 line-clamp-2 leading-relaxed">
+                      {card.desc}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            messages.map((msg, idx) => (
             <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
               <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'order-2' : ''}`}>
                 <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
@@ -2422,7 +2512,8 @@ export function ChatbotGenerator() {
                 {msg.role === 'user' ? 'U' : 'AI'}
               </div>
             </div>
-          ))}
+          )))
+        }
           {loading && (
             <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
               <span className="flex items-center gap-2">
@@ -2552,7 +2643,7 @@ export function ChatbotGenerator() {
       </section>
 
       {/* How It Works */}
-      <aside className="panel w-full shrink-0 space-y-4 xl:w-72">
+      <aside className="panel hidden xl:flex w-64 2xl:w-72 shrink-0 flex-col h-full min-h-0 overflow-y-auto space-y-4">
         <h2 className="text-base font-bold">How It Works</h2>
         <div className="space-y-2.5 text-sm text-slate-600 dark:text-slate-400">
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">

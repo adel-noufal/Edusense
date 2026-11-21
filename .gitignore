@@ -160,4 +160,12 @@ backend/app/static/submissions/*
 !backend/app/static/submissions/.gitkeep
 backend/static/
 
+# Local QA Artifacts, test decks, and active port
+qa-artifacts/
+backend/.active_port
+frontend/.env.local
+backend/scratch/
+*.pptx
+*.pdf
+
 

@@ -116,6 +116,12 @@ def _build_provider_specs() -> dict[str, ProviderSpec]:
             default_models=("meta-llama/Meta-Llama-3.1-70B-Instruct",
                             "Qwen/Qwen2.5-72B-Instruct", "deepseek-ai/DeepSeek-V3"),
         ),
+        "ollama": ProviderSpec(
+            name="ollama", kind="openai",
+            base_url="http://localhost:11434/v1",
+            auth_style="none",
+            default_models=("llama3.1:latest", "qwen2.5:latest", "mistral:latest", "llama3.2:latest"),
+        ),
     }
 
     file_providers = _RAW_CONFIG.get("providers", {})
@@ -150,15 +156,15 @@ _TASK_ALIASES = {
 
 # Default feature provider starting preference chains
 DEFAULT_FEATURE_CHAINS: dict[str, tuple[str, ...]] = {
-    "video_script": ("gemini", "openrouter", "nvidia", "groq", "deepinfra", "cerebras"),
-    "kb_chat": ("groq", "gemini", "openrouter", "nvidia", "deepinfra", "cerebras"),
-    "quizzes": ("nvidia", "openrouter", "deepinfra", "groq", "gemini", "cerebras"),
-    "flashcards": ("nvidia", "openrouter", "deepinfra", "groq", "gemini", "cerebras"),
-    "exams": ("nvidia", "openrouter", "deepinfra", "groq", "gemini", "cerebras"),
-    "reports": ("gemini", "groq", "nvidia", "openrouter", "deepinfra", "cerebras"),
-    "recommendations": ("gemini", "groq", "nvidia", "openrouter", "deepinfra", "cerebras"),
-    "question_bank": ("groq", "cerebras", "gemini", "nvidia", "openrouter", "deepinfra"),
-    "general": ("gemini", "groq", "openrouter", "nvidia", "deepinfra", "cerebras"),
+    "video_script":    ("gemini", "openrouter", "nvidia", "groq", "deepinfra", "cerebras", "ollama"),
+    "kb_chat":         ("groq", "gemini", "openrouter", "nvidia", "deepinfra", "cerebras", "ollama"),
+    "quizzes":         ("nvidia", "openrouter", "deepinfra", "groq", "gemini", "cerebras", "ollama"),
+    "flashcards":      ("nvidia", "openrouter", "deepinfra", "groq", "gemini", "cerebras", "ollama"),
+    "exams":           ("nvidia", "openrouter", "deepinfra", "groq", "gemini", "cerebras", "ollama"),
+    "reports":         ("gemini", "groq", "nvidia", "openrouter", "deepinfra", "cerebras", "ollama"),
+    "recommendations": ("gemini", "groq", "nvidia", "openrouter", "deepinfra", "cerebras", "ollama"),
+    "question_bank":   ("groq", "cerebras", "gemini", "nvidia", "openrouter", "deepinfra", "ollama"),
+    "general":         ("gemini", "groq", "openrouter", "nvidia", "deepinfra", "cerebras", "ollama"),
 }
 
 
@@ -444,6 +450,18 @@ class LLMRouter:
             for idx, k in enumerate(s.gemini_api_keys):
                 add_key("gemini", k, f"gemini_{idx+1}", env_var="Settings.gemini_api_keys")
 
+            # 6. Ollama — no API key needed; use a dummy sentinel so provider_keys returns non-empty.
+            #    Check if Ollama is reachable before adding.
+            raw_ollama = env_map.get("EDUSENSE_OLLAMA_URL", "http://localhost:11434")
+            ollama_base = raw_ollama.split("/api")[0].rstrip("/")
+            try:
+                import urllib.request as _ur
+                _ur.urlopen(f"{ollama_base}/api/tags", timeout=2).read()
+                add_key("ollama", "ollama-local", "local", env_var="OLLAMA_SENTINEL")
+                logger.info("[LLM] Ollama reachable at %s — 4 local models registered", ollama_base)
+            except Exception as _exc:
+                logger.info("[LLM] Ollama not reachable at %s: %s", ollama_base, _exc)
+
             self._keys = discovered
             for e in self._keys:
                 self._keys_by_provider.setdefault(e.provider, []).append(e)
@@ -712,8 +730,18 @@ class LLMRouter:
 
             if permanent or "no longer available" in reason.lower() or ("not found" in reason.lower() and "model" in reason.lower()):
                 st.disabled = True
-                self._model_disabled[(provider, model)] = True
-                logger.warning("[LLM] %s model %s permanently disabled (%s)", provider, model, reason[:120])
+                # Only disable model globally across provider if all keys have failed for it
+                all_disabled = True
+                for kidx in range(len(entries)):
+                    kst = self._state(provider, kidx, model)
+                    if not kst.disabled:
+                        all_disabled = False
+                        break
+                if all_disabled:
+                    self._model_disabled[(provider, model)] = True
+                    logger.warning("[LLM] %s model %s permanently disabled across all keys (%s)", provider, model, reason[:120])
+                else:
+                    logger.warning("[LLM] %s key #%d disabled for model %s (%s); other keys remain active", provider, key_index, model, reason[:120])
                 return
 
             backoff = min(self.MAX_BACKOFF, self.BASE_BACKOFF * (2 ** (st.failures - 1)))
@@ -973,11 +1001,13 @@ def _call_openai_compat(spec: ProviderSpec, key: str, model: str, prompt: str,
         body_dict["max_tokens"] = max_output_tokens
 
     body = json.dumps(body_dict).encode("utf-8")
-    req = urllib.request.Request(url, data=body, headers={
+    headers: dict[str, str] = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {key}",
         "User-Agent": "EduSense/2.0 (+https://github.com/adel-noufal/Edusense)",
-    })
+    }
+    if spec.auth_style != "none":
+        headers["Authorization"] = f"Bearer {key}"
+    req = urllib.request.Request(url, data=body, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
 
@@ -1147,14 +1177,13 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
             retry_after = _retry_after(getattr(exc, "headers", None))
             err = GeminiError(err_code, f"{p} API error ({exc.code}): {detail[:200]}")
             last_error = err
-            permanent = (exc.code == 404 and "model" in detail.lower()) or \
+            permanent = (exc.code in (404, 410)) or \
                         (exc.code == 400 and ("model" in detail.lower() and ("not found" in detail.lower() or "does not exist" in detail.lower() or "no longer available" in detail.lower())))
             router.mark_failure(p, i, m, retry_after, f"HTTP {exc.code}: {detail[:120]}",
                                 permanent=permanent, quota_group=grp)
-            logger.warning("[LLM] feature=%s provider=%s model=%s key=%s latency=%.2fs outcome=HTTP_%d rotatable=%s",
-                           task_type, p, m, masked, latency, exc.code, rotatable)
-            if not rotatable and not permanent:
-                raise err
+            logger.warning("[LLM] feature=%s provider=%s model=%s key=%s latency=%.2fs outcome=HTTP_%d rotatable=%s permanent=%s",
+                           task_type, p, m, masked, latency, exc.code, rotatable, permanent)
+            # Never raise a single provider's failure if other candidate providers/models exist in the chain
             continue
         except TimeoutError:
             latency = time.time() - t0

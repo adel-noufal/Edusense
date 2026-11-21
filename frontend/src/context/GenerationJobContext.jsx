@@ -16,7 +16,15 @@ function loadStoredJobs() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed.filter((job) => job?.jobId && job?.type) : []
+    if (!Array.isArray(parsed)) return []
+    const now = Date.now()
+    // Discard stale jobs: >10 min old, or error/done status >2 min old
+    return parsed.filter((job) => {
+      if (!job?.jobId || !job?.type) return false
+      if (job.startedAt && (now - job.startedAt > 10 * 60 * 1000)) return false
+      if ((job.status === 'error' || job.status === 'done') && job.startedAt && (now - job.startedAt > 2 * 60 * 1000)) return false
+      return true
+    })
   } catch {
     return []
   }
@@ -86,6 +94,10 @@ export function GenerationJobProvider({ children }) {
           return
         }
       } catch (err) {
+        if (err.status === 404 || String(err.message).includes('404')) {
+          removeJob(jobId)
+          return
+        }
         updateJob(jobId, { status: 'error', error: err.message || 'Could not check job status' })
         notifyComplete(jobId, label, 'error', err.message)
         pollingRef.current.delete(jobId)
@@ -96,7 +108,7 @@ export function GenerationJobProvider({ children }) {
     updateJob(jobId, { status: 'error', error: 'Generation timed out after 6 minutes' })
     notifyComplete(jobId, label, 'error', 'Generation timed out')
     pollingRef.current.delete(jobId)
-  }, [updateJob, notifyComplete])
+  }, [updateJob, notifyComplete, removeJob])
 
   const startJob = useCallback(async ({ type, endpoint, payload, label }) => {
     const { job_id } = await api(endpoint, { method: 'POST', body: payload })

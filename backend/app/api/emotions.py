@@ -54,19 +54,37 @@ def analyze_trial(
     Stateless emotion-analysis trial for the student dashboard widget.
     Reuses the same detection pipeline (v7 PyTorch / DeepFace fallback) but does
     NOT write EmotionLog rows or require a class session — trial frames are ephemeral.
+    Hard 3-second timeout ensures the UI never hangs.
     """
     _check_rate_limit(user.id)
     image = payload.get("image")
     if not image:
         raise HTTPException(400, "image is required")
-    detail = _get_agent()._detect_detailed(image)
+    
+    _agent = _get_agent()
+    import concurrent.futures
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_agent._detect_detailed, image)
+            detail = future.result(timeout=3.0)
+    except concurrent.futures.TimeoutError:
+        detail = {
+            "emotion": None, "confidence": 0.0, "top_emotions": [],
+            "face_detected": False, "hint": "timeout",
+        }
+    except Exception:
+        detail = {
+            "emotion": None, "confidence": 0.0, "top_emotions": [],
+            "face_detected": False, "hint": "detection_error",
+        }
+
     return {
         "emotion": detail.get("emotion"),
         "confidence": detail.get("confidence", 0.0),
         "top_emotions": detail.get("top_emotions", []),
         "face_detected": detail.get("face_detected", False),
         "hint": detail.get("hint"),
-        "backend": getattr(agent, "_active_backend", "unknown"),
+        "backend": getattr(_agent, "_active_backend", "unknown"),
     }
 
 

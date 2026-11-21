@@ -21,9 +21,13 @@ async def check_upcoming_sessions():
     db = SessionLocal()
     try:
         from app.api.sessions import reconcile_session_statuses
+        from app.services.generation_jobs import reap_stale_jobs
         changed = reconcile_session_statuses(db)
         if changed:
             logger.info("Scheduler: reconciled %d stale session statuses", changed)
+        reaped = reap_stale_jobs(db, max_age_seconds=300)
+        if reaped:
+            logger.info("Scheduler: reaped %d stale background jobs", reaped)
 
         now = datetime.now()
         

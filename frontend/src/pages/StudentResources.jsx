@@ -3,14 +3,12 @@ import {
   BookOpen, ChevronDown, ChevronRight, Download, FileDown, FileText,
   FolderOpen, GraduationCap, Layers, RefreshCw, Sparkles,
 } from 'lucide-react'
-import { api } from '../services/api'
+import { api, staticUrl } from '../services/api'
 import {
   downloadLessonAsDoc, downloadLessonAsPdf, downloadLessonAsPptxHtml,
   downloadQuizAsPdf, downloadQuizAsDoc, downloadFlashcardsAsDoc, downloadFlashcardsAsPdf,
   downloadText, flashcardsToHtml,
 } from '../utils/download'
-
-const BACKEND = 'http://localhost:8000'
 
 function typeIcon(type) {
   if (type === 'lesson') return <GraduationCap size={16} />
@@ -221,7 +219,7 @@ export default function StudentResources() {
                               </div>
                               {r.available ? (
                                 <a
-                                  href={`${BACKEND}${r.url}`}
+                                  href={staticUrl(r.url)}
                                   target="_blank"
                                   rel="noreferrer"
                                   download={r.name}

@@ -240,7 +240,7 @@ def _classify_http_error(code: int, detail: str) -> tuple[str, bool]:
         return GeminiError.QUOTA_EXHAUSTED, True
     if code == 503 or "overloaded" in d or "unavailable" in d or "capacity" in d:
         return GeminiError.MODEL_UNAVAILABLE, True
-    if code == 404 and "model" in d:
+    if code in (404, 410):
         return GeminiError.MODEL_UNAVAILABLE, True
     if code in (401, 403) or "api_key_invalid" in d or "api key not valid" in d or \
        "permission_denied" in d or "permissiondenied" in d or "billing" in d or \

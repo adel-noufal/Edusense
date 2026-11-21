@@ -300,6 +300,22 @@ NARRATION:
                 text = fixed
         except Exception:
             pass
+    words = _count_words(text)
+    if not (int(target * 0.85) <= words <= int(target * 1.15)) and words > 0:
+        try:
+            from app.services.gemini import generate_via_ollama
+            local_text = generate_via_ollama(
+                f"""Rewrite this narration to be approximately {target} words
+(acceptable range {int(target*0.85)}-{int(target*1.15)} words).
+Keep the topic and spoken style, expand or condense as needed, and return plain text only.
+
+NARRATION:
+{text}"""
+            ).strip()
+            if _count_words(local_text) > 0:
+                text = local_text
+        except Exception:
+            pass
     return text
 
 
@@ -509,15 +525,18 @@ def _probe_audio_duration(audio_path: Path) -> float | None:
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
         return None
-    result = subprocess.run(
-        [
-            ffprobe, "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [
+                ffprobe, "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, OSError):
+        return None
     try:
         duration = float(result.stdout.strip())
     except ValueError:
@@ -689,18 +708,23 @@ def _try_ffmpeg(
     if not scenes:
         return None
     try:
+        def escape_drawtext(value: str) -> str:
+            return (
+                value.replace("\\", "\\\\")
+                .replace(":", "\\:")
+                .replace("'", "\\'")
+                .replace(",", "\\,")
+                .replace(";", "\\;")
+                .replace("\n", " ")
+            )
+
         fallback_secs = max(6, min(18, int((max(total_minutes, 1) * 60) / max(len(scenes), 1))))
         concat_lines = []
         for index, scene in enumerate(scenes):
             seg_dur = _clamp_duration(scene.get("duration_seconds", fallback_secs))
-            title_file = project_dir / f"title-{index}.txt"
-            body_file = project_dir / f"body-{index}.txt"
-            title_file.write_text(
-                (scene.get("title") or title).replace("'", ""), encoding="utf-8"
-            )
-            body_file.write_text(
-                (scene.get("highlight") or scene.get("content") or "").replace("'", "")[:180],
-                encoding="utf-8",
+            title_text = escape_drawtext((scene.get("title") or title)[:180])
+            body_text = escape_drawtext(
+                (scene.get("highlight") or scene.get("content") or "")[:180]
             )
             segment_path = project_dir / f"segment-{index}.mp4"
             audio_file = project_dir / f"segment-{index}-audio.mp3"
@@ -713,10 +737,6 @@ def _try_ffmpeg(
                     "-i", str(audio_file),
                     "-f", "lavfi", "-i",
                     f"color=c=0x0f172a:s=1280x720:r=24",
-                    "-vf", (
-                        f"drawtext=textfile='{title_file.as_posix()}':fontcolor=0x5eead4:fontsize=42:x=80:y=100:line_spacing=10,"
-                        f"drawtext=textfile='{body_file.as_posix()}':fontcolor=white:fontsize=28:x=80:y=200:line_spacing=8"
-                    ),
                     "-shortest",    # end video when audio ends
                     "-pix_fmt", "yuv420p",
                     "-acodec", "aac", "-b:a", "128k",
@@ -728,10 +748,6 @@ def _try_ffmpeg(
                     "ffmpeg", "-y",
                     "-f", "lavfi", "-i",
                     f"color=c=0x0f172a:s=1280x720:d={seg_dur}",
-                    "-vf", (
-                        f"drawtext=textfile='{title_file.as_posix()}':fontcolor=0x5eead4:fontsize=42:x=80:y=100:line_spacing=10,"
-                        f"drawtext=textfile='{body_file.as_posix()}':fontcolor=white:fontsize=28:x=80:y=200:line_spacing=8"
-                    ),
                     "-pix_fmt", "yuv420p",
                     str(segment_path),
                 ]

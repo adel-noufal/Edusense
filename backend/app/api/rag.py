@@ -73,9 +73,9 @@ def _kb_set_title(db, conversation_id: str, user_id: int, title: str):
 async def ingest_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    subject: str = Form(...),
-    grade_level: str = Form(...),
-    topic: str = Form(...),
+    subject: Optional[str] = Form("General"),
+    grade_level: Optional[str] = Form("All"),
+    topic: str = Form("General"),
     is_async: bool = Form(False),
     current_user: User = Depends(require_role("instructor"))
 ):
