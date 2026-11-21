@@ -96,7 +96,7 @@ export function SessionPickerFields({ form, setForm, showLinkSession = true, sho
                   ? (resourcesLoading ? 'Loading library files...' : 'Select preparation files...')
                   : `${selectedFileIds.length} file(s) selected`}
               </span>
-              <span className="ms-2 text-xs text-slate-400">{dropdownOpen ? '▲' : '▼'}</span>
+              <span className="ms-2 text-xs text-slate-400">{dropdownOpen ? 'â–²' : 'â–¼'}</span>
             </button>
 
             {dropdownOpen && (

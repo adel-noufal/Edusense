@@ -34,7 +34,7 @@ def _send_email_sync(to_email: str, subject: str, html_body: str):
 
 async def send_session_reminder_email(emails: list[str], session_title: str, start_time_str: str, link: str):
     subject = f"Your session '{session_title}' is starting soon!"
-    
+
     for email in emails:
         html_body = f"""
         <html>
@@ -108,4 +108,3 @@ def send_session_live_email(to_email: str, student_name: str, session_title: str
     </html>
     """
     _send_email_sync(to_email, subject, html_body)
-

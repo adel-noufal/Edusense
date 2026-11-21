@@ -164,7 +164,7 @@ export default function StudentResources() {
                 key={session.id}
                 className="panel overflow-hidden"
               >
-                {/* Session header – click to expand */}
+                {/* Session header â€“ click to expand */}
                 <button
                   type="button"
                   className="w-full flex items-center gap-3 text-left"
@@ -176,7 +176,7 @@ export default function StudentResources() {
                   <div className="flex-1 min-w-0">
                     <p className="font-bold truncate">{session.title}</p>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      {session.instructor_name && <span>{session.instructor_name} · </span>}
+                      {session.instructor_name && <span>{session.instructor_name} Â· </span>}
                       {session.date} at {session.start_time?.slice(0, 5)}
                     </p>
                   </div>
@@ -186,7 +186,7 @@ export default function StudentResources() {
                     </span>
                     {session.attended && (
                       <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                        ✓ Attended
+                        âœ“ Attended
                       </span>
                     )}
                     {isOpen ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
@@ -215,7 +215,7 @@ export default function StudentResources() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-semibold truncate">{r.name}</p>
-                                <p className="text-xs text-slate-500">{formatBytes(r.file_size)} · {new Date(r.uploaded_at).toLocaleDateString()}</p>
+                                <p className="text-xs text-slate-500">{formatBytes(r.file_size)} Â· {new Date(r.uploaded_at).toLocaleDateString()}</p>
                               </div>
                               {r.available ? (
                                 <a

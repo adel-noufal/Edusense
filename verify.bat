@@ -8,11 +8,11 @@ cd backend
 if errorlevel 1 exit /b 1
 
 echo [2/5] Running backend tests...
-.venv\Scripts\python.exe -m pytest -q test_task7_video_generation.py test_b6_emotion.py test_task_video_script_quality.py test_scene_edit_verification.py test_live_layout_emotion.py
+.venv\Scripts\python.exe -m pytest -q -m "not live_provider"
 if errorlevel 1 exit /b 1
 
 echo [3/5] Running live layout and emotion Playwright check...
-.venv\Scripts\python.exe test_live_layout_emotion.py
+.venv\Scripts\python.exe tests/test_live_layout_emotion.py
 if errorlevel 1 exit /b 1
 cd ..
 

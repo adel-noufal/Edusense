@@ -87,10 +87,10 @@ export default function MarkdownText({ text }) {
       continue
     }
     // Unordered list
-    if (/^\s*[-*•]\s+/.test(line)) {
+    if (/^\s*[-*â€¢]\s+/.test(line)) {
       const items = []
-      while (i < lines.length && /^\s*[-*•]\s+/.test(lines[i])) {
-        items.push(<li key={items.length}><Inline text={lines[i].replace(/^\s*[-*•]\s+/, '')} /></li>)
+      while (i < lines.length && /^\s*[-*â€¢]\s+/.test(lines[i])) {
+        items.push(<li key={items.length}><Inline text={lines[i].replace(/^\s*[-*â€¢]\s+/, '')} /></li>)
         i++
       }
       blocks.push(<ul key={key++} className="my-1 list-disc space-y-0.5 ps-5">{items}</ul>)
@@ -106,12 +106,12 @@ export default function MarkdownText({ text }) {
       blocks.push(<ol key={key++} className="my-1 list-decimal space-y-0.5 ps-5">{items}</ol>)
       continue
     }
-    // Paragraph — merge consecutive plain lines
+    // Paragraph â€” merge consecutive plain lines
     const buf = [line]
     i++
     while (i < lines.length && lines[i].trim() &&
            !/^```/.test(lines[i]) && !/^#{1,4}\s/.test(lines[i]) &&
-           !/^\s*[-*•]\s+/.test(lines[i]) && !/^\s*\d+[.)]\s+/.test(lines[i])) {
+           !/^\s*[-*â€¢]\s+/.test(lines[i]) && !/^\s*\d+[.)]\s+/.test(lines[i])) {
       buf.push(lines[i]); i++
     }
     blocks.push(<p key={key++} className="my-1 leading-relaxed"><Inline text={buf.join(' ')} /></p>)

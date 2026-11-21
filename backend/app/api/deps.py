@@ -28,7 +28,7 @@ def require_role(*roles: str):
 
 
 def _check_consent(db: Session, user_id: int, consent_type: str) -> ConsentRecord:
-    """Shared consent check — returns consent record or raises 403."""
+    """Shared consent check â€” returns consent record or raises 403."""
     consent = db.query(ConsentRecord).filter_by(
         user_id=user_id,
         consent_type=consent_type,

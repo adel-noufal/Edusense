@@ -93,7 +93,6 @@ class LessonRequest(BaseModel):
     prompt: str
     language: str = "English"
     teaching_style: str = "Friendly"
-    duration: int = Field(default=5, ge=1, le=60)       # kept for video generation compatibility
     detail_level: str = "Standard"                       # Brief | Standard | Detailed
     additional_notes: str | None = None
     session_id: int | None = None
@@ -112,6 +111,7 @@ class QuizRequest(BaseModel):
     prompt: str = ""
     difficulty: str = "Medium"
     count: int = Field(default=8, ge=3, le=30)
+    teaching_style: str = "Interactive"
     # Optional saved config to apply
     config_id: int | None = None
     # RAG context filters
@@ -155,6 +155,7 @@ class FlashcardRequest(BaseModel):
     prompt: str = ""
     count: int = Field(default=10, ge=3, le=40)
     language: str = "English"
+    teaching_style: str = "Interactive"
     session_id: int | None = None
     source_session_id: int | None = None
     source_resource_ids: list[int] | None = None
@@ -390,7 +391,7 @@ class ConsentCheckResponse(BaseModel):
     timestamp: datetime | None = None
 
 
-# ─── Section 3: Assignment schemas ───────────────────────────────────────────
+# â”€â”€â”€ Section 3: Assignment schemas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class AssignmentIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)

@@ -55,7 +55,7 @@ class LocalLLM:
         If query is off-topic for the declared subject/grade, return refusal message.
         """
         # Scope check for off-topic queries (no LLM required)
-        # Prefer an explicit `query` (the raw user question) when the caller has it —
+        # Prefer an explicit `query` (the raw user question) when the caller has it â€”
         # parsing it back out of a fully-built prompt is fragile and was the source
         # of prompt-text leaking into user-facing fallback answers.
         query_for_check = (query or "").strip() or prompt
@@ -89,7 +89,7 @@ class LocalLLM:
             return refusal
 
         tone = random.choice(["clear", "interactive", "visual", "practice-oriented"])
-        # Never echo raw prompt/instruction text back to the user — only the
+        # Never echo raw prompt/instruction text back to the user â€” only the
         # extracted question/topic may appear in the fallback answer.
         topic_text = query_for_check if query_for_check else "this topic"
         answer = (
@@ -106,4 +106,3 @@ def adk_agent(name: str, description: str):
         return Agent(name=name, description=description, instruction=description)
     except Exception:
         return {"name": name, "description": description, "runtime": "local-fallback"}
-

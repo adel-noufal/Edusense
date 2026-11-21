@@ -1,5 +1,5 @@
 """
-llm.py — Open-ended Multi-Provider, Multi-Key LLM Layer for EduSense (Part A Revised).
+llm.py â€” Open-ended Multi-Provider, Multi-Key LLM Layer for EduSense (Part A Revised).
 
 Key architectural capabilities:
 1. Dynamic unlimited key discovery from .env and environment:
@@ -143,6 +143,7 @@ PROVIDERS: dict[str, ProviderSpec] = _build_provider_specs()
 _TASK_ALIASES = {
     "video": "video_script",
     "script": "video_script",
+    "prompt_enhance": "prompt_enhance",
     "chat": "kb_chat",
     "chatbot": "kb_chat",
     "quiz": "quizzes",
@@ -156,6 +157,7 @@ _TASK_ALIASES = {
 
 # Default feature provider starting preference chains
 DEFAULT_FEATURE_CHAINS: dict[str, tuple[str, ...]] = {
+    "prompt_enhance":  ("ollama", "groq", "cerebras", "gemini", "openrouter", "nvidia", "deepinfra"),
     "video_script":    ("gemini", "openrouter", "nvidia", "groq", "deepinfra", "cerebras", "ollama"),
     "kb_chat":         ("groq", "gemini", "openrouter", "nvidia", "deepinfra", "cerebras", "ollama"),
     "quizzes":         ("nvidia", "openrouter", "deepinfra", "groq", "gemini", "cerebras", "ollama"),
@@ -450,7 +452,7 @@ class LLMRouter:
             for idx, k in enumerate(s.gemini_api_keys):
                 add_key("gemini", k, f"gemini_{idx+1}", env_var="Settings.gemini_api_keys")
 
-            # 6. Ollama — no API key needed; use a dummy sentinel so provider_keys returns non-empty.
+            # 6. Ollama â€” no API key needed; use a dummy sentinel so provider_keys returns non-empty.
             #    Check if Ollama is reachable before adding.
             raw_ollama = env_map.get("EDUSENSE_OLLAMA_URL", "http://localhost:11434")
             ollama_base = raw_ollama.split("/api")[0].rstrip("/")
@@ -458,7 +460,7 @@ class LLMRouter:
                 import urllib.request as _ur
                 _ur.urlopen(f"{ollama_base}/api/tags", timeout=2).read()
                 add_key("ollama", "ollama-local", "local", env_var="OLLAMA_SENTINEL")
-                logger.info("[LLM] Ollama reachable at %s — 4 local models registered", ollama_base)
+                logger.info("[LLM] Ollama reachable at %s â€” 4 local models registered", ollama_base)
             except Exception as _exc:
                 logger.info("[LLM] Ollama not reachable at %s: %s", ollama_base, _exc)
 

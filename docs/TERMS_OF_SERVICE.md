@@ -1,6 +1,6 @@
 # EduSense Terms of Service (DRAFT)
 
-> **⚠️ LEGAL NOTICE**: This is a **DRAFT** terms document. The actual legal wording **must be reviewed by a qualified attorney** before production use, especially since minors are involved. **The sections regarding minors and parental/guardian involvement are specifically flagged for legal review before launch.** Do not present this generated text as legally final.
+> **âš ï¸ LEGAL NOTICE**: This is a **DRAFT** terms document. The actual legal wording **must be reviewed by a qualified attorney** before production use, especially since minors are involved. **The sections regarding minors and parental/guardian involvement are specifically flagged for legal review before launch.** Do not present this generated text as legally final.
 
 **Effective Date**: 2026-11-07
 **Version**: 1.0
@@ -33,7 +33,7 @@ By accessing or using EduSense ("the Platform", "we", "our", "us"), you agree to
 ### 3.1 Age Requirements
 - **General**: You must be at least 13 years old (or the age of digital consent in your jurisdiction) to create an account
 - **Minors (under 18)**: Require verifiable parental/guardian consent
-- **⚠️ FLAGGED FOR LEGAL REVIEW**: The age threshold, consent verification method, and guardian rights framework **must be reviewed by an attorney** before launch to ensure compliance with COPPA, GDPR-K, and applicable state/local laws
+- **âš ï¸ FLAGGED FOR LEGAL REVIEW**: The age threshold, consent verification method, and guardian rights framework **must be reviewed by an attorney** before launch to ensure compliance with COPPA, GDPR-K, and applicable state/local laws
 
 ### 3.2 Account Registration
 - You must provide accurate, complete registration information
@@ -48,7 +48,7 @@ By accessing or using EduSense ("the Platform", "we", "our", "us"), you agree to
   - Request data export or deletion
   - Withdraw consent at any time (account will be disabled)
   - Set usage limits and monitor activity
-- **⚠️ FLAGGED FOR LEGAL REVIEW**: The specific guardian verification process, rights scope, and account disabling procedures **require attorney review**
+- **âš ï¸ FLAGGED FOR LEGAL REVIEW**: The specific guardian verification process, rights scope, and account disabling procedures **require attorney review**
 
 ---
 
@@ -88,7 +88,7 @@ All Platform code, design, models, trademarks, and proprietary technology are ow
 ### 5.2 User Content
 - **You retain ownership** of Content you create/upload (lessons, quizzes, resources, chat messages)
 - **License to Platform**: By submitting Content, you grant us a worldwide, royalty-free, sublicensable license to use, reproduce, modify, display, and distribute Content solely for Platform operation and improvement
-- **AI Output**: AI-generated content is provided under CC-BY-4.0 equivalent — you may use, modify, distribute freely with attribution to "EduSense AI"
+- **AI Output**: AI-generated content is provided under CC-BY-4.0 equivalent â€” you may use, modify, distribute freely with attribution to "EduSense AI"
 
 ### 5.3 Instructor Materials
 Instructors grant Students enrolled in their sessions a limited license to access session materials for educational purposes only.
@@ -110,7 +110,7 @@ Your privacy is governed by our [Privacy Policy](PRIVACY_POLICY.md), which is in
 ### 7.1 AI Features
 The Platform uses AI for:
 - Emotion recognition (local PyTorch model)
-- Content generation (multi-tier: Gemini → Ollama → templates)
+- Content generation (multi-tier: Gemini â†’ Ollama â†’ templates)
 - RAG search (local embeddings + ChromaDB)
 - Recommendations (engagement analysis)
 
@@ -161,7 +161,7 @@ You agree to indemnify and hold harmless EduSense, its officers, and employees f
 
 ## 11. Governing Law & Dispute Resolution
 
-- **Governing Law**: [Jurisdiction — e.g., State of Delaware, USA]
+- **Governing Law**: [Jurisdiction â€” e.g., State of Delaware, USA]
 - **Disputes**: Binding arbitration (AAA rules) for claims > $10,000; small claims court for smaller
 - **Class Action Waiver**: You waive right to class/representative actions
 

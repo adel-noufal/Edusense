@@ -102,4 +102,3 @@ def llm_test(_: User = Depends(require_role("admin", "instructor"))):
         "results": results,
         "llm_status": llm.status(),
     }
-

@@ -17,7 +17,7 @@ def validate_file_signature(filename: str, first_bytes: bytes) -> Tuple[bool, st
     """
     Validates file content signature (magic bytes) against its declared extension.
     Guards against spoofed extensions (e.g. executable renamed to .pdf).
-    
+
     Returns:
         (is_valid: bool, reason: str)
     """

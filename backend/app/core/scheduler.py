@@ -30,21 +30,21 @@ async def check_upcoming_sessions():
             logger.info("Scheduler: reaped %d stale background jobs", reaped)
 
         now = datetime.now()
-        
+
         # Only check active/pending sessions that haven't had final reminder sent
         sessions = db.query(Session).filter(
             Session.status.in_(["pending", "scheduled", "upcoming"]),
             Session.reminder_sent == False
         ).all()
-        
+
         logger.debug("Scheduler check: Found %d pending sessions without reminders", len(sessions))
-        
+
         for session in sessions:
             session_start = datetime.combine(session.date, session.start_time)
             time_until_start = (session_start - now).total_seconds() / 60.0
-            
+
             logger.debug("Session '%s' starts in %.1f minutes", session.title, time_until_start)
-            
+
             # If the session starts in less than 15 minutes
             minutes_left = math.floor(time_until_start)
 
@@ -60,20 +60,20 @@ async def check_upcoming_sessions():
                 # proceed to send reminder for this minute
                 registrations = db.query(SessionRegistration).filter(SessionRegistration.session_id == session.id).all()
                 student_ids = [reg.student_id for reg in registrations]
-                
+
                 emails = []
                 if student_ids:
                     students = db.query(User).filter(User.id.in_(student_ids)).all()
                     emails.extend([student.email for student in students if student.email])
-                
+
                 instructor = db.query(User).filter(User.id == session.instructor_id).first()
                 if instructor and instructor.email:
                     emails.append(instructor.email)
-                
+
                 if emails:
                     start_time_str = session_start.strftime("%A, %B %d at %I:%M %p")
                     link = f"{settings.frontend_url}/student/sessions/{session.id}/live"
-                    
+
                     await send_session_reminder_email(emails, session.title, start_time_str, link)
 
                     sent_minutes.add(str(minutes_left))

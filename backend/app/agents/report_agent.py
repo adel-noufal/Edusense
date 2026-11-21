@@ -8,7 +8,7 @@ ADK_AGENT = adk_agent(
     "Build session, engagement, emotion analytics, and PDF reports personalized to the instructor.",
 )
 
-# Emotion → human-readable label for reports
+# Emotion â†’ human-readable label for reports
 EMOTION_LABELS = {
     "happy": "Happy / Engaged",
     "neutral": "Neutral",
@@ -53,7 +53,7 @@ class ReportGenerationAgent:
         recommendations : result dict from RecommendationAgent.recommend()
         instructor_name : full name of the instructor running the session
         session_title   : title of the session being reported on
-        has_students    : whether any students attended; False → short report
+        has_students    : whether any students attended; False â†’ short report
         """
         if not has_students:
             summary = (
@@ -134,7 +134,7 @@ class ReportGenerationAgent:
             if attended_duration is not None:
                 duration_note = f"Attended duration: {attended_duration} min. "
             if duration_capped:
-                duration_note += "(capped at the configured maximum — the session may have been left open) "
+                duration_note += "(capped at the configured maximum â€” the session may have been left open) "
             summary = (
                 f"{verdict} "
                 f"{duration_note}"
@@ -210,7 +210,7 @@ class ReportGenerationAgent:
         y -= 18
         c.setFont("Helvetica", 11)
         for label in (emotion_labels or ["No data"]):
-            c.drawString(90, y, f"• {label}")
+            c.drawString(90, y, f"â€¢ {label}")
             y -= 16
         y -= 10
 

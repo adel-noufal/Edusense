@@ -61,7 +61,7 @@ build
 # Template Dependency Leafs
 .yarn-integrity
 
-# dotenv environment variable files — NEVER commit these (they contain API keys)
+# dotenv environment variable files â€” NEVER commit these (they contain API keys)
 .env
 .env.*
 !.env.example
@@ -121,7 +121,7 @@ backend/app/static/avatars/*
 migrate_attended.py
 alter_db.py
 
-# Alembic — track versions but ignore pycache inside them
+# Alembic â€” track versions but ignore pycache inside them
 backend/migrations/__pycache__/
 backend/migrations/versions/__pycache__/
 
@@ -134,7 +134,7 @@ sample_data/
 *.backup
 *.tmp
 
-# ML model weights (large binary files — distribute separately)
+# ML model weights (large binary files â€” distribute separately)
 *.pth
 *.pt
 *.onnx
@@ -167,5 +167,6 @@ frontend/.env.local
 backend/scratch/
 *.pptx
 *.pdf
-
-
+*.docx
+*.mp4
+*.srt

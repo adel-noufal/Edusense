@@ -67,15 +67,15 @@ def _kb_set_title(db, conversation_id: str, user_id: int, title: str):
     db.commit()
 
 
-# ── Task 2: Document Ingestion ────────────────────────────────────────────
+# â”€â”€ Task 2: Document Ingestion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/ingest", response_model=Dict[str, Any])
 async def ingest_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    subject: Optional[str] = Form("General"),
-    grade_level: Optional[str] = Form("All"),
-    topic: str = Form("General"),
+    subject: Optional[str] = Form(...),
+    grade_level: Optional[str] = Form(...),
+    topic: str = Form(...),
     is_async: bool = Form(False),
     current_user: User = Depends(require_role("instructor"))
 ):
@@ -219,7 +219,7 @@ def preview_source_material(
     ]
     file_path = next((p for p in candidates if p.exists() and p.is_file()), None)
     file_url = f"/static/knowledge_base/{file_path.name}" if file_path else None
-    
+
     # Retrieve top sample chunks from vector store
     sample_chunks = rag_qa.suggest_chunks(topic="", subject=None, grade_level=None, top_k=6, min_score=None).get("chunks", [])
     filtered_chunks = [c for c in sample_chunks if c.get("source_file") == source_id or c.get("filename") == clean_name]
@@ -264,7 +264,7 @@ def delete_source(
     }
 
 
-# ── Task 5: Student RAG Q&A ───────────────────────────────────────────────
+# â”€â”€ Task 5: Student RAG Q&A â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/ask", response_model=Dict[str, Any])
 def ask_question(
@@ -272,7 +272,7 @@ def ask_question(
     current_user: User = Depends(get_current_user)
 ):
     """
-    **Student Q&A** — Ask a question and receive an AI answer grounded in the
+    **Student Q&A** â€” Ask a question and receive an AI answer grounded in the
     indexed course material (RAG).
 
     Request body:
@@ -298,7 +298,7 @@ def ask_question(
     ```
     - Open to **all authenticated users** (students and instructors).
     - If no relevant material exists, returns a polite message asking the instructor to upload documents.
-    - AI answer uses Gemini → Ollama → fallback message chain.
+    - AI answer uses Gemini â†’ Ollama â†’ fallback message chain.
     """
     question = (payload.get("question") or "").strip()
     if not question:
@@ -312,7 +312,7 @@ def ask_question(
     raw_source_ids = payload.get("source_ids")
     source_ids = [str(s) for s in raw_source_ids] if isinstance(raw_source_ids, list) and raw_source_ids else None
     if source_ids:
-        # Validate every selected ID against the indexed sources — the KB is
+        # Validate every selected ID against the indexed sources â€” the KB is
         # shared, so "ownership" means "must be a real indexed document".
         known = {str(s.get("source_id") or s.get("source_file"))
                  for s in ingestion.get_indexed_sources()}
@@ -321,7 +321,7 @@ def ask_question(
             raise HTTPException(status_code=400,
                                 detail=f"Unknown source_ids: {', '.join(unknown[:5])}")
 
-    # ── Persistent KB conversation (instructor-scoped) ──────────────────
+    # â”€â”€ Persistent KB conversation (instructor-scoped) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     conversation_id = payload.get("conversation_id") or None
     persist = bool(payload.get("persist", True))
     db = SessionLocal()
@@ -402,7 +402,7 @@ def ask_question(
     return result
 
 
-# ── Task 6: Instructor Knowledge-Base Suggestions ────────────────────────
+# â”€â”€ Task 6: Instructor Knowledge-Base Suggestions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/suggest", response_model=Dict[str, Any])
 def suggest_material(
@@ -410,11 +410,11 @@ def suggest_material(
     subject: Optional[str] = Query(None, description="Filter by subject (e.g. Biology)."),
     grade_level: Optional[str] = Query(None, description="Filter by grade level (e.g. 10)."),
     top_k: int = Query(8, ge=1, le=20, description="Number of top chunks to return."),
-    min_score: Optional[float] = Query(None, ge=0.0, le=1.0, description="Minimum similarity score (0–1)."),
+    min_score: Optional[float] = Query(None, ge=0.0, le=1.0, description="Minimum similarity score (0â€“1)."),
     current_user: User = Depends(require_role("instructor"))
 ):
     """
-    **Instructor Knowledge-Base Suggestions** — Preview what source material
+    **Instructor Knowledge-Base Suggestions** â€” Preview what source material
     exists in the knowledge base for a given topic before generating content.
 
     Returns the top-k most relevant chunks ranked by similarity score.
@@ -422,11 +422,11 @@ def suggest_material(
     `/ai/lessons`, `/ai/quizzes`, or `/ai/flashcards`.
 
     Query params:
-    - `topic` *(required)* — keyword or topic phrase
-    - `subject` — optional subject filter
-    - `grade_level` — optional grade level filter
-    - `top_k` — number of chunks (default 8, max 20)
-    - `min_score` — override the default relevance threshold
+    - `topic` *(required)* â€” keyword or topic phrase
+    - `subject` â€” optional subject filter
+    - `grade_level` â€” optional grade level filter
+    - `top_k` â€” number of chunks (default 8, max 20)
+    - `min_score` â€” override the default relevance threshold
 
     Response:
     ```json
@@ -450,7 +450,7 @@ def suggest_material(
     )
 
 
-# ── KB Chat History (instructor-scoped, user-owned) ────────────────────────
+# â”€â”€ KB Chat History (instructor-scoped, user-owned) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class KBRenameIn(BaseModel):
     title: str

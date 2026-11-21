@@ -11,10 +11,11 @@ from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.models import QuizAgentConfig
 from app.services.gemini import generate_json_any
+from app.services.content_pipeline import format_strict_text, validate_quality, critique_output
 
 ADK_AGENT = adk_agent("quiz_generation_agent", "Generate MCQ, true/false, and short-answer quizzes.")
 
-# Canonical difficulty enum — anything else maps to the nearest level so the
+# Canonical difficulty enum â€” anything else maps to the nearest level so the
 # UI never shows mixed labels like "Medium" vs "intermediate".
 _DIFFICULTY_MAP = {
     "easy": "Easy", "beginner": "Easy", "foundation": "Easy",
@@ -176,6 +177,7 @@ class QuizGenerationAgent:
         subject: Optional[str] = None,
         grade_level: Optional[str] = None,
         config_id: Optional[int] = None,
+        teaching_style: str = "Interactive",
     ) -> AgentResult:
         settings = get_settings()
 
@@ -222,11 +224,12 @@ class QuizGenerationAgent:
                 db.close()
 
         instructor_notes = f'\nInstructor guidance: "{config_prompt}"' if config_prompt.strip() else ""
+        instructor_notes += f'\nTeaching style: {teaching_style}'
 
-        # ── RAG retrieval (curriculum first) ────────────────────────────────
+        # â”€â”€ RAG retrieval (curriculum first) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         rag_context, rag_sources = _build_rag_context(topic, subject, grade_level)
 
-        # ── Web retrieval (if curriculum is insufficient) ─────────────────
+        # â”€â”€ Web retrieval (if curriculum is insufficient) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         web_context = ""
         web_results = []
         web_sources = []
@@ -316,6 +319,8 @@ Return ONLY valid JSON:
 
             if isinstance(data, dict) and data.get("questions"):
                 questions = normalize_questions(data["questions"], count, topic, difficulty)
+                questions = format_strict_text(questions)
+                quality = critique_output({"questions": questions}, topic)
                 return AgentResult(self.name, {
                     "title": data.get("title") or f"{topic} Master Assessment",
                     "difficulty": normalize_difficulty(data.get("difficulty") or difficulty),
@@ -323,6 +328,8 @@ Return ONLY valid JSON:
                     "sources": rag_sources + web_sources,
                     "unverified": len(rag_sources + web_sources) == 0,
                     "web_sources": web_results,
+                    "quality": quality,
+                    "quality_issues": validate_quality({"sections": [{"content": str(q)} for q in questions]}, source_attached=bool(rag_sources)),
                 })
         except Exception:
             pass
@@ -391,7 +398,7 @@ Return ONLY valid JSON:
                 "explanation": "Strategy A eliminates redundant processing through intelligent caching and memoization, dramatically improving execution speed.",
                 "difficulty": difficulty,
             })
-        questions = normalize_questions(questions, count, topic, difficulty)
+        questions = format_strict_text(normalize_questions(questions, count, topic, difficulty))
         return AgentResult(self.name, {
             "title": f"{topic} Master Assessment",
             "difficulty": normalize_difficulty(difficulty),

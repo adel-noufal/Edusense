@@ -87,7 +87,7 @@ class RecommendationAgent:
         distribution = emotions.get("distribution", {}) or {}
         dominant = sorted(distribution.items(), key=lambda item: item[1], reverse=True)[:3]
 
-        # ── Deterministic facts (never LLM-generated) ──────────────────────
+        # â”€â”€ Deterministic facts (never LLM-generated) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         timeline = engagement.get("attention_timeline") or []
         windows = _low_engagement_windows(timeline, threshold)
         facts = {

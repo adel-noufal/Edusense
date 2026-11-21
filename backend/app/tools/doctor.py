@@ -181,7 +181,7 @@ def run_doctor():
         with urllib.request.urlopen(req, timeout=4) as resp:
             data = json.loads(resp.read().decode())
         installed_models = [m.get("name", "") for m in data.get("models", [])]
-        
+
         # Check user's 4 required models
         required_models = {
             "qwen2.5": False,

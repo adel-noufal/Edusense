@@ -26,7 +26,7 @@ function isUpcomingSession(session) {
 function isPastSession(session) {
   return PAST_STATUSES.includes(effStatus(session))
 }
-/** Locale-aware "Nov 20, 2026, 7:45 PM" — never raw microseconds. */
+/** Locale-aware "Nov 20, 2026, 7:45 PM" â€” never raw microseconds. */
 function formatSessionWhen(session) {
   if (!session?.date) return ''
   const time = String(session.start_time || '00:00').slice(0, 8)
@@ -49,7 +49,7 @@ function Pagination({ page, totalPages, total, onPage }) {
   if (totalPages <= 1) return null
   return (
     <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 dark:border-slate-800">
-      <p className="text-xs text-slate-500">{total} item{total === 1 ? '' : 's'} · Page {page} of {totalPages}</p>
+      <p className="text-xs text-slate-500">{total} item{total === 1 ? '' : 's'} Â· Page {page} of {totalPages}</p>
       <div className="flex items-center gap-2">
         <button type="button" className="btn-soft px-3 py-1.5 text-xs" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</button>
         <div className="flex items-center gap-1">
@@ -99,7 +99,7 @@ export function StudentDashboard() {
   const filtered = enrolledSessions.filter((session) => {
     if (mode === 'upcoming') return isUpcomingSession(session) || isLiveSession(session)
     if (mode === 'history') {
-      // History = ended/missed/cancelled sessions only — never upcoming ones
+      // History = ended/missed/cancelled sessions only â€” never upcoming ones
       const today = new Date().toISOString().slice(0, 10)
       return isPastSession(session) || session.attended || (session.date && session.date < today)
     }
@@ -499,7 +499,7 @@ export function InstructorDashboard() {
 
     // Enforce rule: feedback loop can ONLY be run on ended sessions
     const targetIds = selectedSessionIds.length > 0 ? selectedSessionIds : endedSessions.map(s => String(s.id))
-    
+
     if (!endedSessions.length) {
       setError('Feedback loop is only available for ended sessions. None of your sessions have ended yet.')
       return
@@ -585,9 +585,9 @@ export function InstructorDashboard() {
             </div>
           </div>
           {error && <p className="rounded-md bg-red-50 p-2.5 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-200">{error}</p>}
-          <SessionList 
-            sessions={endedSessions} 
-            showEdit={true} 
+          <SessionList
+            sessions={endedSessions}
+            showEdit={true}
             onReload={loadSessions}
             selectedSessionIds={selectedSessionIds}
             onToggleSelection={toggleSessionSelection}
@@ -625,7 +625,7 @@ export function InstructorDashboard() {
                       <div key={s.session_id} className="flex items-start justify-between gap-2 py-0.5">
                         <span className="font-medium text-slate-800 dark:text-slate-200 truncate">{s.session_title}</span>
                         {s.status === 'analyzed' ? (
-                          <span className="font-bold text-emerald-600 dark:text-emerald-400 shrink-0">✓ Analyzed</span>
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400 shrink-0">âœ“ Analyzed</span>
                         ) : (
                           <span className="font-medium text-amber-600 dark:text-amber-400 shrink-0 text-end">
                             Not enough data{s.missing?.length ? ` (${s.missing.join(', ')})` : ''}
@@ -770,7 +770,7 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
             )}
             <div>
               <p className="font-bold">{session.title}</p>
-              <p className="text-sm text-slate-500">{formatSessionWhen(session)} · <span className="capitalize font-semibold text-ocean dark:text-mint">{effStatus(session)}</span></p>
+              <p className="text-sm text-slate-500">{formatSessionWhen(session)} Â· <span className="capitalize font-semibold text-ocean dark:text-mint">{effStatus(session)}</span></p>
               {session.description && <p className="mt-2 max-w-xl text-sm text-slate-600 dark:text-slate-300">{session.description}</p>}
             </div>
           </div>
@@ -845,7 +845,7 @@ function SessionCatalog({ sessions, onReload }) {
     <div className="grid gap-4">
       <SearchInput value={search} onChange={(e) => setSearch(e.target.value)}
         placeholder="Search for a topic or session name..." />
-      
+
       {!sessions.length ? (
         <p className="text-sm text-slate-500 mt-2">All open sessions are already in your list.</p>
       ) : filtered.length === 0 ? (
@@ -921,7 +921,7 @@ export function Settings() {
             <span className="text-sm font-semibold">{t('settingsPage.language')}</span>
             <select className="input" value={lang} onChange={(e) => setLang(e.target.value)}>
               <option value="en">English</option>
-              <option value="ar">العربية</option>
+              <option value="ar">Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©</option>
             </select>
             <p className="text-xs text-slate-500">{t('settingsPage.languageHint')}</p>
           </label>

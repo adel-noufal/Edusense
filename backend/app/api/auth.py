@@ -14,7 +14,7 @@ from app.services.email import send_reset_password_email
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 # Rate limiter for auth endpoints: 100 requests per minute per IP (allows test suites + retries)
-# In-memory only — correct for single-process deployment.
+# In-memory only â€” correct for single-process deployment.
 # For multi-worker deployments, replace with a shared store (e.g., Redis).
 class _AuthRateLimiter:
     def __init__(self, rate: int = 100, per: int = 60):
@@ -63,7 +63,7 @@ def register(payload: UserCreate, request: Request, db: Session = Depends(get_db
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(500, "Database error — please try again")
+        raise HTTPException(500, "Database error â€” please try again")
     db.refresh(user)
     db.add(Profile(user_id=user.id))
     db.commit()
@@ -106,11 +106,11 @@ async def forgot_password(payload: ForgotPasswordRequest, request: Request, db: 
         # Audit: password reset requested for non-existent email (but don't reveal)
         log_auth_event(db, action="password_reset_requested", request=request, details={"email": payload.email, "user_found": False})
         return {"message": "If that email is registered, a reset link has been sent."}
-    
+
     # Create a token specifically for resetting, expires in 15 mins
     reset_token = create_access_token(user.email, role="reset")
     reset_link = f"http://localhost:5173/reset-password?token={reset_token}"
-    
+
     await send_reset_password_email(user.email, reset_link)
 
     # Audit: password reset requested
@@ -132,13 +132,13 @@ def reset_password(payload: ResetPasswordRequest, request: Request, db: Session 
         # Audit: invalid/expired reset token
         log_auth_event(db, action="password_reset_failed", request=request, details={"reason": "invalid_token"})
         raise HTTPException(400, "Invalid or expired reset token")
-        
+
     user = db.query(User).filter(User.email == email).first()
     if not user:
         # Audit: reset token for non-existent user
         log_auth_event(db, action="password_reset_failed", request=request, details={"reason": "user_not_found", "email": email})
         raise HTTPException(404, "User not found")
-        
+
     user.password_hash = hash_password(payload.new_password)
     db.commit()
 

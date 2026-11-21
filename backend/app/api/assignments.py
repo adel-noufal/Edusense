@@ -1,5 +1,5 @@
 """
-Assignment API Endpoints — Section 3
+Assignment API Endpoints â€” Section 3
 
 Instructor CRUD for assignments tied to sessions; student submission upload.
 """
@@ -32,7 +32,7 @@ def _ensure_submissions_dir():
     os.makedirs(SUBMISSIONS_DIR, exist_ok=True)
 
 
-# ─── Instructor: Create / List assignments ────────────────────────────────────
+# â”€â”€â”€ Instructor: Create / List assignments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/", response_model=AssignmentOut, status_code=201)
 def create_assignment(
@@ -102,7 +102,7 @@ def list_assignments_for_session(
     return [AssignmentOut.model_validate(a) for a in assignments]
 
 
-# ─── Student: list all assignments across enrolled sessions ───────────────────
+# â”€â”€â”€ Student: list all assignments across enrolled sessions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/student", response_model=list[AssignmentOut])
 def list_my_assignments(
@@ -142,7 +142,7 @@ def list_my_assignments(
     return result
 
 
-# ─── Student: submit assignment file ─────────────────────────────────────────
+# â”€â”€â”€ Student: submit assignment file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/{assignment_id}/submit", response_model=AssignmentSubmissionOut)
 def submit_assignment(
@@ -154,7 +154,7 @@ def submit_assignment(
 ):
     """
     Student uploads a submission file (PDF, Word, image, etc.).
-    Only one submission per student per assignment — re-submitting replaces it.
+    Only one submission per student per assignment â€” re-submitting replaces it.
     """
     assignment = db.query(Assignment).filter_by(id=assignment_id).first()
     if not assignment:
@@ -271,7 +271,7 @@ def get_my_submission(
     return AssignmentSubmissionOut.model_validate(submission) if submission else None
 
 
-# ─── Instructor: list all submissions for an assignment ───────────────────────
+# â”€â”€â”€ Instructor: list all submissions for an assignment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/{assignment_id}/submissions", response_model=list[AssignmentSubmissionOut])
 def list_submissions(

@@ -109,7 +109,7 @@ def cleanup_stuck_jobs_on_startup(db: DbSession) -> int:
             j.error = "Server restarted while job was in progress"
             j.updated_at = now
             count += 1
-        
+
         videos = db.query(VideoProject).filter_by(status="processing").all()
         for v in videos:
             v.status = "failed"

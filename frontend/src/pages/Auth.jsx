@@ -153,7 +153,7 @@ export function ForgotPassword() {
     e.preventDefault()
     if (!email.trim()) { setError(t('emailRequired')); return }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setError(t('emailInvalid')); return }
-    
+
     setError('')
     setMessage('')
     setLoading(true)
@@ -170,7 +170,7 @@ export function ForgotPassword() {
   return (
     <AuthShell title={t('resetPassword')} error={error} onSubmit={submit} toggleLang={toggleLang} langLabel={t('langToggle')}>
       <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">{t('resetInstructions')}</p>
-      
+
       {message ? (
         <div className="rounded-md bg-green-50 p-4 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-300 border border-green-200 dark:border-green-800">
           {message}
@@ -208,7 +208,7 @@ export function ResetPassword() {
     if (!form.password) { setError(t('passwordRequired')); return }
     if (form.password.length < 6) { setError(t('passwordMin')); return }
     if (form.password !== form.confirm) { setError(t('passwordsMatch')); return }
-    
+
     setError('')
     setLoading(true)
     try {

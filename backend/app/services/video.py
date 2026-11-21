@@ -1,12 +1,12 @@
 """
-video.py — Educational Video Generation Service
+video.py â€” Educational Video Generation Service
 
 Improvements (Task 7):
-- Per-scene TTS using gTTS (each scene narration → individual MP3 segment)
+- Per-scene TTS using gTTS (each scene narration â†’ individual MP3 segment)
 - Per-scene `duration_seconds` wired through ffmpeg: segment video matches actual audio length
 - ffmpeg concat now muxes per-scene audio into each video segment (audio+video)
 - Player slide durations driven by scene `duration_seconds` (ms), not a fixed 6500ms interval
-- `rebuild_player_from_scenes()` — idempotent re-render of player + optionally re-TTS + ffmpeg stitch
+- `rebuild_player_from_scenes()` â€” idempotent re-render of player + optionally re-TTS + ffmpeg stitch
   called by the new `PUT /api/videos/{id}/scenes` endpoint
 """
 from __future__ import annotations
@@ -115,7 +115,7 @@ def _llm_adjust_scenes(scenes: list[dict], duration_min: int, title: str,
         dup_idx = sorted({idx for pair in duplicates for idx in pair[:2]})
         dup_note = (
             f"\nSCENES {dup_idx} contain repeated/near-duplicate narration. Rewrite each of them "
-            "to cover a DIFFERENT aspect of the topic — do not restate earlier scenes.\n"
+            "to cover a DIFFERENT aspect of the topic â€” do not restate earlier scenes.\n"
         )
     direction = "expand" if total < target else "condense"
     prompt = f"""You are editing the narration script for an educational video titled "{title}".
@@ -156,7 +156,7 @@ Input scenes:
 
 def enforce_script_quality(scenes: list[dict], duration_min: int, title: str) -> tuple[list[dict], list[str]]:
     """
-    Verify narration word count is within ±tolerance of the duration target and
+    Verify narration word count is within Â±tolerance of the duration target and
     that no two scenes are near-duplicates. Runs up to MAX_SCRIPT_FIX_ATTEMPTS
     corrective LLM passes; duplicate scenes that survive are dropped (later
     copy removed). Raises VideoStageError(stage=script_generation) if the word
@@ -199,7 +199,7 @@ def enforce_script_quality(scenes: list[dict], duration_min: int, title: str) ->
         raise VideoStageError(
             "script_generation", "LENGTH_OUT_OF_TOLERANCE",
             f"Generated script is ~{total} words but a {duration_min}-minute video needs "
-            f"~{target} words (±{int(settings.video_script_tolerance * 100)}%). "
+            f"~{target} words (Â±{int(settings.video_script_tolerance * 100)}%). "
             "Please try again or choose a shorter duration.",
         )
     return scenes, warnings
@@ -237,7 +237,7 @@ Language: {language}
 Target runtime: ~{duration_min} minutes, ~{target} words of narration total.
 Notes: {notes or 'none'}
 
-Produce exactly {n_sections} sections. Each section MUST cover a DISTINCT aspect — no overlap, no repeated points.
+Produce exactly {n_sections} sections. Each section MUST cover a DISTINCT aspect â€” no overlap, no repeated points.
 Return ONLY valid JSON:
 {{"sections": [{{"title": "...", "goal": "one sentence on what this section teaches", "budget_words": {budget_each}}}, ...]}}
 Every budget_words must be between {int(budget_each*0.7)} and {int(budget_each*1.3)}.
@@ -270,14 +270,14 @@ Every budget_words must be between {int(budget_each*0.7)} and {int(budget_each*1
 def _gen_section_text(section: dict, outline: list[dict], index: int,
                       running_summary: str, title: str, language: str) -> str:
     """Step 2: generate one section's narration within its word budget.
-    One corrective expand/condense retry if outside ±15%."""
+    One corrective expand/condense retry if outside Â±15%."""
     target = section["budget_words"]
     outline_txt = "\n".join(f"- {s['title']}: {s['goal']}" for s in outline)
     prev = f"Already covered (do NOT repeat):\n{running_summary}\n\n" if running_summary else ""
     base_prompt = f"""Write the narration script for ONE section of an educational video titled "{title}".
 Language: {language}
-Section {index+1}/{len(outline)}: "{section['title']}" — goal: {section['goal'] or 'teach the key concept'}
-Full outline (context only — do NOT cover other sections' content):
+Section {index+1}/{len(outline)}: "{section['title']}" â€” goal: {section['goal'] or 'teach the key concept'}
+Full outline (context only â€” do NOT cover other sections' content):
 {outline_txt}
 {prev}Rules:
 - Write spoken-style narration of approximately {target} words (acceptable range {int(target*0.85)}-{int(target*1.15)}).
@@ -350,7 +350,7 @@ def generate_sectioned_scenes(title: str, prompt: str, duration_min: int,
             "duration_seconds": DEFAULT_SCENE_SECONDS,
         })
         # running summary = first ~25 words of each finished section
-        summary_parts.append(f"{section['title']}: {' '.join(text.split()[:25])}…")
+        summary_parts.append(f"{section['title']}: {' '.join(text.split()[:25])}â€¦")
 
     # Anti-repetition: drop near-duplicate sections deterministically
     dups = find_duplicate_scene_pairs(scenes)
@@ -358,13 +358,13 @@ def generate_sectioned_scenes(title: str, prompt: str, duration_min: int,
         drop = {j for _, j, _ in dups}
         scenes = [s for i, s in enumerate(scenes) if i not in drop]
 
-    # Final gate: total must be within ±tolerance of target
+    # Final gate: total must be within Â±tolerance of target
     total = _scenes_word_count(scenes)
     if not _within_tolerance(total, target):
         raise VideoStageError(
             "script_generation", "LENGTH_OUT_OF_TOLERANCE",
             f"Generated script is ~{total} words but a {duration_min}-minute video needs "
-            f"~{target} words (±{int(get_settings().video_script_tolerance * 100)}%). "
+            f"~{target} words (Â±{int(get_settings().video_script_tolerance * 100)}%). "
             "Please try again or choose a shorter duration.",
         )
     return scenes
@@ -384,7 +384,7 @@ def _bullet_html(items: list[str]) -> str:
 def _split_bullets(text: str) -> list[str]:
     if not text:
         return []
-    parts = re.split(r"[.\n•\-]+", text)
+    parts = re.split(r"[.\nâ€¢\-]+", text)
     return [part.strip() for part in parts if len(part.strip()) > 12][:4]
 
 
@@ -398,9 +398,9 @@ def _lang_code(language: str) -> str:
     lang = (language or "English").lower()
     if "arab" in lang:
         return "ar"
-    if "french" in lang or "français" in lang:
+    if "french" in lang or "franÃ§ais" in lang:
         return "fr"
-    if "spanish" in lang or "español" in lang:
+    if "spanish" in lang or "espaÃ±ol" in lang:
         return "es"
     if "german" in lang or "deutsch" in lang:
         return "de"
@@ -514,7 +514,7 @@ def _tts_all_scenes(
             # Fallback: just copy first audio file as combined
             shutil.copy(str(audio_files[0]), str(combined_path))
     else:
-        # Single segment or no ffmpeg — use the single file / first file
+        # Single segment or no ffmpeg â€” use the single file / first file
         shutil.copy(str(audio_files[0]), str(combined_path))
 
     return True, "narration.mp3", errors
@@ -555,6 +555,8 @@ def _write_player(
     audio_name: str | None,
 ) -> str:
     slides_html = []
+    chapters_html = []
+    transcript_html = []
     # Build JS array of per-slide durations in ms for timed autoplay
     slide_durations_ms = []
     for index, scene in enumerate(scenes):
@@ -565,6 +567,9 @@ def _write_player(
         body = html.escape(scene.get("narration") or scene.get("content") or "")
         dur_ms = _clamp_duration(scene.get("duration_seconds", DEFAULT_SCENE_SECONDS)) * 1000
         slide_durations_ms.append(dur_ms)
+        chapter_title = html.escape(scene.get("title") or f"Scene {index + 1}")
+        chapters_html.append(f'<button type="button" class="chapter" data-index="{index}"><span>{index + 1}</span>{chapter_title}</button>')
+        transcript_html.append(f'<button type="button" class="transcript-line" data-index="{index}"><strong>{chapter_title}</strong><span>{body}</span></button>')
         slides_html.append(
             f"""
             <section class="slide{' active' if index == 0 else ''}" data-index="{index}" data-dur="{dur_ms}">
@@ -593,6 +598,17 @@ def _write_player(
     body::before {{ top: -6rem; left: -4rem; background: rgba(45, 212, 191, 0.25); }}
     body::after {{ right: -6rem; bottom: -8rem; background: rgba(59, 130, 246, 0.2); animation-delay: -4s; }}
     .wrap {{ position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 20px; }}
+    .stage-layout {{ display: grid; grid-template-columns: 220px minmax(0,1fr) 280px; gap: 16px; }}
+    .panel {{ background: rgba(7,17,32,0.72); border: 1px solid rgba(148,163,184,0.22); border-radius: 16px; padding: 12px; max-height: 520px; overflow-y: auto; }}
+    .chapters, .transcript {{ display: grid; gap: 8px; }}
+    .chapter, .transcript-line {{ width: 100%; text-align: left; background: rgba(15,23,42,0.7); border: 1px solid rgba(94,234,212,0.16); border-radius: 10px; padding: 10px; color: white; }}
+    .chapter span {{ display: inline-grid; width: 24px; height: 24px; margin-right: 8px; place-items: center; border-radius: 999px; background: #14b8a6; }}
+    .transcript-line strong {{ display: block; color: #5eead4; margin-bottom: 4px; }}
+    .transcript-line span {{ display: block; line-height: 1.45; font-size: 12px; color: #dbeafe; }}
+    .speed {{ background: rgba(15,23,42,0.8); color: white; border: 1px solid rgba(148,163,184,0.3); border-radius: 8px; padding: 8px; }}
+    .quiz {{ display: none; margin-top: 12px; padding: 12px; border-radius: 12px; background: rgba(245,158,11,0.14); border: 1px solid rgba(251,191,36,0.4); }}
+    .quiz.active {{ display: block; }}
+    @media (max-width: 980px) {{ .stage-layout {{ grid-template-columns: 1fr; }} .panel {{ max-height: 220px; }} }}
     h1 {{ font-size: clamp(1.4rem, 3vw, 2.3rem); margin-bottom: 16px; }}
     .slide {{ display: none; animation: fadeIn 0.5s ease; }}
     .slide.active {{ display: block; }}
@@ -617,11 +633,30 @@ def _write_player(
   <div class="wrap">
     <h1>{html.escape(title)}</h1>
     <div class="progress"><span id="bar"></span></div>
-    {''.join(slides_html)}
+    <div class="stage-layout">
+      <aside class="panel"><strong>Chapters</strong><div class="chapters">{''.join(chapters_html)}</div></aside>
+      <main>{''.join(slides_html)}
+        <div id="quiz" class="quiz">
+          <strong>Pause checkpoint</strong>
+          <p>Which key idea should you remember from this scene?</p>
+          <button type="button" class="quiz-answer" data-correct="true">The scene's highlighted concept</button>
+          <button type="button" class="quiz-answer" data-correct="false">An unrelated detail</button>
+          <p id="quiz-result"></p>
+        </div>
+      </main>
+      <aside class="panel"><strong>Transcript</strong><div class="transcript">{''.join(transcript_html)}</div></aside>
+    </div>
     <div class="controls">
       <button type="button" id="prev">Previous</button>
       <button type="button" id="next">Next</button>
       <button type="button" id="play">Play Narration</button>
+      <button type="button" id="explain">Explain this scene again simpler</button>
+      <select id="speed" class="speed" aria-label="Playback speed">
+        <option value="0.75">0.75x</option>
+        <option value="1" selected>1x</option>
+        <option value="1.25">1.25x</option>
+        <option value="1.5">1.5x</option>
+      </select>
       <label class="autoplay"><input type="checkbox" id="autoplay" checked /> Auto-advance slides</label>
     </div>
     {audio_block}
@@ -638,6 +673,7 @@ def _write_player(
     function show(index) {{
       current = Math.max(0, Math.min(index, slides.length - 1));
       slides.forEach((slide, idx) => slide.classList.toggle('active', idx === current));
+      document.getElementById('quiz').classList.toggle('active', current % 2 === 1);
       if (bar) bar.style.width = (((current + 1) / slides.length) * 100) + '%';
       if (autoplay?.checked && !audio) scheduleNext();
     }}
@@ -653,6 +689,34 @@ def _write_player(
 
     document.getElementById('prev').addEventListener('click', () => {{ clearTimeout(autoplayTimer); show(current - 1); }});
     document.getElementById('next').addEventListener('click', () => {{ clearTimeout(autoplayTimer); show(current + 1); }});
+    document.querySelectorAll('.chapter, .transcript-line').forEach((item) => item.addEventListener('click', () => {{
+      clearTimeout(autoplayTimer);
+      show(Number(item.dataset.index));
+      if (audio) audio.currentTime = slideDurations.slice(0, Number(item.dataset.index)).reduce((sum, value) => sum + value, 0) / 1000;
+    }}));
+    document.getElementById('speed').addEventListener('change', (event) => {{
+      if (audio) audio.playbackRate = Number(event.target.value);
+    }});
+    document.querySelectorAll('.quiz-answer').forEach((item) => item.addEventListener('click', () => {{
+      document.getElementById('quiz-result').textContent = item.dataset.correct === 'true'
+        ? 'Correct â€” the highlighted concept is the key takeaway.'
+        : 'Try again â€” choose the scene highlight.';
+    }}));
+    document.getElementById('explain').addEventListener('click', async () => {{
+      const sceneText = slides[current]?.querySelector('.body')?.innerText || '{html.escape(title)}';
+      const token = localStorage.getItem('edusense_token');
+      try {{
+        const response = await fetch('/api/ai/chat', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json', ...(token ? {{ Authorization: 'Bearer ' + token }} : {{}}) }},
+          body: JSON.stringify({{ message: 'Explain this educational scene again more simply, with one analogy and one quick example: ' + sceneText, stream: false }})
+        }});
+        const data = await response.json();
+        alert(data.answer || data.response || data.detail || 'The simpler explanation is unavailable.');
+      }} catch (_) {{
+        alert('The simpler explanation is unavailable because the AI service could not be reached.');
+      }}
+    }});
     autoplay?.addEventListener('change', () => {{
       clearTimeout(autoplayTimer);
       if (autoplay.checked && !audio) scheduleNext();
@@ -773,8 +837,8 @@ def _try_ffmpeg(
 def generate_educational_video(project_id: int, title: str, lesson: dict) -> dict:
     """
     Full video generation from a lesson dict (from LessonGenerationAgent).
-    1. Convert lesson slides → scenes with duration_seconds wired
-    2. Per-scene TTS → individual MP3 files
+    1. Convert lesson slides â†’ scenes with duration_seconds wired
+    2. Per-scene TTS â†’ individual MP3 files
     3. Combined narration.mp3 for player fallback
     4. Write interactive HTML player (slide durations from duration_seconds)
     5. ffmpeg MP4 stitching (per-scene audio + timed visuals)
@@ -808,11 +872,11 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
         from app.services.gemini import GeminiError
         if isinstance(exc, GeminiError):
             raise VideoStageError("script_generation", exc.code, exc.user_message) from exc
-        scenes = None  # unexpected — fall back to slide-derived script
+        scenes = None  # unexpected â€” fall back to slide-derived script
 
     if scenes is None:
         # Fallback path: derive scenes from lesson slides/script, then pad
-        # ONLY with distinct, not-yet-used script parts — never cycle back
+        # ONLY with distinct, not-yet-used script parts â€” never cycle back
         # to earlier content (that produced repeated paragraphs).
         scenes = []
         for index, slide in enumerate(slides):
@@ -882,7 +946,7 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
         encoding="utf-8",
     )
 
-    # Per-scene TTS — per-scene timeout; partial failures are reported,
+    # Per-scene TTS â€” per-scene timeout; partial failures are reported,
     # total failure raises a structured stage error.
     any_audio, audio_name, tts_errors = _tts_all_scenes(project_dir, scenes, lang_code)
     if not any_audio:
@@ -894,7 +958,7 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
     # Write interactive HTML player (uses per-scene duration_seconds for timed autoplay)
     _write_player(project_dir, title, scenes, audio_name)
 
-    # ffmpeg MP4 stitching (per-scene audio + timed visuals) — optional;
+    # ffmpeg MP4 stitching (per-scene audio + timed visuals) â€” optional;
     # the HTML player remains the playback path when ffmpeg is absent.
     mp4_path = _try_ffmpeg(project_id, title, scenes, duration_min)
 
@@ -919,7 +983,7 @@ def rebuild_video_from_scenes(
 ) -> dict:
     """
     Re-render an existing video project from an updated scenes list.
-    Skips lesson generation — directly accepts the edited scenes array.
+    Skips lesson generation â€” directly accepts the edited scenes array.
     Used by PUT /api/videos/{id}/scenes.
     """
     STATIC_DIR.mkdir(parents=True, exist_ok=True)

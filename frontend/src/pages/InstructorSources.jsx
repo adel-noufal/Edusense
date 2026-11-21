@@ -169,7 +169,7 @@ export default function InstructorSources() {
                       <p className="truncate font-semibold text-sm">{resource.name}</p>
                       <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-slate-500">
                         <span>{formatBytes(resource.file_size)}</span>
-                        <span>•</span>
+                        <span>â€¢</span>
                         <span>{new Date(resource.uploaded_at).toLocaleDateString()}</span>
                         {resource.session_title && (
                           <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">

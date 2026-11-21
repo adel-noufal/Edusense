@@ -1,9 +1,9 @@
 """
-rag_qa.py — RAG-grounded Q&A and knowledge-base suggestion service.
+rag_qa.py â€” RAG-grounded Q&A and knowledge-base suggestion service.
 
 Provides two public functions:
-  answer_question()  — used by POST /api/rag/ask  (students)
-  suggest_chunks()   — used by GET  /api/rag/suggest (instructors)
+  answer_question()  â€” used by POST /api/rag/ask  (students)
+  suggest_chunks()   â€” used by GET  /api/rag/suggest (instructors)
 """
 from __future__ import annotations
 
@@ -111,7 +111,7 @@ def _needs_rewrite(question: str, history: list[dict] | None) -> bool:
 def _rewrite_followup_query(question: str, history: list[dict] | None) -> str:
     """
     Rewrite a follow-up into a standalone retrieval query using recent turns.
-    Falls back to the raw question when no rewrite is possible — retrieval
+    Falls back to the raw question when no rewrite is possible â€” retrieval
     then behaves exactly as before.
     """
     if not _needs_rewrite(question, history):
@@ -148,7 +148,7 @@ def _history_source_files(history: list[dict] | None) -> list[str]:
     return files
 
 
-# ── helpers ────────────────────────────────────────────────────────────────
+# â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _format_context(chunks: list[dict]) -> tuple[str, list[str]]:
     """
@@ -209,7 +209,7 @@ def _call_llm(prompt: str, subject: Optional[str] = None, grade_level: Optional[
             return response, "ollama", True
         except Exception as exc:
             print(f"[RAG-QA] Ollama unavailable ({exc}), using fallback answer.")
-    # Use template fallback with scope check — pass the real question so the
+    # Use template fallback with scope check â€” pass the real question so the
     # template can never echo prompt scaffolding back to the user.
     llm = LocalLLM()
     fallback = llm._template(
@@ -229,7 +229,7 @@ def _call_llm(prompt: str, subject: Optional[str] = None, grade_level: Optional[
     return fallback, "template", True
 
 
-# ── public API ─────────────────────────────────────────────────────────────
+# â”€â”€ public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def answer_question(
     question: str,
@@ -259,7 +259,7 @@ def answer_question(
     threshold = min_score if min_score is not None else settings.rag_min_score
 
     # Follow-up questions ("what else does the book cover?") fail similarity
-    # search because pronouns don't match document text — rewrite to a
+    # search because pronouns don't match document text â€” rewrite to a
     # standalone query first.
     search_query = _rewrite_followup_query(question, history)
 
@@ -309,7 +309,7 @@ def answer_question(
             chunks = _format_vector_chunks(selected_chunks)
 
     # Follow-up fallback: retrieval found nothing, but the previous answer was
-    # grounded in specific documents — retry scoped to those sources before
+    # grounded in specific documents â€” retry scoped to those sources before
     # declaring "nothing found".
     if not chunks:
         prev_files = _history_source_files(history)
@@ -369,7 +369,7 @@ def answer_question(
         else:
             answer = (
                 "I couldn't find anything about that in the uploaded course materials"
-                f"{scope}. The Knowledge Base only answers from indexed documents — "
+                f"{scope}. The Knowledge Base only answers from indexed documents â€” "
                 "please ask your instructor to upload relevant material, or try the AI "
                 "Chatbot for general questions."
             )
@@ -406,7 +406,7 @@ def answer_question(
                 lines.append(f"{role}: {content}")
         if lines:
             history_block = (
-                "\n\nCONVERSATION SO FAR (for context only — answer the latest question):\n"
+                "\n\nCONVERSATION SO FAR (for context only â€” answer the latest question):\n"
                 + "\n".join(lines)
                 + "\n"
             )
@@ -418,7 +418,7 @@ A student has asked the following question:{history_block}
 QUESTION: {question}
 
 Use ONLY the source material below to answer. If the sources do not contain enough
-information to answer fully, say so explicitly — do NOT invent facts.
+information to answer fully, say so explicitly â€” do NOT invent facts.
 Be concise, clear, and student-friendly. Cite sources where helpful using [Source: label] format.
 
 === SOURCE MATERIAL ===
@@ -437,12 +437,12 @@ Answer:"""
     )
 
     if model_used == "template":
-        # Every LLM tier failed — be honest instead of showing a pseudo-answer.
+        # Every LLM tier failed â€” be honest instead of showing a pseudo-answer.
         # The grounded source excerpts are still returned below for the user.
         answer = (
             "The AI writing service is temporarily unavailable, so I can't generate "
             "a written answer right now. The most relevant excerpts from your uploaded "
-            "documents are shown below — please try again in a moment."
+            "documents are shown below â€” please try again in a moment."
         )
     answer = ensure_clean_user_answer(answer)
 
@@ -466,7 +466,7 @@ def suggest_chunks(
     min_score: Optional[float] = None,
 ) -> dict:
     """
-    Return the top-k RAG chunks matching a topic — used by instructors to
+    Return the top-k RAG chunks matching a topic â€” used by instructors to
     preview what source material exists before generating a lesson/quiz.
 
     Returns:

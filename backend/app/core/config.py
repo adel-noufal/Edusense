@@ -39,7 +39,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GEMINI_KEY_GROUPS", "EDUSENSE_GEMINI_KEY_GROUPS", "gemini_key_groups")
     )
 
-    # ── Additional LLM providers (comma-separated keys; OpenAI-compatible) ──
+    # â”€â”€ Additional LLM providers (comma-separated keys; OpenAI-compatible) â”€â”€
     groq_api_keys: str = Field(default="", validation_alias=AliasChoices("GROQ_API_KEYS", "EDUSENSE_GROQ_API_KEYS", "groq_api_keys"))
     openrouter_api_keys: str = Field(default="", validation_alias=AliasChoices("OPENROUTER_API_KEYS", "EDUSENSE_OPENROUTER_API_KEYS", "openrouter_api_keys"))
     nvidia_api_keys: str = Field(default="", validation_alias=AliasChoices("NVIDIA_API_KEYS", "EDUSENSE_NVIDIA_API_KEYS", "nvidia_api_keys"))
@@ -51,13 +51,13 @@ class Settings(BaseSettings):
     deepinfra_models: str = Field(default="", validation_alias=AliasChoices("DEEPINFRA_MODELS", "EDUSENSE_DEEPINFRA_MODELS", "deepinfra_models"))
     cerebras_models: str = Field(default="", validation_alias=AliasChoices("CEREBRAS_MODELS", "EDUSENSE_CEREBRAS_MODELS", "cerebras_models"))
 
-    # ── Video generation ──────────────────────────────────────────────────────
+    # â”€â”€ Video generation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Narration pace used to map requested duration -> target script word count
     video_narration_wpm: float = Field(
         default=140.0,
         validation_alias=AliasChoices("VIDEO_NARRATION_WPM", "EDUSENSE_VIDEO_NARRATION_WPM", "video_narration_wpm")
     )
-    # Allowed deviation from target word count (0.10 = ±10%)
+    # Allowed deviation from target word count (0.10 = Â±10%)
     video_script_tolerance: float = Field(
         default=0.10,
         validation_alias=AliasChoices("VIDEO_SCRIPT_TOLERANCE", "EDUSENSE_VIDEO_SCRIPT_TOLERANCE", "video_script_tolerance")
@@ -68,7 +68,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("VIDEO_TTS_TIMEOUT", "EDUSENSE_VIDEO_TTS_TIMEOUT", "video_tts_timeout")
     )
 
-    # ── Reports ───────────────────────────────────────────────────────────────
+    # â”€â”€ Reports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Minimum data before AI insights/scores are generated
     report_min_emotion_samples: int = Field(
         default=10,
@@ -129,7 +129,7 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from_email: str | None = None
 
-    # ── Chatbot Identity ───────────────────────────────────────────────────────
+    # â”€â”€ Chatbot Identity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     chatbot_name: str = Field(
         default="EduSense AI",
         validation_alias=AliasChoices("CHATBOT_NAME", "EDUSENSE_CHATBOT_NAME", "chatbot_name")
@@ -144,7 +144,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CHATBOT_GEMINI_API_KEY", "EDUSENSE_CHATBOT_GEMINI_API_KEY", "chatbot_gemini_api_key")
     )
 
-    # ── Vector Store ──────────────────────────────────────────────────────────
+    # â”€â”€ Vector Store â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     chroma_persist_dir: str = Field(
         default="data/chroma",
         validation_alias=AliasChoices("CHROMA_PERSIST_DIR", "EDUSENSE_CHROMA_PERSIST_DIR", "chroma_persist_dir")
@@ -219,4 +219,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

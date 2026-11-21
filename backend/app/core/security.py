@@ -41,4 +41,3 @@ def decode_access_token(token: str) -> dict:
         return jwt.decode(token, get_settings().secret_key, algorithms=[ALGORITHM])
     except JWTError as exc:
         raise ValueError("Invalid or expired token") from exc
-

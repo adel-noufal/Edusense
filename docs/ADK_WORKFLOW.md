@@ -1,33 +1,33 @@
 # EduSense Multi-Agent System Workflows
 
-👤 **Author:** [Adel Mohamed Noufal](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)  
-🔗 **LinkedIn:** [https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)  
-📦 **Repository:** [https://github.com/adel-noufal/Edusense](https://github.com/adel-noufal/Edusense)
+ðŸ‘¤ **Author:** [Adel Mohamed Noufal](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)
+ðŸ”— **LinkedIn:** [https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/](https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/)
+ðŸ“¦ **Repository:** [https://github.com/adel-noufal/Edusense](https://github.com/adel-noufal/Edusense)
 
 ---
 
-## ⚡ Smart Multi-Tier AI Provider Task Router Diagram
+## âš¡ Smart Multi-Tier AI Provider Task Router Diagram
 
 ```
-                       ┌─────────────────────────────────────┐
-                       │          AI Agent Request           │
-                       └──────────────────┬──────────────────┘
-                                          │
-                        ┌─────────────────▼─────────────────┐
-                        │ 🌐 Gemini 2.0 Flash (Online API)  │
-                        └─────────────────┬─────────────────┘
-                                          │  (If Offline / Connection Fails)
-                        ┌─────────────────▼─────────────────┐
-                        │ 🦙 Specialized Local Ollama LLMs  │
-                        │ • Translation -> Qwen 2.5 (7B)    │
-                        │ • Lessons     -> Mistral (7B)     │
-                        │ • Quizzes     -> Llama 3.1 (8B)   │
-                        │ • Flashcards  -> Llama 3.2 (3B)   │
-                        └─────────────────┬─────────────────┘
-                                          │  (If Ollama Unreachable)
-                        ┌─────────────────▼─────────────────┐
-                        │ ⚙️ Built-in Local Templates        │
-                        └───────────────────────────────────┘
+                       â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                       â”‚          AI Agent Request           â”‚
+                       â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                                          â”‚
+                        â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                        â”‚ ðŸŒ Gemini 2.0 Flash (Online API)  â”‚
+                        â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                                          â”‚  (If Offline / Connection Fails)
+                        â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                        â”‚ ðŸ¦™ Specialized Local Ollama LLMs  â”‚
+                        â”‚ â€¢ Translation -> Qwen 2.5 (7B)    â”‚
+                        â”‚ â€¢ Lessons     -> Mistral (7B)     â”‚
+                        â”‚ â€¢ Quizzes     -> Llama 3.1 (8B)   â”‚
+                        â”‚ â€¢ Flashcards  -> Llama 3.2 (3B)   â”‚
+                        â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                                          â”‚  (If Ollama Unreachable)
+                        â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                        â”‚ âš™ï¸ Built-in Local Templates        â”‚
+                        â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ---
@@ -58,7 +58,7 @@ sequenceDiagram
 
 ---
 
-## 👨‍🏫 Instructor Workflow
+## ðŸ‘¨â€ðŸ« Instructor Workflow
 1. **Create & Schedule Session**: Set lesson topic, date, start time, and target student group.
 2. **Monitor Live Dashboard**: Real-time webcam emotion feedback (Happy, Neutral, Sad, Surprised, Confused, Disengaged) displayed via interactive Recharts.
 3. **Receive AI Recommendations**: Triggers pedagogical suggestions when engagement drops below threshold (<62%).
@@ -66,8 +66,7 @@ sequenceDiagram
 
 ---
 
-## 🎓 Student Workflow
+## ðŸŽ“ Student Workflow
 1. **Join Classroom**: Access scheduled sessions and launch live room interface.
 2. **Real-time Engagement Stream**: Webcam frames stream in background to emotion analysis engine.
 3. **Adaptive AI Study Tools**: Access AI-generated flashcards, practice quizzes, and lesson slides.
-

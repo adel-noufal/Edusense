@@ -1,5 +1,5 @@
 /**
- * StudentAssignments — Section 3
+ * StudentAssignments â€” Section 3
  * Lists all assignments from the student's enrolled sessions.
  * Allows uploading a submission file per assignment (PDF, Word, image, etc.).
  */
@@ -147,7 +147,7 @@ function AssignmentCard({ assignment, submission, onSubmitted }) {
         </div>
       )}
 
-      {/* Upload section — always shown so student can re-submit */}
+      {/* Upload section â€” always shown so student can re-submit */}
       {!overdue && (
         <div className="mt-3 space-y-2">
           <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
@@ -187,7 +187,7 @@ function AssignmentCard({ assignment, submission, onSubmitted }) {
                   onClick={handleUpload}
                 >
                   {uploading
-                    ? <><Loader2 size={13} className="animate-spin" /> Uploading…</>
+                    ? <><Loader2 size={13} className="animate-spin" /> Uploadingâ€¦</>
                     : <><Upload size={13} /> Submit</>}
                 </button>
               </>
@@ -198,11 +198,11 @@ function AssignmentCard({ assignment, submission, onSubmitted }) {
           )}
           {success && (
             <p className="text-xs text-emerald-600 dark:text-emerald-400">
-              ✓ Submission uploaded successfully!
+              âœ“ Submission uploaded successfully!
             </p>
           )}
           <p className="text-xs text-slate-400">
-            Accepted formats: PDF, Word (.doc/.docx), images, .txt, .zip · Max 50 MB
+            Accepted formats: PDF, Word (.doc/.docx), images, .txt, .zip Â· Max 50 MB
           </p>
         </div>
       )}

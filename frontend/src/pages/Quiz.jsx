@@ -66,7 +66,7 @@ export default function Quiz() {
   // Initialize watermark
   useEffect(() => {
     if (user?.email) {
-      setWatermarkText(`${user.email} • ${new Date().toLocaleString()}`)
+      setWatermarkText(`${user.email} â€¢ ${new Date().toLocaleString()}`)
     }
   }, [user])
 
@@ -132,7 +132,7 @@ export default function Quiz() {
 
         // Enable fullscreen lock if required.
         // NOTE: requestFullscreen() must be triggered by a user gesture, so we
-        // only flag the lock here — the "Enter fullscreen" overlay button
+        // only flag the lock here â€” the "Enter fullscreen" overlay button
         // (a real click) performs the actual request.
         if (quizData.fullscreen_lock) {
           setFullscreenLocked(true)
@@ -407,7 +407,7 @@ export default function Quiz() {
     await autoSubmit('time_up', 'time_limit_exceeded')
   }
 
-  // Auto-submit quiz. submittedRef is set HERE (once) — callers must NOT set it
+  // Auto-submit quiz. submittedRef is set HERE (once) â€” callers must NOT set it
   // beforehand, and it is reset on failure so a manual retry can still submit.
   async function autoSubmit(reason, violationType) {
     if (submittedRef.current) return
@@ -430,7 +430,7 @@ export default function Quiz() {
       setResults(result)
       setShowResults(true)
       cleanup()
-      toast.success(reason === 'time_up' ? 'Time is up — your quiz was submitted.' : 'Quiz submitted')
+      toast.success(reason === 'time_up' ? 'Time is up â€” your quiz was submitted.' : 'Quiz submitted')
     } catch (err) {
       setError(err.message || 'Failed to submit quiz')
       toast.error(err.message || 'Failed to submit quiz')
@@ -639,7 +639,7 @@ export default function Quiz() {
   if (!quiz || !attempt) return null
 
   const question = quiz.questions[currentQuestion]
-  // Generated questions may lack `type` — infer it from the payload shape.
+  // Generated questions may lack `type` â€” infer it from the payload shape.
   const questionType = question.type || (question.options?.length ? 'multiple_choice' : 'short_answer')
   const questionAnswered = answers[currentQuestion] !== undefined
   const progress = ((currentQuestion + 1) / quiz.questions.length) * 100
@@ -750,7 +750,7 @@ export default function Quiz() {
           )}
           {fullscreenError && (
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200" role="alert">
-              {fullscreenError} Use the “Enter fullscreen” button to retry.
+              {fullscreenError} Use the â€œEnter fullscreenâ€ button to retry.
             </p>
           )}
 

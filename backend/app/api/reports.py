@@ -251,7 +251,7 @@ def report_session_detail(session_id: int, request: Request, db: Session = Depen
     }
 
 
-# ─── CSV Export ───────────────────────────────────────────────────────────────
+# â”€â”€â”€ CSV Export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _CSV_HEADERS = {
     "en": {
@@ -261,10 +261,10 @@ _CSV_HEADERS = {
         "minute": "Minute", "emotion": "Emotion", "count": "Count", "pct": "Pct %",
     },
     "ar": {
-        "section": "القسم", "field": "الحقل", "value": "القيمة",
-        "student": "الطالب", "email": "البريد الإلكتروني", "attended_min": "الحضور (دقيقة)",
-        "samples": "عينات المشاعر", "dominant": "المشاعر السائدة",
-        "minute": "الدقيقة", "emotion": "المشاعر", "count": "العدد", "pct": "النسبة %",
+        "section": "Ø§Ù„Ù‚Ø³Ù…", "field": "Ø§Ù„Ø­Ù‚Ù„", "value": "Ø§Ù„Ù‚ÙŠÙ…Ø©",
+        "student": "Ø§Ù„Ø·Ø§Ù„Ø¨", "email": "Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ", "attended_min": "Ø§Ù„Ø­Ø¶ÙˆØ± (Ø¯Ù‚ÙŠÙ‚Ø©)",
+        "samples": "Ø¹ÙŠÙ†Ø§Øª Ø§Ù„Ù…Ø´Ø§Ø¹Ø±", "dominant": "Ø§Ù„Ù…Ø´Ø§Ø¹Ø± Ø§Ù„Ø³Ø§Ø¦Ø¯Ø©",
+        "minute": "Ø§Ù„Ø¯Ù‚ÙŠÙ‚Ø©", "emotion": "Ø§Ù„Ù…Ø´Ø§Ø¹Ø±", "count": "Ø§Ù„Ø¹Ø¯Ø¯", "pct": "Ø§Ù„Ù†Ø³Ø¨Ø© %",
     },
 }
 
@@ -326,7 +326,7 @@ def _csv_session_report(db: Session, item: ClassSession, lang: str = "en") -> st
         writer.writerow(["Emotion Distribution", emo, dist.get(emo, 0.0)])
     writer.writerow([])
 
-    # Per-minute emotion buckets (aggregated timeline — safe for long sessions)
+    # Per-minute emotion buckets (aggregated timeline â€” safe for long sessions)
     logs = db.query(EmotionLog).filter_by(session_id=item.id).order_by(EmotionLog.timestamp).all()
     if logs:
         writer.writerow([h["section"], h["minute"], h["emotion"], h["count"], h["pct"]])
@@ -342,7 +342,7 @@ def _csv_session_report(db: Session, item: ClassSession, lang: str = "en") -> st
                 writer.writerow(["Emotion Timeline", minute_idx, emo, cnt, round(cnt * 100 / total, 1)])
 
     # UTF-8 BOM so Excel opens Arabic text correctly
-    return "﻿" + out.getvalue()
+    return "ï»¿" + out.getvalue()
 
 
 @router.get("/reports/sessions/{session_id}/export.csv")
@@ -394,7 +394,7 @@ def export_session_pdf(
     ]
     if payload.get("ai_summary"):
         blocks.append(("AI Teaching Recommendations", [payload["ai_summary"]]))
-    buf = _pdf_doc(f"Session Report — {item.title}", blocks)
+    buf = _pdf_doc(f"Session Report â€” {item.title}", blocks)
     filename = f"session-{session_id}-report.pdf"
     return StreamingResponse(
         buf,

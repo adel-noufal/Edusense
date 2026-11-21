@@ -1,8 +1,8 @@
 """
-report_data.py — Deterministic session metrics + data-sufficiency assessment
+report_data.py â€” Deterministic session metrics + data-sufficiency assessment
 for reports, recommendations, and CSV export.
 
-All values here are computed in code from stored rows — never from the LLM —
+All values here are computed in code from stored rows â€” never from the LLM â€”
 so downstream agents only ever see verified facts.
 """
 from __future__ import annotations
@@ -88,7 +88,7 @@ def insufficient_data_message(assessment: dict) -> str:
     if not parts:
         return "Not enough data yet."
     return (
-        "Not enough data yet — missing: " + ", ".join(parts) + ". "
+        "Not enough data yet â€” missing: " + ", ".join(parts) + ". "
         "Run a live session with students' webcams enabled to collect this data."
     )
 
@@ -96,7 +96,7 @@ def insufficient_data_message(assessment: dict) -> str:
 def session_metrics(db: Session, session_id: int, assessment: dict | None = None) -> dict:
     """
     Compact, LLM-safe facts dict for recommendation grounding.
-    Contains ONLY deterministic values — pass this verbatim to the model.
+    Contains ONLY deterministic values â€” pass this verbatim to the model.
     """
     if assessment is None:
         assessment = assess_session_data(db, session_id)

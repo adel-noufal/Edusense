@@ -8,6 +8,7 @@ from app.agents.logging_utils import LLMAuditContext
 from app.agents.prompts.scope_guardrail import build_guardrail_prompt, get_refusal_message
 from app.core.config import get_settings
 from app.services.gemini import generate_json_any
+from app.services.content_pipeline import format_strict_text, validate_quality, critique_output
 
 ADK_AGENT = adk_agent("lesson_generation_agent", "Generate lesson outlines, scripts, slides, images, and diagrams.")
 
@@ -96,12 +97,12 @@ class LessonGenerationAgent:
         topic = request.topic
         settings = get_settings()
 
-        # ── RAG retrieval (curriculum first) ────────────────────────────────
+        # â”€â”€ RAG retrieval (curriculum first) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         subject = getattr(request, "subject", None)
         grade_level = getattr(request, "grade_level", None)
         rag_context, rag_sources = _build_rag_context(topic, subject, grade_level)
 
-        # ── Web retrieval (if curriculum is insufficient or topic needs current info) ─
+        # â”€â”€ Web retrieval (if curriculum is insufficient or topic needs current info) â”€
         web_context = ""
         web_results = []
         web_sources = []
@@ -192,25 +193,25 @@ Return ONLY valid JSON matching this structure:
   "slides": [
     {{
       "title": "1. Introduction to {topic}",
-      "content": "• Core Definition: Foundational concept breakdown\\n• Industry Value: Why leading organizations adopt this approach\\n• Key Objective: What learners will master by the end of this module",
+      "content": "â€¢ Core Definition: Foundational concept breakdown\\nâ€¢ Industry Value: Why leading organizations adopt this approach\\nâ€¢ Key Objective: What learners will master by the end of this module",
       "diagram": "Concept Architecture Diagram: Input -> Processing Core -> Output State",
       "notes": "Welcome class! Start by highlighting the real-world impact of {topic} before diving into technical details."
     }},
     {{
       "title": "2. Underlying Mechanics & Pipeline",
-      "content": "• Step 1: Initialization and feature preparation\\n• Step 2: Core processing pipeline & state transformation\\n• Step 3: Validation, error checking, and result delivery",
+      "content": "â€¢ Step 1: Initialization and feature preparation\\nâ€¢ Step 2: Core processing pipeline & state transformation\\nâ€¢ Step 3: Validation, error checking, and result delivery",
       "diagram": "Flowchart: [Raw Data] -> [Preprocessing] -> [Core Engine] -> [Validated Output]",
-      "notes": "Focus on step 2 here—make sure students understand how the transformation happens under the hood."
+      "notes": "Focus on step 2 hereâ€”make sure students understand how the transformation happens under the hood."
     }},
     {{
       "title": "3. Practical Case Study & Implementation",
-      "content": "• Real-World Scenario: Solving enterprise scaling challenges\\n• Key Implementation Details: Critical parameters & configurations\\n• Best Practices: Avoid common pitfalls and anti-patterns",
+      "content": "â€¢ Real-World Scenario: Solving enterprise scaling challenges\\nâ€¢ Key Implementation Details: Critical parameters & configurations\\nâ€¢ Best Practices: Avoid common pitfalls and anti-patterns",
       "diagram": "System Blueprint: Microservice Architecture & API Integration",
       "notes": "Use this slide to connect theory to practice. Walk through the code/configuration line by line."
     }},
     {{
       "title": "4. Summary & Strategic Takeaways",
-      "content": "• Foundational Insight: Core theoretical takeaway\\n• Operational Strategy: How to apply this immediately\\n• Next Steps: Advanced topics and practical exercises",
+      "content": "â€¢ Foundational Insight: Core theoretical takeaway\\nâ€¢ Operational Strategy: How to apply this immediately\\nâ€¢ Next Steps: Advanced topics and practical exercises",
       "diagram": "Summary Matrix: Strengths vs. Considerations",
       "notes": "Wrap up by asking 2-3 quick questions to check student comprehension."
     }}
@@ -242,6 +243,8 @@ Return ONLY valid JSON matching this structure:
                 audit_ctx.set_response(str(data), model_used="gemini", fallback_used=False)
 
             if isinstance(data, dict):
+                data = format_strict_text(data)
+                rubric = critique_output(data, topic)
                 slides = data.get("slides") or [
                     {
                         "title": section.get("heading", f"Section {index + 1}"),
@@ -255,7 +258,7 @@ Return ONLY valid JSON matching this structure:
                     "topic": data.get("title") or f"Mastering {topic}",
                     "language": request.language,
                     "style": request.teaching_style,
-                    "duration": request.duration,
+                    "duration": getattr(request, "duration", None),
                     "overview": data.get("overview", f"An expert masterclass on {topic}."),
                     "learning_objectives": data.get("learning_objectives") or [
                         f"Master the core theoretical foundation of {topic}.",
@@ -272,6 +275,8 @@ Return ONLY valid JSON matching this structure:
                     "sources": rag_sources + web_sources,
                     "unverified": len(rag_sources + web_sources) == 0,
                     "web_sources": web_results,
+                    "quality": rubric,
+                    "quality_issues": validate_quality(data, source_attached=bool(rag_sources)),
                 })
         except Exception:
             pass
@@ -285,25 +290,25 @@ Return ONLY valid JSON matching this structure:
         slides = [
             {
                 "title": f"1. Executive Overview: {topic}",
-                "content": f"• Foundational Definition: Core principles of {topic}\n• Industry Significance: Why top organizations leverage this concept\n• Primary Goal: Achieving structural mastery and analytical clarity",
-                "diagram": f"High-Level Architecture: [Input Context] ➔ [{topic} Engine] ➔ [Optimized Outcome]",
+                "content": f"â€¢ Foundational Definition: Core principles of {topic}\nâ€¢ Industry Significance: Why top organizations leverage this concept\nâ€¢ Primary Goal: Achieving structural mastery and analytical clarity",
+                "diagram": f"High-Level Architecture: [Input Context] âž” [{topic} Engine] âž” [Optimized Outcome]",
                 "notes": f"Begin the session by connecting {topic} to real-world industrial applications."
             },
             {
                 "title": f"2. Core Mechanics & Technical Pipeline",
-                "content": "• Phase 1: Data preparation & initialization\n• Phase 2: Algorithmic transformation & optimization loop\n• Phase 3: Validation, metric evaluation, and deployment",
-                "diagram": "Process Pipeline: [Data Source] ➔ [Transformation Core] ➔ [Validation Check]",
-                "notes": "Emphasize Phase 2 during lecture—this is where the primary computational transformation occurs."
+                "content": "â€¢ Phase 1: Data preparation & initialization\nâ€¢ Phase 2: Algorithmic transformation & optimization loop\nâ€¢ Phase 3: Validation, metric evaluation, and deployment",
+                "diagram": "Process Pipeline: [Data Source] âž” [Transformation Core] âž” [Validation Check]",
+                "notes": "Emphasize Phase 2 during lectureâ€”this is where the primary computational transformation occurs."
             },
             {
                 "title": f"3. Production Case Study & Implementation",
-                "content": "• Enterprise Context: Solving real-world scale challenges\n• Critical Parameters: Essential configuration patterns\n• Tradeoff Analysis: Balancing performance vs. system complexity",
+                "content": "â€¢ Enterprise Context: Solving real-world scale challenges\nâ€¢ Critical Parameters: Essential configuration patterns\nâ€¢ Tradeoff Analysis: Balancing performance vs. system complexity",
                 "diagram": "System Blueprint: Component Interaction & Data Flow",
                 "notes": "Walk through the configuration step-by-step so students can reproduce the setup."
             },
             {
                 "title": "4. Synthesis & Key Takeaways",
-                "content": "• Theoretical Mastery: Core principles internalized\n• Operational Blueprint: Practical roadmap for implementation\n• Next Steps: Advanced topics and hands-on laboratory exercises",
+                "content": "â€¢ Theoretical Mastery: Core principles internalized\nâ€¢ Operational Blueprint: Practical roadmap for implementation\nâ€¢ Next Steps: Advanced topics and hands-on laboratory exercises",
                 "diagram": "Mastery Matrix: Core Competencies Checklist",
                 "notes": "Conclude with an interactive knowledge check."
             }
@@ -312,7 +317,7 @@ Return ONLY valid JSON matching this structure:
             "topic": f"Mastering {topic}",
             "language": request.language,
             "style": request.teaching_style,
-            "duration": request.duration,
+            "duration": getattr(request, "duration", None),
             "overview": f"A comprehensive masterclass on {topic}, detailing theoretical foundations, architectural mechanisms, real-world case studies, and performance optimization strategies.",
             "learning_objectives": objectives,
             "outline": [slide["title"] for slide in slides],

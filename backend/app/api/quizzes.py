@@ -26,7 +26,7 @@ router = APIRouter(prefix="/quizzes", tags=["Quiz Attempts"])
 
 
 def _quiz_out(quiz: Quiz, questions: list[dict], session_title: str | None = None, enrolled_student_count: int | None = None) -> QuizOut:
-    """Single constructor for QuizOut responses — keeps reveal_answers and
+    """Single constructor for QuizOut responses â€” keeps reveal_answers and
     normalized difficulty consistent across every endpoint."""
     return QuizOut(
         id=quiz.id,
@@ -50,7 +50,7 @@ def _quiz_out(quiz: Quiz, questions: list[dict], session_title: str | None = Non
     )
 
 
-# ─── Quiz Creation & Taking ───────────────────────────────────────────────────────
+# â”€â”€â”€ Quiz Creation & Taking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("", response_model=QuizOut, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=QuizOut, status_code=status.HTTP_201_CREATED)
@@ -62,7 +62,7 @@ def create_manual_quiz(
 ):
     """
     Allows an instructor to build a quiz MANUALLY (write their own questions/answers)
-    as an alternative to AI generation — same quiz object/schema either way.
+    as an alternative to AI generation â€” same quiz object/schema either way.
     """
     if payload.session_id:
         session = db.query(ClassSession).filter_by(id=payload.session_id).first()
@@ -120,7 +120,7 @@ def create_manual_quiz(
         session_id=payload.session_id,
         type="quiz",
         topic=quiz.title,
-        prompt=f"Manual Quiz · {quiz.difficulty}",
+        prompt=f"Manual Quiz Â· {quiz.difficulty}",
         data_json=json.dumps({
             "id": quiz.id,
             "title": quiz.title,
@@ -254,7 +254,7 @@ def list_student_exams(
     #   linked to a session the student is enrolled in
     #   OR not linked to any session and owned by an instructor the student
     #      has sessions with ("all my students" scope)
-    #   OR legacy rows with no session and no owner — treated as instructor-
+    #   OR legacy rows with no session and no owner â€” treated as instructor-
     #      scoped only when we can resolve an owner; otherwise hidden.
     query = db.query(Quiz).filter(
         Quiz.is_exam == True,
@@ -335,7 +335,7 @@ def publish_quiz_as_exam(
     quiz.available_from = payload.available_from
     if payload.reveal_answers is not None:
         quiz.reveal_answers = payload.reveal_answers
-    # Ownership for visibility scoping — prefer the session's instructor,
+    # Ownership for visibility scoping â€” prefer the session's instructor,
     # fall back to the publishing user (covers session-less "all my students" exams).
     quiz.instructor_id = session.instructor_id or user.id
 
@@ -482,7 +482,7 @@ def start_quiz_attempt(
                 avail = avail.replace(tzinfo=timezone.utc)
             if datetime.now(timezone.utc) < avail:
                 raise HTTPException(403, "This exam is not available yet.")
-        # Exams allow exactly one attempt — block API replay/re-entry
+        # Exams allow exactly one attempt â€” block API replay/re-entry
         already_submitted = db.query(QuizAttempt).filter_by(
             quiz_id=quiz_id,
             student_id=user.id,
@@ -550,7 +550,7 @@ def submit_quiz_attempt(
         submitted_at=None
     ).first()
     if not attempt:
-        # B13: Idempotent submit — if attempt was already submitted (e.g. auto-submit
+        # B13: Idempotent submit â€” if attempt was already submitted (e.g. auto-submit
         # race or network retry), return the recorded score safely.
         prior = db.query(QuizAttempt).filter_by(
             quiz_id=quiz_id, student_id=user.id
@@ -618,7 +618,7 @@ def submit_quiz_attempt(
         )
 
     # Score the quiz. Question payloads in the DB use inconsistent schemas
-    # ({answer|correct_answer} × {letter|option-text|missing type}), so resolve
+    # ({answer|correct_answer} Ã— {letter|option-text|missing type}), so resolve
     # both sides to option indexes / normalized text before comparing.
     def _resolve_option_index(value, options):
         """Map a letter (A-D), numeric index, or option text to an option index."""
@@ -723,7 +723,7 @@ def submit_quiz_attempt(
     )
 
 
-# ─── Instructor: Attempt Management ──────────────────────────────────────────────
+# â”€â”€â”€ Instructor: Attempt Management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/{quiz_id}/attempts")
 def list_quiz_attempts(
@@ -792,7 +792,7 @@ def list_my_quiz_attempts(
     )
 
 
-# ─── Anti-Cheat: Violation Logging & Review ──────────────────────────────────────
+# â”€â”€â”€ Anti-Cheat: Violation Logging & Review â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/{quiz_id}/violations", response_model=QuizViolationOut)
 def log_quiz_violation(

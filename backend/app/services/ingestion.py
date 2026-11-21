@@ -121,7 +121,7 @@ _text_splitter = RecursiveCharacterTextSplitter(
 )
 
 
-# ─── New Package: Character-based chunking ────────────────────────────────────
+# â”€â”€â”€ New Package: Character-based chunking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def chunk_text(
     text: str,
@@ -265,7 +265,7 @@ def ingest_file(
     return records
 
 
-# ─── Existing: Token-based ingestion for /api/rag/ingest ──────────────────────
+# â”€â”€â”€ Existing: Token-based ingestion for /api/rag/ingest â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def extract_pdf_pages(
     file_content: Optional[bytes] = None,

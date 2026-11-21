@@ -88,14 +88,14 @@ def save_active_port(port: int):
 
 def run_server():
     os.chdir(BACKEND_DIR)
-    
+
     # Ensure venv python is used
     venv_python = BACKEND_DIR / ".venv" / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
     if not venv_python.exists():
         venv_python = Path(sys.executable)
 
     preferred_port = int(os.environ.get("PORT", "8000"))
-    
+
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             port = find_free_port(preferred_port)

@@ -60,7 +60,7 @@ export default function Profile() {
 
       // 2. Update profile details
       await api('/users/profile', { method: 'PUT', body: profileForm })
-      
+
       setMessage('Profile and preference settings updated successfully.')
       setAccountForm((prev) => ({ ...prev, current_password: '', new_password: '' }))
     } catch (err) {
@@ -125,7 +125,7 @@ export default function Profile() {
         <div className="flex items-center gap-3 text-xl font-black"><Sparkles size={20} />Account & System Settings</div>
         {message && <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{message}</p>}
         {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
-        
+
         {/* Section 1: Account Credentials */}
         <div className="space-y-4">
           <h2 className="text-sm font-bold uppercase tracking-wider text-ocean dark:text-mint">1. Account Information</h2>
@@ -142,7 +142,7 @@ export default function Profile() {
           <div className="grid gap-4 md:grid-cols-2 pt-2">
             <label className="space-y-2">
               <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Current Password (to change password)</span>
-              <PasswordInput placeholder="••••••••" value={accountForm.current_password} onChange={(e) => setAccountForm({ ...accountForm, current_password: e.target.value })} />
+              <PasswordInput placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" value={accountForm.current_password} onChange={(e) => setAccountForm({ ...accountForm, current_password: e.target.value })} />
             </label>
             <label className="space-y-2">
               <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">New Password</span>
@@ -182,7 +182,7 @@ export default function Profile() {
               <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">{t('settingsPage.language')}</span>
               <select className="input" value={lang} onChange={(e) => setLang(e.target.value)}>
                 <option value="en">English</option>
-                <option value="ar">العربية</option>
+                <option value="ar">Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©</option>
               </select>
             </label>
           </div>

@@ -228,7 +228,7 @@ export default function Reports() {
                 <ChevronRight size={18} className="text-slate-400" />
               </div>
               <p className="mt-3 text-sm text-slate-500">{session.date} | {session.start_time}</p>
-              <p className="mt-2 text-xs text-slate-500">{session.attendee_count} attendees · {session.duration ?? session.attended_duration ?? 0} min attended</p>
+              <p className="mt-2 text-xs text-slate-500">{session.attendee_count} attendees Â· {session.duration ?? session.attended_duration ?? 0} min attended</p>
             </button>
           ))}
         </div>
@@ -275,7 +275,7 @@ export default function Reports() {
                         </div>
                         <div className="text-right text-xs text-slate-500">
                           <p className="font-semibold text-ocean dark:text-mint">{student.duration ?? student.attended_duration ?? 0} min attended</p>
-                          <p>{student.emotion_samples} samples · {student.dominant_emotion}</p>
+                          <p>{student.emotion_samples} samples Â· {student.dominant_emotion}</p>
                         </div>
                       </button>
                     ))}
@@ -288,7 +288,7 @@ export default function Reports() {
                     {sessionDetail.quizzes?.map((quiz) => (
                       <div key={quiz.id} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
                         <p className="font-semibold">{quiz.title}</p>
-                        <p className="mt-1 text-sm text-slate-500">{quiz.difficulty} · {quiz.question_count} questions</p>
+                        <p className="mt-1 text-sm text-slate-500">{quiz.difficulty} Â· {quiz.question_count} questions</p>
                       </div>
                     ))}
                     {!sessionDetail.quizzes?.length && <p className="text-sm text-slate-500">No quizzes are linked to this session yet.</p>}
@@ -306,7 +306,7 @@ export default function Reports() {
                         <div>
                           <p className="text-lg font-bold">{studentDetail.student.name}</p>
                           <p className="text-sm text-slate-500">{studentDetail.student.email}</p>
-                          <p className="text-xs text-slate-500">{studentDetail.student.university || 'University not set'} · {studentDetail.student.department || 'Department not set'}</p>
+                          <p className="text-xs text-slate-500">{studentDetail.student.university || 'University not set'} Â· {studentDetail.student.department || 'Department not set'}</p>
                         </div>
                       </div>
                       <p className="text-sm leading-7 text-slate-600 dark:text-slate-300">{studentDetail.analysis.summary}</p>

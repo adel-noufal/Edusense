@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
-import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff, Mic, MicOff, MessageCircle, Paperclip, RotateCcw, Square } from 'lucide-react'
+import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff, Mic, MicOff, MessageCircle, Paperclip, RotateCcw, Square, Maximize2, Minimize2 } from 'lucide-react'
 import MarkdownText from '../utils/markdown'
 import { normalizeSource, normalizeSources } from '../utils/sources'
 import { api, downloadAuthenticatedRequest, staticUrl } from '../services/api'
@@ -26,7 +26,14 @@ async function postDownload(path, payload, filename) {
 import { useToast } from '../context/ToastContext'
 
 const languages = ['English', 'Arabic', 'French', 'Spanish']
-const styles = ['Formal', 'Friendly', 'Interactive', 'Storytelling', 'Professional']
+const styles = [
+  'Interactive',
+  'Lecture/Formal',
+  'Socratic',
+  'Storytelling/Real-world',
+  'Problem-based / Hands-on',
+  'Visual',
+]
 const difficulties = ['Easy', 'Medium', 'Hard']
 const FALLBACK_AI_MODELS = ['Gemini (Internet Required)', 'Local Ollama - Mistral / Llama 3.2 (Offline)']
 let cachedModelOptions = null
@@ -89,7 +96,7 @@ function formatJobError(raw) {
       return `${parsed.message}${stage}`
     }
   } catch {
-    // not JSON — plain error string
+    // not JSON â€” plain error string
   }
   return raw
 }
@@ -98,7 +105,7 @@ function formatJobError(raw) {
 function useBackgroundGeneration(type) {
   const { startJob, job, removeJob } = useGenerationJobs(type)
   const [loading, setLoading] = useState(() => job?.status === 'pending')
-  // Don't pre-populate error from stale failed jobs — errors are only shown during active session
+  // Don't pre-populate error from stale failed jobs â€” errors are only shown during active session
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -108,7 +115,7 @@ function useBackgroundGeneration(type) {
     }
     if (job.status === 'pending') {
       setLoading(true)
-      setError('Generation running in background — you can navigate away and come back later.')
+      setError('Generation running in background â€” you can navigate away and come back later.')
       return
     }
     if (job.status === 'error') {
@@ -125,7 +132,7 @@ function useBackgroundGeneration(type) {
     setError('')
     try {
       await startJob({ type, endpoint, payload, label })
-      setError('Generation running in background — you can navigate away and come back later.')
+      setError('Generation running in background â€” you can navigate away and come back later.')
     } catch (err) {
       setLoading(false)
       setError(err.message || 'Could not start generation')
@@ -229,8 +236,8 @@ export function LessonGenerator() {
         <h2 className="text-lg font-bold">Recent Lessons</h2>
         <div className="space-y-3 max-h-[500px] overflow-y-auto">
           {history.map((h) => (
-            <div 
-              key={h.id} 
+            <div
+              key={h.id}
               onClick={async () => {
                 try {
                   const latest = await api(`/ai/generations/${h.id}`)
@@ -262,7 +269,7 @@ export function LessonGenerator() {
             >
               <div className="flex items-start justify-between gap-2">
                 <span className="font-bold text-sm truncate block max-w-[180px]">{h.topic}</span>
-                <button 
+                <button
                   onClick={(e) => deleteHistory(h.id, e)}
                   className="text-slate-400 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
                 >
@@ -287,6 +294,7 @@ export function FlashcardGenerator() {
     prompt: 'Focus on key definitions, formulas, and practical examples',
     count: 10,
     language: 'English',
+    teaching_style: 'Interactive',
     session_id: '',
     source_session_id: '',
     model: aiModelOptions[0] || FALLBACK_AI_MODELS[0],
@@ -351,6 +359,7 @@ export function FlashcardGenerator() {
             <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
             <Field label={t('ai.cardCount')} type="number" value={form.count} onChange={(value) => setForm({ ...form, count: value })} />
             <SelectField label={t('ai.language')} value={form.language} options={languages} onChange={(value) => setForm({ ...form, language: value })} />
+            <SelectField label="Teaching Style" value={form.teaching_style} options={styles} onChange={(value) => setForm({ ...form, teaching_style: value })} />
             <div className="md:col-span-2">
               <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} textarea />
               <PromptEnhancer value={form.prompt} context={{ feature: 'flashcards', topic: form.topic, language: form.language, count: form.count }} onAccept={(p) => setForm({ ...form, prompt: p })} />
@@ -366,8 +375,8 @@ export function FlashcardGenerator() {
         <h2 className="text-lg font-bold">Recent Flashcards</h2>
         <div className="space-y-3 max-h-[500px] overflow-y-auto">
           {history.map((h) => (
-            <div 
-              key={h.id} 
+            <div
+              key={h.id}
               onClick={() => {
                 setResult(h.data)
                 setForm({
@@ -383,7 +392,7 @@ export function FlashcardGenerator() {
             >
               <div className="flex items-start justify-between gap-2">
                 <span className="font-bold text-sm truncate block max-w-[180px]">{h.topic}</span>
-                <button 
+                <button
                   onClick={(e) => deleteHistory(h.id, e)}
                   className="text-slate-400 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
                 >
@@ -409,6 +418,7 @@ export function QuizGenerator() {
     prompt: 'Focus on conceptual understanding and real-world applications',
     difficulty: 'Medium',
     count: 5,
+    teaching_style: 'Interactive',
     session_id: '',
     source_session_id: '',
     model: aiModelOptions[0] || FALLBACK_AI_MODELS[0],
@@ -644,6 +654,7 @@ export function QuizGenerator() {
               <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
               <SelectField label={t('ai.difficulty')} value={form.difficulty} options={difficulties} onChange={(value) => setForm({ ...form, difficulty: value })} />
               <Field label={t('ai.questionCount')} type="number" value={form.count || 5} onChange={(value) => setForm({ ...form, count: Number(value) || 5 })} />
+              <SelectField label="Teaching Style" value={form.teaching_style} options={styles} onChange={(value) => setForm({ ...form, teaching_style: value })} />
               <div className="md:col-span-2">
                 <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} textarea />
                 <PromptEnhancer value={form.prompt} context={{ feature: 'quiz', topic: form.topic, difficulty: form.difficulty, count: form.count }} onAccept={(p) => setForm({ ...form, prompt: p })} />
@@ -1028,8 +1039,8 @@ export function QuizGenerator() {
         <h2 className="text-lg font-bold">Recent Quizzes</h2>
         <div className="space-y-3 max-h-[500px] overflow-y-auto">
           {history.map((h) => (
-            <div 
-              key={h.id} 
+            <div
+              key={h.id}
               onClick={() => {
                 setResult(h)
                 setForm({
@@ -1057,7 +1068,7 @@ export function QuizGenerator() {
                       {h.session_title && (
                         <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                           Visible to {h.enrolled_student_count ?? 0} students in {h.session_title}
-                          {h.available_from ? ` · Available from ${new Date(h.available_from).toLocaleDateString()}` : ''}
+                          {h.available_from ? ` Â· Available from ${new Date(h.available_from).toLocaleDateString()}` : ''}
                           {h.due_date ? ` until ${new Date(h.due_date).toLocaleDateString()}` : ''}
                         </p>
                       )}
@@ -1073,7 +1084,7 @@ export function QuizGenerator() {
                   >
                     <Shield size={14} />
                   </button>
-                  <button 
+                  <button
                     onClick={(e) => deleteHistory(h.id, e)}
                     className="text-slate-400 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
                   >
@@ -1210,7 +1221,7 @@ export function VideoLibrary() {
         {loading && (
           <div className="panel flex items-center gap-3 border border-teal-200 bg-teal-50/70 text-sm text-teal-900 dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100">
             <Clock3 className="animate-pulse shrink-0" size={18} />
-            Building your video in the background. You can browse other tabs — come back here when it finishes.
+            Building your video in the background. You can browse other tabs â€” come back here when it finishes.
           </div>
         )}
         {result && <VideoResult result={result} initialForm={form} onReplace={setResult} onHistoryRefresh={loadHistory} />}
@@ -1234,7 +1245,7 @@ export function VideoLibrary() {
                   <Trash2 size={16} />
                 </button>
               </div>
-              <p className="text-xs text-slate-500 mt-1">{new Date(h.created_at).toLocaleDateString()} · {h.status}</p>
+              <p className="text-xs text-slate-500 mt-1">{new Date(h.created_at).toLocaleDateString()} Â· {h.status}</p>
               {h.scenes?.length > 0 && <p className="text-xs text-slate-400 mt-1">{h.scenes.length} scenes</p>}
             </div>
           ))}
@@ -1272,7 +1283,7 @@ function ToolShell({ title, icon, onSubmit, loading, error, children, job }) {
             />
           </div>
           <p className="text-sm text-slate-500">
-            {job?.stage || t('ai.working')}{job?.progress ? ` — ${job.progress}%` : ''}
+            {job?.stage || t('ai.working')}{job?.progress ? ` â€” ${job.progress}%` : ''}
           </p>
         </div>
       )}
@@ -1311,15 +1322,14 @@ function LessonResult({ result, request }) {
   const lesson = (result?.data && !result?.topic ? result.data : result) || {}
   const language = lesson?.language || request?.language || ''
   const style = lesson?.style || request?.teaching_style || ''
-  const duration = lesson?.duration ?? request?.duration
   const isRtl = language === 'Arabic' || language === 'ar'
-  const subtitle = [language, style, duration != null ? `${duration} min` : null].filter(Boolean).join(' · ')
+  const subtitle = [language, style].filter(Boolean).join(' Â· ')
   const slug = (lesson?.topic || 'lesson').replace(/\s+/g, '-').toLowerCase()
   const [openSection, setOpenSection] = useState(null)
 
   return (
     <div className="space-y-6" dir={isRtl ? 'rtl' : 'ltr'}>
-      {/* ── Hero Header ── */}
+      {/* â”€â”€ Hero Header â”€â”€ */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-teal-600 via-teal-500 to-cyan-500 p-6 text-white shadow-lg">
         <div className="absolute inset-0 opacity-10" style={{backgroundImage:'radial-gradient(circle at 70% 50%, white 1px, transparent 1px)', backgroundSize:'24px 24px'}} />
         <div className="relative">
@@ -1327,7 +1337,7 @@ function LessonResult({ result, request }) {
             {request?.model && request.model !== 'auto' && (
               <span className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-semibold backdrop-blur-sm">{request.model}</span>
             )}
-            {subtitle && subtitle.split(' · ').map(s => (
+            {subtitle && subtitle.split(' Â· ').map(s => (
               <span key={s} className="rounded-full bg-white/15 px-2.5 py-0.5 text-xs">{s}</span>
             ))}
           </div>
@@ -1336,7 +1346,7 @@ function LessonResult({ result, request }) {
         </div>
       </div>
 
-      {/* ── Download Bar ── */}
+      {/* â”€â”€ Download Bar â”€â”€ */}
       <DownloadBar
         items={[
           { label: 'Word (.doc)', onClick: () => downloadLessonAsDoc(lesson, `${slug}.doc`) },
@@ -1347,11 +1357,11 @@ function LessonResult({ result, request }) {
         ]}
       />
 
-      {/* ── Learning Objectives ── */}
+      {/* â”€â”€ Learning Objectives â”€â”€ */}
       {lesson.learning_objectives?.length > 0 && (
         <div className="rounded-2xl border border-teal-200 bg-teal-50/60 p-5 dark:border-teal-900/40 dark:bg-teal-950/20">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-teal-700 dark:text-teal-300">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-600 text-xs text-white">✓</span>
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-600 text-xs text-white">âœ“</span>
             {t('ai.objectives')}
           </h2>
           <ul className="space-y-2">
@@ -1365,7 +1375,7 @@ function LessonResult({ result, request }) {
         </div>
       )}
 
-      {/* ── Sections (accordion) ── */}
+      {/* â”€â”€ Sections (accordion) â”€â”€ */}
       {lesson.sections?.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('ai.sections')}</h2>
@@ -1377,7 +1387,7 @@ function LessonResult({ result, request }) {
                 className="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
               >
                 <span className="font-semibold text-slate-800 dark:text-slate-100">{section.heading}</span>
-                <span className="shrink-0 text-slate-400">{openSection === i ? '▲' : '▼'}</span>
+                <span className="shrink-0 text-slate-400">{openSection === i ? 'â–²' : 'â–¼'}</span>
               </button>
               {openSection === i && (
                 <div className="border-t border-slate-200 bg-slate-50/50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800/30">
@@ -1395,7 +1405,7 @@ function LessonResult({ result, request }) {
         </div>
       )}
 
-      {/* ── Slides grid ── */}
+      {/* â”€â”€ Slides grid â”€â”€ */}
       {lesson.slides?.length > 0 && (
         <div>
           <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('ai.slides')}</h2>
@@ -1409,7 +1419,7 @@ function LessonResult({ result, request }) {
                 <p className="text-sm leading-6 text-slate-600 dark:text-slate-400">{slide.content}</p>
                 {slide.diagram && (
                   <p className="mt-2 rounded-md bg-violet-50 px-3 py-1.5 text-xs text-violet-700 dark:bg-violet-950/30 dark:text-violet-300">
-                    📊 {slide.diagram}
+                    ðŸ“Š {slide.diagram}
                   </p>
                 )}
               </div>
@@ -1418,7 +1428,7 @@ function LessonResult({ result, request }) {
         </div>
       )}
 
-      {/* ── Key Terms ── */}
+      {/* â”€â”€ Key Terms â”€â”€ */}
       {lesson.key_points?.length > 0 && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 dark:border-amber-900/40 dark:bg-amber-950/15">
           <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400">{t('ai.keyPoints')}</h2>
@@ -1432,7 +1442,7 @@ function LessonResult({ result, request }) {
         </div>
       )}
 
-      {/* ── Summary ── */}
+      {/* â”€â”€ Summary â”€â”€ */}
       {lesson.summary && (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-800/40">
           <h2 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('ai.summary')}</h2>
@@ -1440,7 +1450,7 @@ function LessonResult({ result, request }) {
         </div>
       )}
 
-      {/* ── Sources ── */}
+      {/* â”€â”€ Sources â”€â”€ */}
       {(lesson?.sources?.length > 0 || lesson?.unverified) && (
         <ResultHeader title="" subtitle="" model={undefined} sources={lesson?.sources} unverified={lesson?.unverified} />
       )}
@@ -1579,7 +1589,7 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Available From (optional — exam hidden before this time)</label>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Available From (optional â€” exam hidden before this time)</label>
             <input type="datetime-local" className="input mt-1 w-full" value={availableFrom} onChange={(e) => setAvailableFrom(e.target.value)} />
           </div>
 
@@ -1715,7 +1725,7 @@ function QuizResult({ result, answers, revealed, onAnswer, onReveal, onPublishEx
                 {show && (
                   <p className={`text-sm ${correct ? 'text-emerald-600' : 'text-red-600'}`}>
                     {correct ? t('ai.correct') : `${t('ai.answer')}: ${question.answer}`}
-                    {question.explanation ? ` — ${question.explanation}` : ''}
+                    {question.explanation ? ` â€” ${question.explanation}` : ''}
                   </p>
                 )}
               </div>
@@ -1736,6 +1746,14 @@ function VideoResult({ result, initialForm, onReplace, onHistoryRefresh }) {
     ? `${basePlayerUrl}${basePlayerUrl.includes('?') ? '&' : '?'}v=${playerReloadToken}`
     : null
   const mp4Url = result.mp4_url ? staticUrl(result.mp4_url) : null
+  const [playerMissing, setPlayerMissing] = useState(false)
+  useEffect(() => {
+    setPlayerMissing(false)
+    if (!basePlayerUrl) return
+    fetch(basePlayerUrl, { method: 'HEAD', credentials: 'include' })
+      .then((response) => setPlayerMissing(response.status === 404))
+      .catch(() => setPlayerMissing(true))
+  }, [basePlayerUrl])
   const [editForm, setEditForm] = useState({
     title: initialForm.title,
     prompt: initialForm.prompt,
@@ -1847,8 +1865,22 @@ function VideoResult({ result, initialForm, onReplace, onHistoryRefresh }) {
       )}
       {playerUrl && (
         <Section title={t('ai.player')}>
-          <iframe key={playerReloadToken} title="Lesson video player" src={playerUrl} className="h-[min(420px,60vh)] w-full rounded-md border border-slate-200 dark:border-slate-700" />
-          <a className="btn-soft mt-3 inline-flex" href={playerUrl} target="_blank" rel="noreferrer">{t('ai.openPlayer')}</a>
+          {playerMissing ? (
+            <div className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+              <p className="font-bold">Video player files are missing</p>
+              <p className="mt-1 text-sm">This saved video is incomplete. Regenerate it to restore the player and narration files.</p>
+              <button type="button" className="btn-secondary mt-3 text-sm" onClick={async () => {
+                await api(`/ai/videos/${result.id}`, { method: 'DELETE' })
+                onReplace(null)
+                onHistoryRefresh()
+              }}>Delete incomplete video</button>
+            </div>
+          ) : (
+            <>
+              <iframe key={playerReloadToken} title="Lesson video player" src={playerUrl} className="h-[min(420px,60vh)] w-full rounded-md border border-slate-200 dark:border-slate-700" />
+              <a className="btn-soft mt-3 inline-flex" href={playerUrl} target="_blank" rel="noreferrer">{t('ai.openPlayer')}</a>
+            </>
+          )}
         </Section>
       )}
       {mp4Url && (
@@ -1928,7 +1960,7 @@ function FlashcardResult({ result, request, flipped, onFlip }) {
   const slug = (result.title || 'flashcards').replace(/\s+/g, '-').toLowerCase()
   return (
     <div className="space-y-4 rounded-md border border-slate-200 p-4 dark:border-slate-700">
-      <ResultHeader title={result.title} subtitle={`${result.cards?.length || 0} cards · ${result.language}`} model={request?.model} sources={result.sources} unverified={result.unverified} />
+      <ResultHeader title={result.title} subtitle={`${result.cards?.length || 0} cards Â· ${result.language}`} model={request?.model} sources={result.sources} unverified={result.unverified} />
       <DownloadBar
         items={[
           {
@@ -1987,7 +2019,7 @@ function ResultHeader({ title, subtitle, model, sources, unverified }) {
         <p className="text-sm text-slate-500">{subtitle}</p>
         {model && (
           <span className="mt-1 inline-block rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-ocean dark:bg-slate-800 dark:text-mint">
-            ⚡ {model}
+            âš¡ {model}
           </span>
         )}
         <div className="mt-2 flex items-center gap-2">
@@ -2044,6 +2076,16 @@ export function ChatbotGenerator() {
   const [attachedKbIds, setAttachedKbIds] = useState([])
   // C12: chatbot modes ('none' | 'selected' | 'all', OFF by default, saved per conversation)
   const [fileMode, setFileMode] = useState('none')
+  const [focusMode, setFocusMode] = useState(false)
+  const [howWorksOpen, setHowWorksOpen] = useState(typeof window !== 'undefined' ? window.innerWidth >= 1600 : false)
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key === 'Escape') setFocusMode(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   useEffect(() => {
     if (conversationId) {
@@ -2084,7 +2126,7 @@ export function ChatbotGenerator() {
   useEffect(() => {
     if (location.state?.sourceId) {
       setSelectedSourceId(location.state.sourceId)
-      setFileLabel(`📎 ${location.state.sourceName || 'Selected document'}`)
+      setFileLabel(`ðŸ“Ž ${location.state.sourceName || 'Selected document'}`)
       // Clear the state to prevent re-triggering
       window.history.replaceState({}, document.title)
     }
@@ -2165,7 +2207,7 @@ export function ChatbotGenerator() {
         body: formData,
       })
       setFileContext(data.text)
-      setFileLabel(`📎 ${file.name}${data.truncated ? ' (truncated)' : ''} — ${data.char_count} chars`)
+      setFileLabel(`ðŸ“Ž ${file.name}${data.truncated ? ' (truncated)' : ''} â€” ${data.char_count} chars`)
     } catch (err) {
       setError(err.message || 'File upload failed')
     } finally {
@@ -2330,9 +2372,9 @@ export function ChatbotGenerator() {
   })()
 
   return (
-    <div className="flex h-full min-h-0 w-full overflow-hidden p-3 sm:p-4 flex-col xl:flex-row gap-3 xl:items-stretch">
+    <div className={`flex h-full min-h-0 w-full overflow-hidden gap-3 ${focusMode ? 'fixed inset-0 z-[70] bg-white p-3 dark:bg-slate-950 flex-row' : 'p-3 sm:p-4 flex-col xl:flex-row xl:items-stretch'}`}>
       {/* History Sidebar */}
-      <aside className="panel flex w-full shrink-0 flex-col xl:w-64 xl:h-full min-h-0 overflow-hidden">
+      <aside className={`${focusMode ? 'hidden' : 'panel'} flex w-full shrink-0 flex-col xl:w-64 xl:h-full min-h-0 overflow-hidden`}>
         <div className="flex shrink-0 items-center justify-between pb-2">
           <h2 className="flex items-center gap-2 text-sm font-bold"><MessageCircle size={16} className="text-ocean dark:text-mint" /> Conversations</h2>
           <button className="btn-soft text-xs px-2.5 py-1.5" onClick={startNewConversation}>+ New</button>
@@ -2353,7 +2395,7 @@ export function ChatbotGenerator() {
                 className="hidden flex-shrink-0 text-slate-400 hover:text-red-500 group-hover:block"
                 onClick={(e) => deleteConversation(conv.conversation_id, e)}
                 title="Delete conversation"
-              >×</button>
+              >Ã—</button>
             </div>
           ))}
         </div>
@@ -2376,7 +2418,7 @@ export function ChatbotGenerator() {
               type="button"
               className={`rounded-lg px-2.5 py-1 transition ${fileMode === 'none' ? 'bg-white shadow text-slate-900 dark:bg-slate-700 dark:text-slate-100' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'}`}
               onClick={() => handleModeChange('none')}
-              title="No file context — free general conversation"
+              title="No file context â€” free general conversation"
             >
               No files
             </button>
@@ -2397,6 +2439,12 @@ export function ChatbotGenerator() {
               All files {ragSources.length > 0 ? `(${ragSources.length})` : ''}
             </button>
           </div>
+          <button type="button" className="btn-soft h-9 shrink-0 px-2.5 text-xs" onClick={() => setFocusMode(v => !v)}>
+            {focusMode ? <><Minimize2 size={13} /> Exit</> : <><Maximize2 size={13} /> Focus</>}
+          </button>
+          {!howWorksOpen && !focusMode && (
+            <button type="button" className="btn-soft h-9 shrink-0 px-2.5 text-xs" onClick={() => setHowWorksOpen(true)}>How it works</button>
+          )}
           {loading && <Loader2 size={16} className="animate-spin text-teal-600" />}
         </div>
 
@@ -2404,7 +2452,7 @@ export function ChatbotGenerator() {
           <p className="shrink-0 mx-4 mt-3 rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300" role="alert">{error}</p>
         )}
 
-        {/* Messages — fills remaining vertical space */}
+        {/* Messages â€” fills remaining vertical space */}
         <div className="flex-1 min-h-0 space-y-4 overflow-y-auto px-4 py-4">
           {messages.length === 0 ? (
             <div className="flex h-full min-h-[280px] flex-col items-center justify-center text-center px-4 py-6">
@@ -2518,7 +2566,7 @@ export function ChatbotGenerator() {
             <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
               <span className="flex items-center gap-2">
                 <Loader2 size={14} className="animate-spin text-teal-600" />
-                <span className="animate-pulse">{chatbotName} is thinking…</span>
+                <span className="animate-pulse">{chatbotName} is thinkingâ€¦</span>
               </span>
               <button
                 type="button"
@@ -2544,7 +2592,7 @@ export function ChatbotGenerator() {
           {fileLabel && fileMode === 'selected' && (
             <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">
               <span className="flex-1 truncate">{fileLabel}</span>
-              <button className="flex-shrink-0 text-blue-400 hover:text-blue-700" onClick={() => { setFileContext(null); setFileLabel(null) }}>✕</button>
+              <button className="flex-shrink-0 text-blue-400 hover:text-blue-700" onClick={() => { setFileContext(null); setFileLabel(null) }}>âœ•</button>
             </div>
           )}
           {/* B10: Attached KB source chips (only in selected mode) */}
@@ -2643,8 +2691,10 @@ export function ChatbotGenerator() {
       </section>
 
       {/* How It Works */}
-      <aside className="panel hidden xl:flex w-64 2xl:w-72 shrink-0 flex-col h-full min-h-0 overflow-y-auto space-y-4">
-        <h2 className="text-base font-bold">How It Works</h2>
+      <aside className={`panel ${focusMode || !howWorksOpen ? 'hidden' : 'hidden xl:flex'} w-64 2xl:w-72 shrink-0 flex-col h-full min-h-0 overflow-y-auto space-y-4`}>
+        <button type="button" className="flex items-center justify-between text-base font-bold" onClick={() => setHowWorksOpen(false)}>
+          <span>How It Works</span><X size={14} />
+        </button>
         <div className="space-y-2.5 text-sm text-slate-600 dark:text-slate-400">
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Zap className="h-3.5 w-3.5 text-amber-500" /> Online Mode</p>
@@ -2656,11 +2706,11 @@ export function ChatbotGenerator() {
           </div>
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Paperclip className="h-3.5 w-3.5 text-blue-600" /> File Upload</p>
-            <p className="mt-1 text-xs leading-relaxed">Attach .txt, .pdf, .docx, .md — text is injected as context.</p>
+            <p className="mt-1 text-xs leading-relaxed">Attach .txt, .pdf, .docx, .md â€” text is injected as context.</p>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Clock3 className="h-3.5 w-3.5 text-violet-600" /> Persistent History</p>
-            <p className="mt-1 text-xs leading-relaxed">Conversations are saved — resume any past chat from the sidebar.</p>
+            <p className="mt-1 text-xs leading-relaxed">Conversations are saved â€” resume any past chat from the sidebar.</p>
           </div>
         </div>
       </aside>

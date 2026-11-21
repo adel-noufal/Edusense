@@ -120,7 +120,7 @@ def build_true_docx_bytes(title: str, content_dict: dict, content_type: str = "l
         return p
 
     if content_type == "lesson":
-        # ── Cover block ──
+        # â”€â”€ Cover block â”€â”€
         title_para = doc.add_heading(title, 0)
         title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         title_para.paragraph_format.space_after = Pt(4)
@@ -139,7 +139,7 @@ def build_true_docx_bytes(title: str, content_dict: dict, content_type: str = "l
         if content_dict.get("duration"):
             meta_lines.append(f"Duration: {content_dict['duration']} minutes")
         if meta_lines:
-            meta_p = doc.add_paragraph(" · ".join(meta_lines))
+            meta_p = doc.add_paragraph(" Â· ".join(meta_lines))
             meta_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             meta_p.paragraph_format.space_after = Pt(18)
             for run in meta_p.runs:
@@ -181,7 +181,7 @@ def build_true_docx_bytes(title: str, content_dict: dict, content_type: str = "l
                 example_p.paragraph_format.left_indent = Inches(0.4)
                 example_p.paragraph_format.space_before = Pt(4)
                 example_p.paragraph_format.space_after = Pt(12)
-                label_run = example_p.add_run("💡 Example: ")
+                label_run = example_p.add_run("ðŸ’¡ Example: ")
                 label_run.font.bold = True
                 label_run.font.color.rgb = RGBColor(15, 118, 110)
                 label_run.font.size = Pt(11)
@@ -284,7 +284,7 @@ def build_true_docx_bytes(title: str, content_dict: dict, content_type: str = "l
             back_p.paragraph_format.space_after = Pt(12)
 
 
-    
+
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
@@ -314,10 +314,14 @@ def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
 
     blank_layout = prs.slide_layouts[6]  # Blank
 
+    def _strip_markup(text: str) -> str:
+        return (text or "").replace("**", "").replace("__", "").replace("`", "").replace("#", "")
+
     def _is_arabic(text: str) -> bool:
         return any('\u0600' <= ch <= '\u06FF' for ch in (text or ""))
 
     def _apply_text(p, text: str, font_size, color, bold: bool = False, arabic: bool = False):
+        text = _strip_markup(text)
         if arabic:
             p.alignment = PP_ALIGN.RIGHT
             try:
@@ -380,9 +384,19 @@ def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
         tf2 = body_box.text_frame
         tf2.word_wrap = True
         first = True
-        # >=24pt body requirement (scale only if many lines)
-        body_size = Pt(24) if len(body_lines) <= 6 else Pt(22)
+        limited_lines = []
+        remaining_words = 40
         for line_text in body_lines:
+            words = _strip_markup(str(line_text)).split()
+            kept = words[:remaining_words]
+            if kept:
+                limited_lines.append(" ".join(kept))
+                remaining_words -= len(kept)
+            if remaining_words <= 0:
+                break
+        # >=24pt body requirement (scale only if many lines)
+        body_size = Pt(24) if len(limited_lines) <= 6 else Pt(22)
+        for line_text in limited_lines:
             p2 = tf2.paragraphs[0] if first else tf2.add_paragraph()
             first = False
             p2.space_after = Pt(10)
@@ -470,9 +484,8 @@ def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
 
     # Slide 1: Title
     subtitle_lines = [
-        f"Subject: {content_dict.get('topic', title)}",
-        f"Style: {content_dict.get('style') or content_dict.get('teaching_style', 'Interactive')}",
-        f"Duration: {duration_mins} minutes",
+        str(content_dict.get("style") or content_dict.get("teaching_style") or "Interactive"),
+        str(content_dict.get("language") or "English"),
     ]
     add_standard_slide(title, subtitle_lines, is_title_slide=True)
 
@@ -482,7 +495,7 @@ def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
 
     # Slide 3: Learning Objectives
     if content_dict.get("learning_objectives"):
-        objs = [f"• {obj}" for obj in content_dict["learning_objectives"]]
+        objs = [f"â€¢ {obj}" for obj in content_dict["learning_objectives"]]
         add_standard_slide("Learning Objectives", objs)
 
     # Content sections with varied layouts
@@ -510,8 +523,19 @@ def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
 
     # Key points
     if content_dict.get("key_points"):
-        kp = [f"• {k}" for k in content_dict["key_points"]]
+        kp = [f"â€¢ {k}" for k in content_dict["key_points"]]
         add_standard_slide("Key Points", kp)
+
+    # Automatic visual lint: catch markdown, excessive words/bullets, and title-style mistakes.
+    for slide in prs.slides:
+        slide_text = "\n".join(
+            shape.text for shape in slide.shapes if getattr(shape, "has_text_frame", False)
+        )
+        compact = _strip_markup(slide_text)
+        if len(compact.split()) > 60:
+            raise ValueError("PPTX visual lint failed: a slide exceeds the 60-word limit")
+        if any(ch in slide_text for ch in ("**", "__", "`")):
+            raise ValueError("PPTX visual lint failed: markdown characters remain")
 
     buffer = BytesIO()
     prs.save(buffer)
@@ -519,7 +543,7 @@ def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
     return buffer
 
 
-# ─── B8: real PDF / DOCX / CSV exports ────────────────────────────────────────
+# â”€â”€â”€ B8: real PDF / DOCX / CSV exports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _pdf_doc(title: str, blocks: list[tuple[str, list[str]]]) -> BytesIO:
     """Minimal branded PDF via reportlab. blocks = [(heading, [lines])]."""
@@ -556,7 +580,7 @@ def build_lesson_pdf_bytes(lesson: dict) -> BytesIO:
     if lesson.get("overview"):
         blocks.append(("Overview", [lesson["overview"]]))
     for obj in lesson.get("learning_objectives") or []:
-        blocks.append(("", [f"• {obj}"]))
+        blocks.append(("", [f"â€¢ {obj}"]))
     for sec in lesson.get("sections") or []:
         lines = []
         if sec.get("content"):
@@ -574,7 +598,7 @@ def build_quiz_pdf_bytes(quiz: dict, include_answers: bool = True) -> BytesIO:
     for i, q in enumerate(quiz.get("questions") or [], start=1):
         lines = [str(q.get("question", ""))]
         for opt in q.get("options") or []:
-            lines.append(f"   • {opt}")
+            lines.append(f"   â€¢ {opt}")
         if include_answers:
             lines.append(f"Answer: {q.get('answer', '')}")
             if q.get("explanation"):
@@ -608,14 +632,14 @@ def build_flashcards_csv_bytes(data: dict) -> BytesIO:
     import csv
     out = BytesIO()
     text = out
-    # csv needs a text wrapper — write to StringIO then encode with BOM
+    # csv needs a text wrapper
     from io import StringIO
     sio = StringIO()
     w = csv.writer(sio)
     w.writerow(["Front", "Back", "Tags"])
     for card in data.get("cards") or []:
         w.writerow([card.get("front", ""), card.get("back", ""), data.get("title", "")])
-    out.write(b"\xef\xbb\xbf" + sio.getvalue().encode("utf-8"))
+    out.write(sio.getvalue().encode("utf-8"))
     out.seek(0)
     return out
 

@@ -24,13 +24,13 @@ tags_metadata = [
 app = FastAPI(
     title="EduSense AI Education Platform",
     description="""
-    **EduSense** is a multi-agent AI Education Platform for adaptive learning, 
-    real-time webcam facial emotion recognition (PyTorch v7 EfficientNet-B0 — 90.9% Accuracy), 
+    **EduSense** is a multi-agent AI Education Platform for adaptive learning,
+    real-time webcam facial emotion recognition (PyTorch v7 EfficientNet-B0 â€” 90.9% Accuracy),
     and intelligent multi-tier AI model task routing (Gemini 2.0 Flash -> Specialized Local Ollama Models).
 
-    👤 **Author:** Adel Mohamed Noufal  
-    🔗 **LinkedIn:** https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/  
-    📦 **GitHub:** https://github.com/adel-noufal/Edusense
+    ðŸ‘¤ **Author:** Adel Mohamed Noufal
+    ðŸ”— **LinkedIn:** https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/
+    ðŸ“¦ **GitHub:** https://github.com/adel-noufal/Edusense
     """,
     version="2.0.0",
     openapi_tags=tags_metadata,
@@ -73,6 +73,20 @@ app.include_router(assignments.router, prefix="/api")
 @app.on_event("startup")
 def startup():
     import threading
+    try:
+        import asyncio
+        loop = asyncio.get_event_loop()
+
+        def _edusense_exception_handler(loop, context):
+            exc = context.get("exception")
+            message = str(context.get("message") or "")
+            if isinstance(exc, ConnectionResetError) or "10054" in message or "closed file" in message:
+                return
+            loop.default_exception_handler(context)
+
+        loop.set_exception_handler(_edusense_exception_handler)
+    except Exception:
+        pass
     init_db(seed=True)
     # Reconcile stale session statuses (missed/ended) on boot
     try:
@@ -154,3 +168,8 @@ def health():
         "ollama_model": settings.ollama_model if settings.ai_provider == "ollama" else None,
         "hint": gemini_hint,
     }
+
+
+@app.get("/api/health")
+def api_health_alias():
+    return health()

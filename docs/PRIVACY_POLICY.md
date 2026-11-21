@@ -1,6 +1,6 @@
 # EduSense Privacy Policy (DRAFT)
 
-> **⚠️ LEGAL NOTICE**: This is a **DRAFT** policy document. The actual legal wording **must be reviewed by a qualified attorney** before production use, especially since minors are involved. Do not present this generated text as legally final.
+> **âš ï¸ LEGAL NOTICE**: This is a **DRAFT** policy document. The actual legal wording **must be reviewed by a qualified attorney** before production use, especially since minors are involved. Do not present this generated text as legally final.
 
 **Effective Date**: 2026-11-07
 **Version**: 1.0
@@ -28,14 +28,14 @@ EduSense ("we", "our", "us") is an AI-powered education platform providing adapt
 - **What**: Video frames captured from your webcam during live class sessions
 - **Purpose**: Real-time facial emotion recognition (PyTorch v7 EfficientNet-B0) to help instructors gauge student engagement
 - **Legal Basis**: Explicit consent (see Section 6)
-- **Retention**: **End of session + 24 hours** — frames are automatically deleted 24 hours after the session ends
+- **Retention**: **End of session + 24 hours** â€” frames are automatically deleted 24 hours after the session ends
 - **Access**: Instructors of the session, platform administrators
 
 ### 3.2 Webcam Frames (Quiz Anti-Cheat Monitoring)
 - **What**: Video frames captured from your webcam during proctored quizzes
-- **Purpose**: Anti-cheat monitoring — detects second devices, fullscreen exits, tab switches
+- **Purpose**: Anti-cheat monitoring â€” detects second devices, fullscreen exits, tab switches
 - **Legal Basis**: Explicit consent (separate from emotion detection consent)
-- **Retention**: **End of quiz attempt + 24 hours** — frames are automatically deleted 24 hours after the quiz attempt is submitted or auto-submitted
+- **Retention**: **End of quiz attempt + 24 hours** â€” frames are automatically deleted 24 hours after the quiz attempt is submitted or auto-submitted
 - **Access**: Instructor who created the quiz, platform administrators
 - **Disclosure**: This is a **separate camera use** from emotion detection. Granting consent for emotion detection does NOT automatically grant consent for quiz anti-cheat monitoring.
 
@@ -86,12 +86,12 @@ EduSense ("we", "our", "us") is an AI-powered education platform providing adapt
 
 ### 4.2 AI Processing
 - **Emotion Analysis**: PyTorch v7 EfficientNet-B0 model runs locally (on-premise or controlled cloud). Frames are NOT sent to third-party AI providers for emotion detection.
-- **Quiz Generation / Lesson / Flashcards**: Uses multi-tier AI routing (Gemini 2.0 Flash → specialized local Ollama models). Prompt data may be sent to Google (Gemini) or local models. No webcam frames are sent to AI providers.
+- **Quiz Generation / Lesson / Flashcards**: Uses multi-tier AI routing (Gemini 2.0 Flash â†’ specialized local Ollama models). Prompt data may be sent to Google (Gemini) or local models. No webcam frames are sent to AI providers.
 - **RAG Search**: Queries sent to embedding model (sentence-transformers) and ChromaDB vector store (local).
 
 ### 4.3 Third-Party Sharing
 We do **not** sell personal data. Data may be shared with:
-- **Google (Gemini API)**: For AI generation tasks (lessons, quizzes, flashcards) — only prompt text, no webcam frames or biometric data
+- **Google (Gemini API)**: For AI generation tasks (lessons, quizzes, flashcards) â€” only prompt text, no webcam frames or biometric data
 - **Institutional Partners**: If you access EduSense through a school/university, aggregated analytics may be shared per institutional agreement
 
 ---
@@ -114,11 +114,11 @@ We do **not** sell personal data. Data may be shared with:
 
 ### 5.2 Manual Deletion Requests
 **Students / Guardians** can request data deletion by:
-1. **In-App**: Settings → Privacy → Request Data Deletion
+1. **In-App**: Settings â†’ Privacy â†’ Request Data Deletion
 2. **Email**: privacy@edusense.example.com with subject "Data Deletion Request"
 3. **Instructor/Guardian Portal**: For minor accounts
 
-**Response Timeline**: We will acknowledge within 48 hours and complete deletion within 30 days, per applicable law (GDPR Art. 17, CCPA §1798.105).
+**Response Timeline**: We will acknowledge within 48 hours and complete deletion within 30 days, per applicable law (GDPR Art. 17, CCPA Â§1798.105).
 
 **Scope of Deletion**: All personal data except:
 - Audit logs (retained for security/compliance, anonymized where possible)
@@ -138,7 +138,7 @@ Consent is **purpose-specific** and **not bundled**:
 2. **Explicit accept/decline**: No pre-checked boxes; separate buttons for each purpose
 3. **Privacy Policy link**: Direct link to this document on consent screen
 4. **Record kept**: Consent type, version, timestamp, IP address stored in audit log
-5. **Withdrawal anytime**: Settings → Privacy → Withdraw Consent (immediately blocks camera access)
+5. **Withdrawal anytime**: Settings â†’ Privacy â†’ Withdraw Consent (immediately blocks camera access)
 
 ### 6.3 Declining Consent
 **Declining webcam consent does NOT block access to the rest of the platform.**
@@ -186,7 +186,7 @@ If you access EduSense from outside the hosting jurisdiction, your data may be t
 - **Minor Accounts**: Flagged in system; enhanced protections apply
 - **Data Minimization**: Only essential data collected for minors
 - **Guardian Controls**: Guardians can review, export, delete minor's data
-- **⚠️ FLAGGED FOR LEGAL REVIEW**: This section requires attorney review before launch
+- **âš ï¸ FLAGGED FOR LEGAL REVIEW**: This section requires attorney review before launch
 
 ---
 

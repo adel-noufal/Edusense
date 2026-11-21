@@ -66,7 +66,7 @@ export default function EmotionTrial() {
 
   // Attach the MediaStream to the <video> element once it is actually mounted.
   // The video element only exists after `active` flips true, so assigning
-  // srcObject inside acquireCamera() hit a null ref — the black-box bug.
+  // srcObject inside acquireCamera() hit a null ref â€” the black-box bug.
   useEffect(() => {
     if (stream && videoRef.current) {
       videoRef.current.srcObject = stream
@@ -163,7 +163,7 @@ export default function EmotionTrial() {
       canvas.height = 240
       canvas.getContext('2d').drawImage(video, 0, 0, 320, 240)
       const image = canvas.toDataURL('image/jpeg', 0.7)
-      
+
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Analysis timed out (3s)')), 3000)
       )
@@ -171,7 +171,7 @@ export default function EmotionTrial() {
         api('/emotions/analyze-trial', { method: 'POST', body: { image } }),
         timeoutPromise
       ])
-      
+
       setResult(smoothResult(res))
       setError('')
     } catch (err) {
@@ -214,13 +214,14 @@ export default function EmotionTrial() {
   }
 
   const HINT_MESSAGES = {
-    no_face: 'No face detected — move closer to the camera and face it directly.',
-    too_dark: 'Face is too dark — add more light or move away from backlight.',
-    too_bright: 'Face is overexposed — reduce lighting or move slightly away.',
-    too_small: 'Face is too small — move closer to the camera.',
-    blurry: 'Image is blurry — hold the camera steady.',
-    detection_error: 'Detection failed for this frame — trying again…',
-    bad_image: 'Could not read the camera frame.',
+    no_face: 'No face detected â€” move closer to the camera and face it directly.',
+    too_dark: 'Face is too dark â€” add more light or move away from backlight.',
+    too_bright: 'Face is overexposed â€” reduce lighting or move slightly away.',
+    too_small: 'Face is too small â€” move closer to the camera.',
+    blurry: 'Image is blurry â€” hold the camera steady.',
+    timeout: 'Server timed out â€” trying a lighter local analysis.',
+    detection_error: 'Server detector error â€” no emotion was guessed.',
+    bad_image: 'Could not read the camera frame â€” recapture it.',
   }
 
   const displayEmotion = result?.emotion || ''
@@ -248,12 +249,16 @@ export default function EmotionTrial() {
       ) : (
         <div className="space-y-3">
           <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-900 dark:border-slate-700">
+            <div className={`absolute inset-x-0 top-0 z-20 flex min-h-10 items-center justify-center px-3 py-2 text-center text-xs font-black shadow-md ${analyzing ? 'bg-sky-900 text-white' : noFace ? 'bg-amber-400 text-slate-950' : result ? 'bg-emerald-700 text-white' : 'bg-slate-900 text-white'}`}>
+              {analyzing ? 'Analyzing faceâ€¦' : noFace ? (hintText || 'No face detected') : result ? `${displayEmotion || 'Uncertain'}${result.confidence ? ` Â· ${Math.round(result.confidence * 100)}%` : ''}` : 'Face the camera inside the guide'}
+            </div>
             <div className="flex min-h-[50vh] max-h-[65vh] w-full items-center justify-center">
               <video ref={videoRef} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-contain" />
             </div>
+            <div className="pointer-events-none absolute left-1/2 top-[54%] z-10 h-[55%] w-[48%] -translate-x-1/2 -translate-y-1/2 rounded-[45%] border-2 border-teal-300/90 shadow-[0_0_0_9999px_rgba(15,23,42,0.12)]" />
             {analyzing && (
               <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[11px] text-white">
-                <Loader2 size={11} className="animate-spin" /> Analyzing…
+                <Loader2 size={11} className="animate-spin" /> Analyzingâ€¦
               </div>
             )}
             {result && !analyzing && !noFace && (

@@ -328,4 +328,3 @@ def init_db(seed: bool = True):
     finally:
 
         db.close()
-

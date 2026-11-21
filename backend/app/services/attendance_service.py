@@ -6,12 +6,12 @@ from app.models.models import AuditLog, EmotionLog, SessionRegistration, utcnow
 def calculate_student_attended_duration(db: Session, session_id: int, student_id: int) -> float:
     """
     Calculate actual attended duration in minutes for a student in a session.
-    
+
     Resolution order:
     1. SessionRegistration joined_at and left_at timestamps.
     2. EmotionLog heartbeats (first and last frame captured for this student).
     3. AuditLog timestamps (actions: mark_attendance, join_live, leave_live, leave_session).
-    
+
     Returns minutes as an int (if whole number) or float rounded to 1 decimal place.
     """
     spans: list[float] = []

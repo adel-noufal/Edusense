@@ -31,7 +31,7 @@ VIDEO_STATIC_DIR = Path(__file__).resolve().parents[1] / "static" / "videos"
 
 
 # Rate limiter: 30 requests per minute per user (token bucket)
-# TODO: This is in-memory only — correct for single-process deployment.
+# TODO: This is in-memory only â€” correct for single-process deployment.
 # For multi-worker deployments, replace with a shared store (e.g., Redis).
 class _RateLimiter:
     def __init__(self, rate: int = 30, per: int = 60):
@@ -162,7 +162,7 @@ def _append_source(notes: str | None, context: str) -> str:
 
 
 def _run_lesson_bg(job_id: str, payload: LessonRequest, instructor_id: int):
-    """Runs in a daemon thread — survives tab close."""
+    """Runs in a daemon thread â€” survives tab close."""
     try:
         db = SessionLocal()
         try:
@@ -209,6 +209,7 @@ def _run_flashcard_bg(job_id: str, payload: FlashcardRequest, instructor_id: int
             result = flashcards.generate(
                 payload.topic, payload.count, payload.language, prompt,
                 subject=payload.subject, grade_level=payload.grade_level,
+                teaching_style=payload.teaching_style,
             ).data
             gen = AIGeneration(
                 instructor_id=instructor_id,
@@ -244,6 +245,7 @@ def _run_quiz_bg(job_id: str, payload: QuizRequest, instructor_id: int):
                 payload.topic, payload.difficulty, payload.count, prompt,
                 subject=payload.subject, grade_level=payload.grade_level,
                 config_id=payload.config_id,
+                teaching_style=payload.teaching_style,
             ).data
 
             # Apply config settings to quiz if config_id provided
@@ -475,6 +477,7 @@ def generate_flashcards(payload: FlashcardRequest, db: Session = Depends(get_db)
     result = flashcards.generate(
         payload.topic, payload.count, payload.language, prompt,
         subject=payload.subject, grade_level=payload.grade_level,
+        teaching_style=payload.teaching_style,
     ).data
 
     # Save to history
@@ -494,7 +497,8 @@ def generate_flashcards(payload: FlashcardRequest, db: Session = Depends(get_db)
 
 @router.post("/flashcards/export-word")
 def export_flashcards_word(payload: FlashcardRequest, _: User = Depends(require_role("instructor"))):
-    data = flashcards.generate(payload.topic, payload.count, payload.language, payload.prompt).data
+    data = flashcards.generate(payload.topic, payload.count, payload.language, payload.prompt,
+                               teaching_style=payload.teaching_style).data
     sections = []
     for index, card in enumerate(data.get("cards") or [], start=1):
         sections.append((f"Flashcard {index}", [f"Front: {card.get('front', '')}", f"Back: {card.get('back', '')}"]))
@@ -539,7 +543,7 @@ def export_lesson_pptx(payload: LessonRequest, _: User = Depends(require_role("i
     )
 
 
-# ─── B8: export already-generated content (no regeneration) ──────────────────
+# â”€â”€â”€ B8: export already-generated content (no regeneration) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ContentExportRequest(BaseModel):
     title: str = "Export"
@@ -670,7 +674,7 @@ def download_video_script_docx(video_id: int, db: Session = Depends(get_db), use
         except Exception:
             pass
     doc = Document()
-    doc.add_heading(f"{project.title} — Video Script", level=0)
+    doc.add_heading(f"{project.title} â€” Video Script", level=0)
     p_meta = doc.add_paragraph()
     p_meta.add_run(f"Duration: {project.duration} mins | Style: {project.style} | Language: {project.language}").italic = True
     doc.add_heading("Script Narration by Scene", level=1)
@@ -719,11 +723,11 @@ def download_video_script_pdf(video_id: int, db: Session = Depends(get_db), user
         for idx, sc in enumerate(scenes, 1):
             lines = [sc.get("narration") or sc.get("content") or ""]
             if sc.get("bullets"):
-                lines += [f"• {b}" for b in sc.get("bullets")]
+                lines += [f"â€¢ {b}" for b in sc.get("bullets")]
             blocks.append((f"Scene {idx}: {sc.get('title', '')}", lines))
     else:
         blocks.append(("Script", [project.prompt]))
-    buf = _pdf_doc(f"{project.title} — Script", blocks)
+    buf = _pdf_doc(f"{project.title} â€” Script", blocks)
     safe_title = _safe_filename(project.title + "-script", ".pdf")
     return StreamingResponse(
         buf,
@@ -899,7 +903,7 @@ def delete_quiz(quiz_id: int, db: Session = Depends(get_db), _: User = Depends(r
     return {"message": "Quiz deleted"}
 
 
-# ─── Quiz Agent Config Endpoints ───────────────────────────────────────────────────
+# â”€â”€â”€ Quiz Agent Config Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/quiz-configs", response_model=QuizAgentConfigOut)
 def create_quiz_config(
@@ -1020,7 +1024,7 @@ def list_generations(type: str | None = None, db: Session = Depends(get_db), use
     query = db.query(AIGeneration).filter_by(instructor_id=user.id)
     if type and type != "quiz":
         query = query.filter_by(type=type)
-    # Quiz-type AIGeneration rows mirror Quiz records (appended below) —
+    # Quiz-type AIGeneration rows mirror Quiz records (appended below) â€”
     # listing both would show every quiz twice.
     query = query.filter(AIGeneration.type != "quiz")
     generations = query.order_by(AIGeneration.created_at.desc()).all()
@@ -1043,7 +1047,7 @@ def list_generations(type: str | None = None, db: Session = Depends(get_db), use
                 "id": q.id,
                 "type": "quiz",
                 "topic": q.title,
-                "prompt": f"Quiz · {q.difficulty}",
+                "prompt": f"Quiz Â· {q.difficulty}",
                 "session_id": q.session_id,
                 "created_at": q.created_at,
                 "data": {"title": q.title, "difficulty": q.difficulty}
@@ -1081,7 +1085,7 @@ def delete_generation(gen_id: int, db: Session = Depends(get_db), user: User = D
     return {"message": "Generation deleted"}
 
 
-# ── Background-safe queue endpoints (generation continues even if tab closes) ───
+# â”€â”€ Background-safe queue endpoints (generation continues even if tab closes) â”€â”€â”€
 
 @router.post("/lessons/queue")
 def queue_lesson(payload: LessonRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
@@ -1172,7 +1176,7 @@ def available_models(user: User = Depends(get_current_user)):
         if (provider, model) in seen:
             continue
 
-        # Ollama local models get the "Offline" badge — always free
+        # Ollama local models get the "Offline" badge â€” always free
         if provider == "ollama":
             seen.add((provider, model))
             healthy.append({
@@ -1241,9 +1245,12 @@ def _resolve_recommendation_sessions(db: Session, instructor_id: int,
 
 
 def _run_recommendations_bg(job_id: str, session_id_arg: str | int,
-                            session_ids: list[int] | None, instructor_id: int,
+                            session_ids: list[int] | None, instructor_id: int | None = None,
                             selected_count: int | None = None):
     """Runs feedback loop analysis in background thread so it survives tab closes."""
+    if instructor_id is None and isinstance(session_ids, int):
+        instructor_id = session_ids
+        session_ids = None
     db = SessionLocal()
     try:
         cache_key = f"{instructor_id}:{session_id_arg}:{sorted(session_ids or [])}"
@@ -1488,7 +1495,7 @@ def update_video_scenes(
     """
     Update a video's scenes (titles, narration, duration_seconds) and re-render
     the player HTML + re-TTS each segment + re-stitch MP4 (when ffmpeg available).
-    Does NOT re-generate the lesson — edits are applied directly to the scenes.
+    Does NOT re-generate the lesson â€” edits are applied directly to the scenes.
     """
     project = db.query(VideoProject).filter_by(id=video_id, instructor_id=user.id).first()
     if not project:
@@ -1535,13 +1542,13 @@ def delete_video(video_id: int, db: Session = Depends(get_db), user: User = Depe
     return {"message": "Video deleted"}
 
 
-# ─── Gemini Health Diagnostics ───────────────────────────────────────────────
+# â”€â”€â”€ Gemini Health Diagnostics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/gemini-health")
 def gemini_health(user: User = Depends(require_role("instructor"))):
     """
     Probe every configured (key, model) pair with a tiny prompt.
-    Returns masked keys only — never key material.
+    Returns masked keys only â€” never key material.
     """
     from app.services.gemini import rotator
     import concurrent.futures
@@ -1594,7 +1601,7 @@ def gemini_health(user: User = Depends(require_role("instructor"))):
     }
 
 
-# ─── Chat Endpoint ────────────────────────────────────────────────────────────
+# â”€â”€â”€ Chat Endpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _get_chatbot_settings():
     """Return (name, persona) from config, cached."""
@@ -1618,7 +1625,7 @@ def enhance_prompt(payload: EnhancePromptRequest, user: User = Depends(get_curre
     (topic, duration, counts, level). Uses the cheap 'prompt_enhance'
     provider chain; never trains on data (chat-completions only).
     """
-    from app.services.gemini import generate_content, GeminiError
+    from app.services import llm
 
     prompt_text = (payload.prompt or "").strip()
     if not prompt_text:
@@ -1635,17 +1642,15 @@ def enhance_prompt(payload: EnhancePromptRequest, user: User = Depends(get_curre
         "Improve clarity, audience, structure and constraints while preserving "
         "the user's intent AND their language (Arabic stays Arabic, mixed stays mixed). "
         "Never change concrete values such as duration, question counts, topics or languages. "
-        "Return ONLY the improved prompt text — no preamble, no quotes, no explanation.\n\n"
+        "Return ONLY the improved prompt text â€” no preamble, no quotes, no explanation.\n\n"
         f"Form context: {context_line}\n\n"
         f"User prompt:\n{prompt_text}"
     )
     try:
-        enhanced = generate_content(instruction, task_type="prompt_enhance",
-                                    temperature=0.4, timeout=45)
-    except GeminiError as exc:
-        raise HTTPException(502, f"{exc.code}: {exc}")
+        enhanced = llm.chat(instruction, task_type="prompt_enhance",
+                            temperature=0.4, timeout=45)
     except Exception as exc:
-        raise HTTPException(502, f"UNKNOWN: {exc}")
+        raise HTTPException(502, f"PROMPT_ENHANCE_FAILED: {exc}")
 
     enhanced = (enhanced or "").strip().strip('"').strip()
     if not enhanced:
@@ -1744,7 +1749,7 @@ async def chat(
     }
 
 
-# ─── Chat File Upload ──────────────────────────────────────────────────────────
+# â”€â”€â”€ Chat File Upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/chat/upload")
 async def chat_upload(
@@ -1803,7 +1808,7 @@ async def chat_upload(
     }
 
 
-# ─── Chat Conversation History Endpoints ──────────────────────────────────────
+# â”€â”€â”€ Chat Conversation History Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/chat/conversations")
 async def list_conversations(

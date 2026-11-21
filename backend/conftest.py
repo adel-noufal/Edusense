@@ -17,10 +17,8 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 # Point at the SQLite dev database that the test files use by default.
-os.environ.setdefault(
-    "DATABASE_URL",
-    f"sqlite:///{os.path.join(_HERE, 'edusense.db')}",
-)
+_TEST_DB = os.path.join(_HERE, "edusense_test.db").replace("\\", "/")
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_DB}")
 os.environ.setdefault("EDUSENSE_DATABASE_URL", os.environ["DATABASE_URL"])
 os.environ.setdefault("PYTHONUTF8", "1")
 

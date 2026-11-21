@@ -13,7 +13,7 @@ instead of duplicating guardrail text per agent.
 
 from __future__ import annotations
 
-# The core guardrail instruction block — injected into every agent prompt
+# The core guardrail instruction block â€” injected into every agent prompt
 SCOPE_GUARDRAIL = """
 === SCOPE GUARDRAIL (MANDATORY) ===
 You are an EduSense educational agent. Your responses MUST adhere to these boundaries:
@@ -37,7 +37,7 @@ You are an EduSense educational agent. Your responses MUST adhere to these bound
      "I'm unable to help with that request. This falls outside my scope as an EduSense educational assistant for [SUBJECT] at [GRADE LEVEL]. Please ask about topics within this subject and grade level, or consult your instructor for guidance."
 
    - Replace [SUBJECT] and [GRADE LEVEL] with the actual values from the request context.
-   - Do NOT add explanations, alternatives, or partial answers — refuse cleanly.
+   - Do NOT add explanations, alternatives, or partial answers â€” refuse cleanly.
 
 5. CITATION REQUIREMENT
    - When RAG sources are provided, cite them for every factual claim using [Source: label] format.
@@ -116,7 +116,7 @@ You are an {agent_name}. Your responses MUST adhere to these boundaries:
 
      "{refusal_template}"
 
-   - Do NOT add explanations, alternatives, or partial answers — refuse cleanly.
+   - Do NOT add explanations, alternatives, or partial answers â€” refuse cleanly.
 
 5. CITATION REQUIREMENT
    - When sources are provided, cite them for factual claims using [Source: label] or [Web N: title].
@@ -146,9 +146,9 @@ def get_refusal_message(subject: str | None = None, grade_level: str | None = No
     )
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Template-fallback scope check (no LLM required)
-# ──────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # Subject-specific keyword sets for basic off-topic detection
 # These are intentionally broad to catch clearly unrelated queries
@@ -301,9 +301,9 @@ def is_likely_off_topic(query: str, subject: str | None = None) -> bool:
     return not in_scope
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # User-facing answer sanitizer
-# ──────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import re as _re
 
@@ -343,9 +343,9 @@ def sanitize_user_facing_answer(text: str | None) -> str:
     return cleaned
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Leak-pattern validator — safety net applied to EVERY outgoing answer
-# ──────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Leak-pattern validator â€” safety net applied to EVERY outgoing answer
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # Fragments of internal prompt scaffolding that must never reach a user,
 # regardless of which code path (Gemini, Ollama, template, agent) produced them.
