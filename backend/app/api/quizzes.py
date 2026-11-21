@@ -358,7 +358,7 @@ def publish_quiz_as_exam(
     questions = json.loads(quiz.questions_json)
     sess_obj = db.query(ClassSession).filter_by(id=quiz.session_id).first() if quiz.session_id else None
     enrolled_count = db.query(SessionRegistration).filter_by(session_id=quiz.session_id).count() if quiz.session_id else 0
-    return _quiz_out(quiz, questions, session_title=sess_obj.name if sess_obj else None, enrolled_student_count=enrolled_count)
+    return _quiz_out(quiz, questions, session_title=sess_obj.title if sess_obj else None, enrolled_student_count=enrolled_count)
 
 
 @router.patch("/{quiz_id}", response_model=QuizOut)
@@ -439,7 +439,7 @@ def update_quiz_or_settings(
     questions = json.loads(quiz.questions_json)
     sess_obj = db.query(ClassSession).filter_by(id=quiz.session_id).first() if quiz.session_id else None
     enrolled_count = db.query(SessionRegistration).filter_by(session_id=quiz.session_id).count() if quiz.session_id else 0
-    return _quiz_out(quiz, questions, session_title=sess_obj.name if sess_obj else None, enrolled_student_count=enrolled_count)
+    return _quiz_out(quiz, questions, session_title=sess_obj.title if sess_obj else None, enrolled_student_count=enrolled_count)
 
 
 @router.post("/{quiz_id}/start", response_model=QuizAttemptOut)

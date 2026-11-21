@@ -587,6 +587,33 @@ export function InstructorDashboard() {
             </div>
           ) : report ? (
             <div className="space-y-4">
+              {report.recommendations && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-xs dark:border-slate-700 dark:bg-slate-800/40 space-y-2">
+                  <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200/60 pb-1.5 dark:border-slate-700/60">
+                    <span>
+                      {report.recommendations.total_sessions} of {report.recommendations.total_sessions} selected sessions accounted for
+                    </span>
+                    <span className="font-semibold text-ocean dark:text-mint">
+                      {report.recommendations.sufficient_sessions || 0} analyzed
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {(report.recommendations.session_breakdown || report.recommendations.insufficient_sessions || []).map((s) => (
+                      <div key={s.session_id} className="flex items-start justify-between gap-2 py-0.5">
+                        <span className="font-medium text-slate-800 dark:text-slate-200 truncate">{s.session_title}</span>
+                        {s.status === 'analyzed' ? (
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400 shrink-0">✓ Analyzed</span>
+                        ) : (
+                          <span className="font-medium text-amber-600 dark:text-amber-400 shrink-0 text-end">
+                            Not enough data{s.missing?.length ? ` (${s.missing.join(', ')})` : ''}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {report.recommendations?.recommendations?.length > 0 && (
                 <ul className="space-y-2">
                   {report.recommendations.recommendations.map((item) => (
@@ -594,18 +621,8 @@ export function InstructorDashboard() {
                   ))}
                 </ul>
               )}
-              {report.recommendations?.insufficient_data && (
-                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200 space-y-1">
-                  <p className="font-semibold">{report.recommendations.message || 'Not enough data for some sessions.'}</p>
-                  {(report.recommendations.insufficient_sessions || []).map((s) => (
-                    <p key={s.session_id}>
-                      <span className="font-medium">{s.session_title}:</span> {s.message}
-                    </p>
-                  ))}
-                </div>
-              )}
-              {!(report.recommendations?.recommendations?.length > 0) && !report.recommendations?.insufficient_data && (
-                <p className="text-sm text-slate-500">Analysis completed but produced no recommendations.</p>
+              {!(report.recommendations?.recommendations?.length > 0) && (
+                <p className="text-sm text-slate-500">Analysis completed but produced no actionable recommendations.</p>
               )}
             </div>
           ) : error && !analyzing ? (

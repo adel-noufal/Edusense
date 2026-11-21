@@ -152,7 +152,7 @@ Create an EXPERT-LEVEL, highly comprehensive, and masterfully structured lesson 
 
 Teaching style: {request.teaching_style}
 Language: {request.language}
-Duration: {request.duration} minutes
+Detail level: {getattr(request, 'detail_level', 'Standard')} (Brief = concise overview; Standard = balanced depth; Detailed = deep dive with examples and case studies)
 Instructor notes: {request.additional_notes or "None"}
 Extra guidance: {request.prompt}
 {source_instruction}

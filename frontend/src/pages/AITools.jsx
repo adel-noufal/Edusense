@@ -147,7 +147,7 @@ export function LessonGenerator() {
     prompt: 'Teach beginners with examples',
     language: 'English',
     teaching_style: 'Interactive',
-    duration: 5,
+    detail_level: 'Standard',
     additional_notes: '',
     session_id: '',
     source_session_id: '',
@@ -211,11 +211,11 @@ export function LessonGenerator() {
             <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
             <div className="md:col-span-2 space-y-2">
               <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} />
-              <PromptEnhancer value={form.prompt} context={{ feature: 'lesson', topic: form.topic, language: form.language, style: form.teaching_style, duration: form.duration }} onAccept={(p) => setForm({ ...form, prompt: p })} />
+              <PromptEnhancer value={form.prompt} context={{ feature: 'lesson', topic: form.topic, language: form.language, style: form.teaching_style, detail_level: form.detail_level }} onAccept={(p) => setForm({ ...form, prompt: p })} />
             </div>
             <SelectField label={t('ai.language')} value={form.language} options={languages} onChange={(value) => setForm({ ...form, language: value })} />
             <SelectField label={t('ai.style')} value={form.teaching_style} options={styles} onChange={(value) => setForm({ ...form, teaching_style: value })} />
-            <Field label={t('ai.duration')} type="number" value={form.duration} onChange={(value) => setForm({ ...form, duration: Number(value) || 5 })} />
+            <SelectField label="Detail Level" value={form.detail_level} options={['Brief', 'Standard', 'Detailed']} onChange={(value) => setForm({ ...form, detail_level: value })} />
             <Field label={t('ai.notes')} value={form.additional_notes} onChange={(value) => setForm({ ...form, additional_notes: value })} textarea />
             <SessionPickerFields form={form} setForm={setForm} />
           </div>
@@ -240,7 +240,7 @@ export function LessonGenerator() {
                     prompt: latest.prompt || h.prompt,
                     language: latest.data?.language || h.data?.language || 'English',
                     teaching_style: latest.data?.style || h.data?.style || 'Interactive',
-                    duration: latest.data?.duration || h.data?.duration || 5,
+                    detail_level: latest.data?.detail_level || h.data?.detail_level || 'Standard',
                     session_id: latest.session_id ? String(latest.session_id) : (prev.session_id || ''),
                     additional_notes: '',
                   }))
@@ -252,7 +252,7 @@ export function LessonGenerator() {
                     prompt: h.prompt,
                     language: h.data?.language || 'English',
                     teaching_style: h.data?.style || 'Interactive',
-                    duration: h.data?.duration || 5,
+                    detail_level: h.data?.detail_level || 'Standard',
                     additional_notes: '',
                   }))
                 }
@@ -642,7 +642,7 @@ export function QuizGenerator() {
               <SelectField label="AI Model" value={form.model} options={aiModelOptions} onChange={(value) => setForm({ ...form, model: value })} />
               <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
               <SelectField label={t('ai.difficulty')} value={form.difficulty} options={difficulties} onChange={(value) => setForm({ ...form, difficulty: value })} />
-              <Field label={t('ai.questionCount')} type="number" value={form.count} onChange={(value) => setForm({ ...form, count: value })} />
+              <Field label={t('ai.questionCount')} type="number" value={form.count || 5} onChange={(value) => setForm({ ...form, count: Number(value) || 5 })} />
               <div className="md:col-span-2">
                 <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} textarea />
                 <PromptEnhancer value={form.prompt} context={{ feature: 'quiz', topic: form.topic, difficulty: form.difficulty, count: form.count }} onAccept={(p) => setForm({ ...form, prompt: p })} />
@@ -764,41 +764,7 @@ export function QuizGenerator() {
                       />
                     </div>
 
-                    {/* B10: Attached KB source chips */}
-          {attachedKbIds.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pb-1">
-              {attachedKbIds.map((sid) => {
-                const src = ragSources.find(x => (x.source_id || x.source_file) === sid)
-                return (
-                  <span key={sid} className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">
-                    <Database className="h-3 w-3" /> {src?.source_file || src?.filename || sid}
-                    <button type="button" onClick={() => setAttachedKbIds(prev => prev.filter(x => x !== sid))} className="hover:text-red-500"><X size={11} /></button>
-                  </span>
-                )
-              })}
-            </div>
-          )}
-
-          {/* B10: KB file attach picker */}
-          {attachKbOpen && (
-            <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 p-2 dark:border-slate-700">
-              {ragSources.length === 0 && <p className="px-2 py-3 text-xs text-slate-400">No uploaded KB sources yet.</p>}
-              {ragSources.map((src) => {
-                const sid = src.source_id || src.source_file
-                const checked = attachedKbIds.includes(sid)
-                return (
-                  <label key={sid} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800">
-                    <input type="checkbox" className="rounded" checked={checked}
-                      onChange={() => setAttachedKbIds(prev => checked ? prev.filter(x => x !== sid) : [...prev, sid])} />
-                    <span className="truncate font-medium">{src.source_file || src.filename || sid}</span>
-                    <span className="text-slate-400">{src.chunk_count ? `${src.chunk_count} chunks` : ''}</span>
-                  </label>
-                )
-              })}
-            </div>
-          )}
-
-          <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="grid gap-2 sm:grid-cols-3">
                       <label className="flex items-center gap-2 text-xs cursor-pointer">
                         <input
                           type="checkbox"
@@ -2000,8 +1966,6 @@ export function ChatbotGenerator() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [subject, setSubject] = useState('')
-  const [gradeLevel, setGradeLevel] = useState('')
   const [conversationId, setConversationId] = useState(null)
   const [chatbotName, setChatbotName] = useState('EduSense AI')
   const [conversations, setConversations] = useState([])
@@ -2157,8 +2121,6 @@ export function ChatbotGenerator() {
           message: userMessage,
           conversation_id: conversationId || undefined,
           conversation_history: conversationId ? [] : messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
-          subject: subject || undefined,
-          grade_level: gradeLevel || undefined,
           file_context: fileContext || undefined,
           source_id: selectedSourceId || undefined,
           // B10: multi-select KB source IDs
@@ -2291,7 +2253,7 @@ export function ChatbotGenerator() {
   })()
 
   return (
-    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:h-[calc(100dvh-6rem)]">
+    <div className="flex h-full min-h-0 flex-col gap-4 xl:flex-row xl:items-stretch">
       {/* History Sidebar */}
       <aside className="panel flex w-full shrink-0 flex-col space-y-3 xl:w-64 xl:h-full xl:overflow-y-auto">
         <div className="flex items-center justify-between">
@@ -2321,7 +2283,7 @@ export function ChatbotGenerator() {
       </aside>
 
       {/* Main Chat Panel */}
-      <section className="panel flex h-[calc(100dvh-8rem)] min-h-0 w-full flex-1 flex-col overflow-hidden">
+      <section className="panel flex min-h-0 h-full w-full flex-1 flex-col overflow-hidden" style={{ minHeight: '500px' }}>
         {/* Chat header */}
         <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-500 text-white shadow-sm">
@@ -2472,24 +2434,6 @@ export function ChatbotGenerator() {
             </div>
           )}
 
-          <div className="grid gap-2 sm:grid-cols-3">
-            <input className="input text-sm" placeholder="Subject (optional)" value={subject} onChange={(e) => setSubject(e.target.value)} disabled={loading} />
-            <input className="input text-sm" placeholder="Grade level (optional)" value={gradeLevel} onChange={(e) => setGradeLevel(e.target.value)} disabled={loading} />
-            <select
-              className="input text-sm"
-              value={selectedSourceId}
-              onChange={(e) => setSelectedSourceId(e.target.value)}
-              disabled={loading}
-              title="Ask about one indexed document"
-            >
-              <option value="">All indexed documents</option>
-              {ragSources.map((source) => (
-                <option key={source.source_id || source.source_file} value={source.source_id || source.source_file}>
-                  {source.source_file || source.source_id}
-                </option>
-              ))}
-            </select>
-          </div>
           <div className="flex items-end gap-2">
             <textarea
               className="input max-h-40 min-h-[56px] flex-1 resize-none py-2.5"

@@ -235,6 +235,9 @@ def update_session(session_id: int, payload: SessionIn, request: Request, db: Db
     item = query.first()
     if not item:
         raise HTTPException(404, "Session not found")
+    eff = effective_status(item)
+    if eff in ("ended", "missed") or item.status in ("ended", "completed", "finished", "missed"):
+        raise HTTPException(status_code=403, detail="Cannot edit a session that has already ended or expired.")
     for key, value in payload.model_dump().items():
         setattr(item, key, value)
     refresh_status(item, db)
@@ -394,6 +397,9 @@ def start_session(session_id: int, request: Request, background_tasks: Backgroun
     item = query.first()
     if not item:
         raise HTTPException(404, "Session not found")
+    eff = effective_status(item)
+    if eff in ("ended", "missed") or item.status in ("ended", "completed", "finished", "missed"):
+        raise HTTPException(status_code=403, detail="Cannot start a session that has already ended or expired.")
 
     action = "start_session_live" if (force_go_live or item.status == "preparing") else "start_session_preparing"
 

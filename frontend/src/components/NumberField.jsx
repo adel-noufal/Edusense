@@ -7,10 +7,11 @@ import { useEffect, useState } from 'react'
  * on blur (empty/invalid reverts to the last committed value).
  */
 export default function NumberField({ value, onChange, min = 1, max = 10000, className = 'input', ...rest }) {
-  const [text, setText] = useState(value == null ? '' : String(value))
+  const resolveVal = (v) => (v == null || v === 0 || v === '0') ? (min && min > 0 ? Math.max(min, 5) : 5) : v
+  const [text, setText] = useState(String(resolveVal(value)))
 
   useEffect(() => {
-    setText(value == null ? '' : String(value))
+    setText(String(resolveVal(value)))
   }, [value])
 
   const handleChange = (e) => {

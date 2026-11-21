@@ -64,6 +64,8 @@ def _ensure_schema_updates(db):
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS is_exam BOOLEAN NOT NULL DEFAULT FALSE;"))
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS lock_back_navigation BOOLEAN NOT NULL DEFAULT FALSE;"))
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS due_date TIMESTAMP WITH TIME ZONE;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS available_from TIMESTAMP WITH TIME ZONE;"))
+            db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS instructor_id INTEGER REFERENCES users(id) ON DELETE SET NULL;"))
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS time_limit_seconds INTEGER;"))
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS time_limit_per_question_seconds INTEGER;"))
             db.execute(text("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS fullscreen_lock BOOLEAN DEFAULT TRUE;"))
@@ -182,6 +184,10 @@ def _ensure_schema_updates(db):
                 db.execute(text("ALTER TABLE quizzes ADD COLUMN lock_back_navigation BOOLEAN NOT NULL DEFAULT 0;"))
             if "due_date" not in quiz_cols:
                 db.execute(text("ALTER TABLE quizzes ADD COLUMN due_date DATETIME;"))
+            if "available_from" not in quiz_cols:
+                db.execute(text("ALTER TABLE quizzes ADD COLUMN available_from DATETIME;"))
+            if "instructor_id" not in quiz_cols:
+                db.execute(text("ALTER TABLE quizzes ADD COLUMN instructor_id INTEGER;"))
             if "time_limit_seconds" not in quiz_cols:
                 db.execute(text("ALTER TABLE quizzes ADD COLUMN time_limit_seconds INTEGER;"))
             if "time_limit_per_question_seconds" not in quiz_cols:

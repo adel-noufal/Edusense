@@ -1,3 +1,14 @@
+import os
+import sys
+import warnings
+
+# Suppress TensorFlow and DeepFace noisy logs and deprecation spam
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["DEEPFACE_LOG_LEVEL"] = "40"
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 import base64
 from collections import Counter
 from datetime import datetime, timezone
@@ -143,7 +154,7 @@ class EmotionAnalysisAgent:
                 return {**base, "hint": "bad_image"}
 
             crop, hint = self._find_face(frame)
-            if crop is None:
+            if crop is None or crop.size == 0 or crop.shape[0] < 20 or crop.shape[1] < 20:
                 return {**base, "hint": hint or "no_face"}
 
             # Face found — classify the cropped face only.
@@ -218,7 +229,7 @@ class EmotionAnalysisAgent:
             x1 = min(frame.shape[1], x + w + pad)
             y1 = min(frame.shape[0], y + h + pad)
             crop = frame[y0:y1, x0:x1]
-            if crop.size == 0:
+            if crop is None or crop.size == 0 or crop.shape[0] < 20 or crop.shape[1] < 20:
                 return None, "no_face"
 
             # Quality gates -> specific hint instead of a guess
@@ -241,9 +252,16 @@ class EmotionAnalysisAgent:
 
     @staticmethod
     def _decode_frame(image: str) -> np.ndarray:
-        payload = image.split(",", 1)[1] if "," in image else image
-        image_bytes = base64.b64decode(payload)
-        return cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+        try:
+            if not image:
+                return None
+            payload = image.split(",", 1)[1] if "," in image else image
+            image_bytes = base64.b64decode(payload)
+            if not image_bytes:
+                return None
+            return cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+        except Exception:
+            return None
 
     # ---------- PyTorch v7 backend ----------
 
@@ -346,10 +364,16 @@ class EmotionAnalysisAgent:
 
     @staticmethod
     def _detect_deepface(frame: np.ndarray) -> tuple[str, float]:
+        if frame is None or frame.size == 0 or frame.shape[0] < 20 or frame.shape[1] < 20:
+            return "neutral", 0.0
+
         from deepface import DeepFace
 
         result = DeepFace.analyze(
-            frame, actions=["emotion"], enforce_detection=False
+            frame,
+            actions=["emotion"],
+            enforce_detection=False,
+            detector_backend="skip",
         )
         row = result[0] if isinstance(result, list) else result
         emotion = str(row.get("dominant_emotion", "neutral")).lower()

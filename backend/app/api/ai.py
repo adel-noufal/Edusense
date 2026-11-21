@@ -814,7 +814,7 @@ def list_quizzes(db: Session = Depends(get_db), _: User = Depends(require_role("
         if q.session_id:
             sess = db.query(ClassSession).filter_by(id=q.session_id).first()
             if sess:
-                session_name = sess.name
+                session_name = sess.title
                 enrolled_count = db.query(SessionRegistration).filter_by(session_id=q.session_id).count()
         result.append({
             "id": q.id,
@@ -1135,15 +1135,19 @@ class RecommendationsQueueRequest(BaseModel):
 def _resolve_recommendation_sessions(db: Session, instructor_id: int,
                                      session_id_arg: str | int,
                                      session_ids: list[int] | None) -> list:
-    """Ended sessions owned by the instructor, optionally narrowed to explicit IDs."""
+    """Sessions owned by the instructor, reconciling stale statuses."""
+    from app.api.sessions import reconcile_session_statuses
+    reconcile_session_statuses(db)
+
     query = db.query(ClassSession).filter(
-        ClassSession.status == "ended",
         ClassSession.instructor_id == instructor_id,
     )
     if session_ids:
         query = query.filter(ClassSession.id.in_([int(i) for i in session_ids]))
     elif str(session_id_arg) != "all":
         query = query.filter(ClassSession.id == int(session_id_arg))
+    else:
+        query = query.filter(ClassSession.status == "ended")
     return query.all()
 
 
@@ -1208,6 +1212,16 @@ def _run_recommendations_bg(job_id: str, session_id_arg: str | int,
         ]
         sufficient_count = len(results) - len(insufficient_sessions)
         insufficient = bool(insufficient_sessions)
+        session_breakdown = [
+            {
+                "session_id": res["session_id"],
+                "session_title": res["session_title"],
+                "status": "analyzed" if res["sufficiency"]["sufficient"] else "insufficient",
+                "missing": res["sufficiency"]["missing"],
+                "message": res["sufficiency"]["message"] or "Analyzed successfully",
+            }
+            for res in results
+        ]
         aggregate_dist = {}
         for res in results:
             dist = res.get("emotion_report", {}).get("distribution", {})
@@ -1222,9 +1236,9 @@ def _run_recommendations_bg(job_id: str, session_id_arg: str | int,
                 "sufficient_sessions": sufficient_count,
                 "total_sessions": len(results),
                 "insufficient_sessions": insufficient_sessions,
-                "message": (f"{len(insufficient_sessions)} of {len(results)} selected session(s) "
-                            "lack enough data for recommendations."
-                            if insufficient else None),
+                "session_breakdown": session_breakdown,
+                "message": (f"{sufficient_count} of {len(results)} selected session(s) analyzed."
+                            + (f" ({len(insufficient_sessions)} lack enough data)" if insufficient_sessions else "")),
             },
             "emotion_report": {"distribution": aggregate_dist},
             "engagement_report": results[0].get("engagement_report", {"attention_timeline": []}) if results else {"attention_timeline": []},

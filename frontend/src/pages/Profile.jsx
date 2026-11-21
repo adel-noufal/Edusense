@@ -3,6 +3,7 @@ import { BellRing, Camera, Eye, Save, Sparkles, Upload } from 'lucide-react'
 import { api, staticUrl, token } from '../services/api'
 import { useLanguage } from '../context/LanguageContext'
 import { useAuth } from '../context/AuthContext'
+import PasswordInput from '../components/PasswordInput'
 
 export default function Profile() {
   const { t, lang, setLang } = useLanguage()
@@ -141,11 +142,11 @@ export default function Profile() {
           <div className="grid gap-4 md:grid-cols-2 pt-2">
             <label className="space-y-2">
               <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Current Password (to change password)</span>
-              <input className="input" type="password" placeholder="••••••••" value={accountForm.current_password} onChange={(e) => setAccountForm({ ...accountForm, current_password: e.target.value })} />
+              <PasswordInput placeholder="••••••••" value={accountForm.current_password} onChange={(e) => setAccountForm({ ...accountForm, current_password: e.target.value })} />
             </label>
             <label className="space-y-2">
               <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">New Password</span>
-              <input className="input" type="password" placeholder="Min 6 characters" value={accountForm.new_password} onChange={(e) => setAccountForm({ ...accountForm, new_password: e.target.value })} />
+              <PasswordInput placeholder="Min 6 characters" value={accountForm.new_password} onChange={(e) => setAccountForm({ ...accountForm, new_password: e.target.value })} />
             </label>
           </div>
         </div>

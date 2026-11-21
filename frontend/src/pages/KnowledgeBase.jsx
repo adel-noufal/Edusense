@@ -79,8 +79,8 @@ function UploadModal({ onClose, onSuccess }) {
   }
 
   async function submit() {
-    if (!file || !subject || !grade || !topic.trim()) {
-      setError('Please fill in all fields and select a PDF file.')
+    if (!file || !topic.trim()) {
+      setError('Please select a file and enter a topic.')
       return
     }
     setError('')
@@ -205,26 +205,12 @@ function UploadModal({ onClose, onSuccess }) {
           </div>
 
           {/* Fields */}
-          <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-1.5 text-sm font-semibold text-slate-600 dark:text-slate-300">
-              <span>Subject *</span>
-              <select id="kb-subject" className="input" value={subject} onChange={(e) => setSubject(e.target.value)}>
-                <option value="">Select…</option>
-                {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </label>
-            <label className="space-y-1.5 text-sm font-semibold text-slate-600 dark:text-slate-300">
-              <span>Grade Level *</span>
-              <select id="kb-grade" className="input" value={grade} onChange={(e) => setGrade(e.target.value)}>
-                <option value="">Select…</option>
-                {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
-              </select>
+          <div className="grid grid-cols-1 gap-3">
+            <label className="block space-y-1.5 text-sm font-semibold text-slate-600 dark:text-slate-300">
+              <span>Topic / Chapter *</span>
+              <input id="kb-topic" className="input" placeholder="e.g. Photosynthesis, Chapter 4" value={topic} onChange={(e) => setTopic(e.target.value)} />
             </label>
           </div>
-          <label className="block space-y-1.5 text-sm font-semibold text-slate-600 dark:text-slate-300">
-            <span>Topic / Chapter *</span>
-            <input id="kb-topic" className="input" placeholder="e.g. Photosynthesis, Chapter 4" value={topic} onChange={(e) => setTopic(e.target.value)} />
-          </label>
           <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-700">
             <input type="checkbox" className="h-4 w-4 rounded" checked={isAsync} onChange={(e) => setIsAsync(e.target.checked)} />
             <div>
@@ -571,8 +557,6 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
         method: 'POST',
         body: {
           question: q,
-          subject: subject || null,
-          grade_level: grade || null,
           top_k: 5,
           source_file: scopedSource || null,
           source_ids: selectedSources.length ? selectedSources : null,
@@ -611,7 +595,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
     !convSearch || (c.title || '').toLowerCase().includes(convSearch.toLowerCase()))
 
   return (
-    <div className="flex items-start gap-4 h-[calc(100dvh-10rem)] min-h-0">
+    <div className="flex h-full min-h-0 items-stretch gap-4">
       {/* ── Conversation sidebar (desktop: inline, mobile: overlay) ── */}
       <aside className={`${sidebarOpen ? 'fixed inset-x-3 top-32 z-30 flex' : 'hidden'} lg:static lg:z-auto lg:flex w-full lg:w-64 shrink-0 flex-col gap-2`}>
         <div className="panel flex flex-col gap-2 p-3">
@@ -652,7 +636,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
         </div>
       </aside>
 
-    <div className="panel flex flex-1 min-w-0 flex-col gap-0 h-[calc(100dvh-10rem)] min-h-0">
+    <div className="panel flex flex-1 min-h-0 min-w-0 flex-col gap-0">
       {/* Header & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
         <div className="flex items-center gap-3">
@@ -670,14 +654,6 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <select id="qa-subject" className="input text-xs w-36 py-1.5" value={subject} onChange={(e) => setSubject(e.target.value)}>
-            <option value="">All Subjects</option>
-            {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select id="qa-grade" className="input text-xs w-32 py-1.5" value={grade} onChange={(e) => setGrade(e.target.value)}>
-            <option value="">All Grades</option>
-            {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
-          </select>
           <button type="button" className="btn-soft text-xs py-1.5 px-3" onClick={newChat}>
             New Chat
           </button>

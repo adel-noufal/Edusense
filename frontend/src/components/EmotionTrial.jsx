@@ -257,8 +257,8 @@ export default function EmotionTrial() {
               </div>
             )}
             {result && !analyzing && noFace && (
-              <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-slate-800/90 px-4 py-2.5 text-sm font-semibold text-amber-200 shadow-lg">
-                <CameraOff size={15} /> {hintText}
+              <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-2xl border-2 border-white dark:border-slate-900">
+                <CameraOff size={16} className="text-slate-950" /> <span>{hintText}</span>
               </div>
             )}
             {result && !analyzing && !noFace && result.top_emotions?.length > 1 && (

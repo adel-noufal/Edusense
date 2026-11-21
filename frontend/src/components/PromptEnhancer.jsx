@@ -19,12 +19,15 @@ export default function PromptEnhancer({ value, context = {}, onAccept, label = 
     if (!prompt) { setError('Write a prompt first'); setState('error'); return }
     setState('loading'); setError('')
     try {
-      const res = await api.post('/ai/enhance-prompt', { prompt, context })
+      const res = await api('/ai/enhance-prompt', {
+        method: 'POST',
+        body: { prompt, context },
+      })
       setOriginal(prompt)
-      setDraft(res.data?.prompt || '')
+      setDraft(res?.prompt || '')
       setState('preview')
     } catch (e) {
-      setError(e?.response?.data?.detail || e?.message || 'Enhancement failed')
+      setError(e?.message || 'Enhancement failed')
       setState('error')
     }
   }

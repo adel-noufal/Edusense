@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { BarChart3, BookOpen, Brain, Bot, Clapperboard, ClipboardList, Compass, Database, FileText, FolderOpen, GraduationCap, Globe, Home, Layers, LogOut, Menu, MessageCircle, Moon, Sun, UserRound, Video, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import AnimatedBackground from './AnimatedBackground'
@@ -32,8 +32,13 @@ export default function Layout() {
   const { t, toggleLang, lang } = useLanguage()
   const { pendingCount } = useGenerationJobs()
   const navigate = useNavigate()
+  const location = useLocation()
   const [dark, setDark] = useState(() => localStorage.theme === 'dark')
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  // These routes use full-viewport flex layout (no outer scroll / padding)
+  const FULL_HEIGHT_ROUTES = ['/instructor/chatbot', '/instructor/knowledge-base']
+  const isFullHeight = FULL_HEIGHT_ROUTES.some(r => location.pathname.startsWith(r))
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
@@ -137,8 +142,8 @@ export default function Layout() {
         </div>
       )}
 
-      <main className="min-w-0 md:ps-56 xl:ps-64">
-        <header className="sticky top-0 z-10 flex min-h-16 flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 bg-white/90 px-3 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 sm:px-4 md:hidden">
+      <main className="flex min-h-0 flex-col md:ps-56 xl:ps-64" style={{ height: '100dvh' }}>
+        <header className="sticky top-0 z-10 flex shrink-0 min-h-16 flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 bg-white/90 px-3 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 sm:px-4 md:hidden">
           <div className="flex min-w-0 items-center gap-3">
             <button type="button" className="btn-soft md:hidden" onClick={() => setMobileOpen(true)}><Menu size={18} /></button>
             <div className="min-w-0">
@@ -163,7 +168,7 @@ export default function Layout() {
             )}
           </div>
         </header>
-        <div className="page-shell p-3 sm:p-4 md:p-6">
+        <div className={`page-shell min-h-0 flex-1 overflow-y-auto${isFullHeight ? ' p-0 overflow-hidden' : ' p-3 sm:p-4 md:p-6'}`}>
           <PageTransition>
             <Outlet />
           </PageTransition>

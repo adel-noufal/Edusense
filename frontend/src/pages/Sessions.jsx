@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookOpen, CheckCircle2, FileDown, FolderOpen, Link2, PlayCircle, Plus, RefreshCw, Trash2, Upload, Users, X } from 'lucide-react'
 import { api, staticUrl, token } from '../services/api'
@@ -19,6 +19,7 @@ export default function Sessions() {
   const { t } = useLanguage()
   const navigate = useNavigate()
   const [sessions, setSessions] = useState([])
+  const [activeTab, setActiveTab] = useState('upcoming') // 'upcoming' | 'ended'
   const [form, setForm] = useState(initialForm)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -98,11 +99,26 @@ export default function Sessions() {
       }
       setSelectedGenerationId('')
       if (createFileRef.current) createFileRef.current.value = ''
+      setActiveTab('upcoming')
       await load()
     } catch (err) {
       setError(err.message)
     }
   }
+
+  const upcomingSessions = useMemo(() => {
+    return sessions.filter((s) => {
+      const st = (s.effective_status || s.status || '').toLowerCase()
+      return st === 'upcoming' || st === 'live' || st === 'pending' || st === 'ongoing' || st === 'preparing'
+    })
+  }, [sessions])
+
+  const endedSessions = useMemo(() => {
+    return sessions.filter((s) => {
+      const st = (s.effective_status || s.status || '').toLowerCase()
+      return st === 'ended' || st === 'missed' || st === 'completed' || st === 'finished' || st === 'cancelled' || st === 'canceled'
+    })
+  }, [sessions])
 
   function startEdit(session) {
     setEditingSession(session)
@@ -172,13 +188,13 @@ export default function Sessions() {
     }
   }
 
-  async function openResourcePanel(session) {
-    setResourcePanel({ session, resources: [], loading: true })
+  async function openResourcePanel(session, readOnly = false) {
+    setResourcePanel({ session, resources: [], loading: true, readOnly })
     try {
       const list = await api(`/sessions/${session.id}/resources`)
-      setResourcePanel({ session, resources: Array.isArray(list) ? list : [], loading: false })
+      setResourcePanel({ session, resources: Array.isArray(list) ? list : [], loading: false, readOnly })
     } catch {
-      setResourcePanel({ session, resources: [], loading: false })
+      setResourcePanel({ session, resources: [], loading: false, readOnly })
     }
   }
 
@@ -333,88 +349,142 @@ export default function Sessions() {
       </form>
 
       <div className="panel space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-black">{t('sessions.scheduled')}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3 dark:border-slate-700">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('upcoming')}
+              className={`px-4 py-2 text-sm font-bold rounded-xl transition ${activeTab === 'upcoming' ? 'bg-ocean text-white shadow dark:bg-mint dark:text-slate-950' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'}`}
+            >
+              Upcoming ({upcomingSessions.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('ended')}
+              className={`px-4 py-2 text-sm font-bold rounded-xl transition ${activeTab === 'ended' ? 'bg-ocean text-white shadow dark:bg-mint dark:text-slate-950' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'}`}
+            >
+              Ended ({endedSessions.length})
+            </button>
+          </div>
           <button className="btn-soft" type="button" onClick={load}><RefreshCw size={18} />{t('sessions.refresh')}</button>
         </div>
         {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">{error}</p>}
         {loading && <p className="text-sm text-slate-500">{t('sessions.loading')}</p>}
-        {!loading && sessions.length === 0 && !error && <p className="text-sm text-slate-500">{t('sessions.empty')}</p>}
+        {!loading && (activeTab === 'upcoming' ? upcomingSessions : endedSessions).length === 0 && !error && (
+          <p className="text-sm text-slate-500">
+            {activeTab === 'upcoming' ? 'No upcoming sessions scheduled.' : 'No ended sessions found.'}
+          </p>
+        )}
         <div className="space-y-3">
-          {sessions.map((session) => (
-            <div 
-              className="rounded-2xl border border-slate-200 p-4 transition hover:shadow-md dark:border-slate-700 cursor-pointer" 
-              key={session.id}
-              onClick={() => navigate(`/instructor/reports?session_id=${session.id}`)}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-lg font-bold">{session.title}</p>
-                  <p className="text-sm text-slate-500">
-                    {session.date}{session.start_time ? ` · ${String(session.start_time).slice(0, 5)}` : ''} · <span className="capitalize font-semibold">{session.effective_status || session.status}</span>
-                  </p>
-                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{session.description || t('sessions.noDescription')}</p>
-                </div>
-                <div className="flex flex-col items-end gap-2 shrink-0">
-                  {session.max_students != null && Number(session.max_students) > 0 && (
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase dark:bg-slate-800">{session.max_students} {t('sessions.seats')}</span>
-                  )}
-                  <button
-                    className="flex items-center gap-1.5 rounded-full bg-ocean/10 px-3 py-1 text-xs font-semibold text-ocean transition hover:bg-ocean/20 dark:bg-mint/10 dark:text-mint dark:hover:bg-mint/20"
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); viewAttendees(session); }}
-                  >
-                    <Users size={13} />
-                    Enrolled students
-                  </button>
-                </div>
-              </div>
-              {session.linked_content && session.linked_content.length > 0 && (
-                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-teal-50/60 p-2.5 dark:bg-slate-800/50">
-                  <span className="text-xs font-bold text-teal-800 dark:text-mint flex items-center gap-1">
-                    <Link2 size={13} /> Linked AI Content:
-                  </span>
-                  {session.linked_content.map((item) => (
-                    <span
-                      key={`${item.type}-${item.id}`}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          {(activeTab === 'upcoming' ? upcomingSessions : endedSessions).map((session) => {
+            const isEnded = activeTab === 'ended'
+            const eff = (session.effective_status || session.status || '').toLowerCase()
+            const isMissed = eff === 'missed'
+            return (
+              <div 
+                className="rounded-2xl border border-slate-200 p-4 transition hover:shadow-md dark:border-slate-700 cursor-pointer" 
+                key={session.id}
+                onClick={() => navigate(`/instructor/reports?session_id=${session.id}`)}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-lg font-bold">{session.title}</p>
+                    <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
+                      <span>{session.date}{session.start_time ? ` · ${String(session.start_time).slice(0, 5)}` : ''}</span>
+                      {isMissed ? (
+                        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">Missed</span>
+                      ) : isEnded ? (
+                        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">Ended</span>
+                      ) : (
+                        <span className="capitalize font-semibold text-ocean dark:text-mint">{eff}</span>
+                      )}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{session.description || t('sessions.noDescription')}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    {session.max_students != null && Number(session.max_students) > 0 && (
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase dark:bg-slate-800">{session.max_students} {t('sessions.seats')}</span>
+                    )}
+                    <button
+                      className="flex items-center gap-1.5 rounded-full bg-ocean/10 px-3 py-1 text-xs font-semibold text-ocean transition hover:bg-ocean/20 dark:bg-mint/10 dark:text-mint dark:hover:bg-mint/20"
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); viewAttendees(session); }}
                     >
-                      <span className="capitalize text-teal-600 dark:text-mint text-[11px] font-bold">[{item.type}]</span>
-                      <span className="max-w-[180px] truncate">{item.topic}</span>
-                      <button
-                        type="button"
-                        title="Unlink"
-                        onClick={(e) => { e.stopPropagation(); unlinkGeneration(item.id, session.id, item.type); }}
-                        className="text-slate-400 hover:text-red-600 transition"
-                      >
-                        <X size={12} />
-                      </button>
-                    </span>
-                  ))}
+                      <Users size={13} />
+                      Enrolled students
+                    </button>
+                  </div>
                 </div>
-              )}
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); startEdit(session); }}>Edit</button>
-                <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); startSession(session.id); }}><PlayCircle size={18} />{t('sessions.start')}</button>
-                <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); endSession(session.id); }}>{t('sessions.end')}</button>
-                <button
-                  className="btn-soft text-purple-600 hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-950/20"
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); openResourcePanel(session); }}
-                >
-                  <FolderOpen size={18} />Manage Resources
-                </button>
-                <button
-                  className="btn-soft text-teal-700 hover:bg-teal-50 dark:text-mint dark:hover:bg-teal-950/20"
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); openLinkPanel(session); }}
-                >
-                  <Link2 size={18} />Link AI Content
-                </button>
-                <button className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={(e) => { e.stopPropagation(); remove(session.id); }}><Trash2 size={18} />{t('sessions.delete')}</button>
+                {session.linked_content && session.linked_content.length > 0 && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-teal-50/60 p-2.5 dark:bg-slate-800/50">
+                    <span className="text-xs font-bold text-teal-800 dark:text-mint flex items-center gap-1">
+                      <Link2 size={13} /> Linked AI Content:
+                    </span>
+                    {session.linked_content.map((item) => (
+                      <span
+                        key={`${item.type}-${item.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      >
+                        <span className="capitalize text-teal-600 dark:text-mint text-[11px] font-bold">[{item.type}]</span>
+                        <span className="max-w-[180px] truncate">{item.topic}</span>
+                        {!isEnded && (
+                          <button
+                            type="button"
+                            title="Unlink"
+                            onClick={(e) => { e.stopPropagation(); unlinkGeneration(item.id, session.id, item.type); }}
+                            className="text-slate-400 hover:text-red-600 transition"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {!isEnded ? (
+                    <>
+                      <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); startEdit(session); }}>Edit</button>
+                      <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); startSession(session.id); }}><PlayCircle size={18} />{t('sessions.start')}</button>
+                      <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); endSession(session.id); }}>{t('sessions.end')}</button>
+                      <button
+                        className="btn-soft text-purple-600 hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-950/20"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openResourcePanel(session, false); }}
+                      >
+                        <FolderOpen size={18} />Manage Resources
+                      </button>
+                      <button
+                        className="btn-soft text-teal-700 hover:bg-teal-50 dark:text-mint dark:hover:bg-teal-950/20"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openLinkPanel(session); }}
+                      >
+                        <Link2 size={18} />Link AI Content
+                      </button>
+                      <button className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={(e) => { e.stopPropagation(); remove(session.id); }}><Trash2 size={18} />{t('sessions.delete')}</button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="btn-soft text-ocean dark:text-mint"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/instructor/reports?session_id=${session.id}`); }}
+                      >
+                        <BookOpen size={16} />View Report & Analytics
+                      </button>
+                      <button
+                        className="btn-soft text-purple-600 hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-950/20"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openResourcePanel(session, true); }}
+                      >
+                        <FolderOpen size={16} />View Resources
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
@@ -507,24 +577,26 @@ export default function Sessions() {
             </div>
             <div className="p-6 overflow-y-auto flex-1 space-y-4">
               {/* Upload area */}
-              <div
-                className="border-2 border-dashed border-purple-300 dark:border-purple-700 rounded-xl p-6 text-center cursor-pointer hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/20 transition"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.mp4,.zip" onChange={uploadResource} />
-                {uploadingResource ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="h-8 w-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
-                    <p className="text-sm text-purple-600 font-semibold">Uploading...</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-2">
-                    <Upload size={28} className="text-purple-400" />
-                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Click to upload a resource</p>
-                    <p className="text-xs text-slate-400">PDF, PPTX, DOC, DOCX, XLSX, Images, MP4, ZIP</p>
-                  </div>
-                )}
-              </div>
+              {!resourcePanel.readOnly && (
+                <div
+                  className="border-2 border-dashed border-purple-300 dark:border-purple-700 rounded-xl p-6 text-center cursor-pointer hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/20 transition"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.mp4,.zip" onChange={uploadResource} />
+                  {uploadingResource ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="h-8 w-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
+                      <p className="text-sm text-purple-600 font-semibold">Uploading...</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2">
+                      <Upload size={28} className="text-purple-400" />
+                      <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Click to upload a resource</p>
+                      <p className="text-xs text-slate-400">PDF, PPTX, DOC, DOCX, XLSX, Images, MP4, ZIP</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Resources list */}
               {resourcePanel.loading ? (
@@ -561,14 +633,16 @@ export default function Sessions() {
                             File unavailable
                           </span>
                         )}
-                        <button
-                          type="button"
-                          className="btn-soft p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20"
-                          onClick={() => deleteResource(r.id)}
-                          title="Delete"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {!resourcePanel.readOnly && (
+                          <button
+                            type="button"
+                            className="btn-soft p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20"
+                            onClick={() => deleteResource(r.id)}
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </li>
                   ))}

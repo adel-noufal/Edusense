@@ -72,6 +72,7 @@ app.include_router(assignments.router, prefix="/api")
 
 @app.on_event("startup")
 def startup():
+    import threading
     init_db(seed=True)
     # Reconcile stale session statuses (missed/ended) on boot
     try:
@@ -87,6 +88,18 @@ def startup():
     except Exception as exc:
         print(f"Startup session reconcile skipped: {exc}")
     start_scheduler()
+
+    # C9: Warm up vector-store + sentence-transformers in a background thread
+    # so the first KB query doesn't block the first user request.
+    def _warmup_kb():
+        try:
+            from app.services.vector_store import get_collection
+            get_collection()   # loads ChromaDB + embedding model once
+            print("KB warm-up complete")
+        except Exception as e:
+            print(f"KB warm-up skipped: {e}")
+
+    threading.Thread(target=_warmup_kb, daemon=True).start()
 
 @app.on_event("shutdown")
 def shutdown():
