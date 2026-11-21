@@ -23,7 +23,7 @@ from app.models.models import (
     SessionNote,
 )
 from app.schemas.schemas import SessionIn, SessionOut, NoteCreate
-from app.services.status import session_status
+from app.services.status import session_status, effective_status
 from app.services.email import _send_email_sync, send_session_live_email
 from app.core.config import get_settings
 import json
@@ -43,8 +43,18 @@ class ShareFrameIn(BaseModel):
 from datetime import datetime, timezone, timedelta
 
 def refresh_status(item: Session, db: DbSession):
-    # Don't overwrite manually set statuses (ended, ongoing) or already-correct pending
-    if item.status in ("ended", "ongoing"):
+    # Persist effective-status transitions so stale rows self-heal on read.
+    from app.services.status import effective_status
+    eff = effective_status(item)
+    if eff == "ended" and item.status not in ("ended", "completed", "finished"):
+        item.status = "ended"
+        db.add(item)
+        return
+    if eff == "missed" and item.status != "missed":
+        item.status = "missed"
+        db.add(item)
+        return
+    if item.status in ("ended", "ongoing", "missed", "cancelled", "canceled"):
         return
     # If in 15-minute preparation mode, check if 15 minutes passed
     if item.status == "preparing" and item.prep_start_time:
@@ -57,6 +67,22 @@ def refresh_status(item: Session, db: DbSession):
             return
     # Sessions only move to ongoing when explicitly started by instructor via POST /{id}/start
     pass
+
+
+def reconcile_session_statuses(db: DbSession) -> int:
+    """Startup/periodic sweep: persist effective status for every session.
+    Returns the number of rows transitioned."""
+    from app.services.status import effective_status
+    changed = 0
+    sessions = db.query(Session).all()
+    for item in sessions:
+        before = item.status
+        refresh_status(item, db)
+        if item.status != before:
+            changed += 1
+    if changed:
+        db.commit()
+    return changed
 
 
 def serialize_browse_session(item: Session, user: User, registrations: list[SessionRegistration], db: DbSession = None) -> dict:
@@ -80,11 +106,12 @@ def serialize_browse_session(item: Session, user: User, registrations: list[Sess
         "duration": item.duration,
         "max_students": item.max_students,
         "status": item.status,
+        "effective_status": effective_status(item),
         "prep_start_time": item.prep_start_time.isoformat() if item.prep_start_time else None,
         "registration_count": len(attendee_ids),
         "available_seats": seats_left,
         "is_registered": is_registered,
-        "can_register": item.status in {"upcoming", "scheduled", "live", "ongoing", "pending", "preparing"} and (is_registered or seats_left is None or seats_left > 0),
+        "can_register": effective_status(item) in {"upcoming", "live"} and (is_registered or seats_left is None or seats_left > 0),
     }
 
 
@@ -92,6 +119,8 @@ def _get_session_linked_content(session_id: int, db: DbSession) -> list[dict]:
     linked = []
     gens = db.query(AIGeneration).filter_by(session_id=session_id).order_by(AIGeneration.created_at.desc()).all()
     for g in gens:
+        if g.type == "quiz":
+            continue  # quizzes are listed from the quizzes table below
         linked.append({
             "id": g.id,
             "content_id": g.id,
@@ -121,6 +150,7 @@ def list_sessions(request: Request, db: DbSession = Depends(get_db), user: User 
     for item in sessions:
         refresh_status(item, db)
         out_item = SessionOut.model_validate(item)
+        out_item.effective_status = effective_status(item)
         inst = db.query(User).filter(User.id == item.instructor_id).first()
         if inst:
             out_item.instructor_name = inst.name
@@ -140,12 +170,15 @@ def browse_sessions(request: Request, db: DbSession = Depends(get_db), user: Use
     for item in sessions:
         refresh_status(item, db)
     db.commit()
-    statuses = Counter(item.status for item in sessions)
+    # Effective status decides visibility — a stale 'pending' row whose start
+    # passed days ago must not appear in the browse catalog.
+    eff_map = {item.id: effective_status(item) for item in sessions}
+    statuses = Counter(eff_map.values())
     registrations = db.query(SessionRegistration).all()
     catalog = [
         serialize_browse_session(item, user, registrations, db)
         for item in sessions
-        if item.status in {"upcoming", "scheduled", "live", "ongoing", "pending", "preparing"}
+        if eff_map[item.id] in {"upcoming", "live"}
     ]
 
     # Audit: student browsing available sessions
@@ -156,13 +189,29 @@ def browse_sessions(request: Request, db: DbSession = Depends(get_db), user: Use
         "summary": {
             "available": len(catalog),
             "registered": sum(1 for item in catalog if item["is_registered"]),
-            "live_now": statuses.get("live", 0) + statuses.get("ongoing", 0) + statuses.get("preparing", 0),
+            "live_now": statuses.get("live", 0),
         },
     }
 
 
 @router.post("", response_model=SessionOut)
 def create_session(payload: SessionIn, request: Request, db: DbSession = Depends(get_db), user: User = Depends(require_role("instructor"))):
+    # Idempotent create: identical session (same instructor/title/date/start)
+    # already exists -> return it instead of inserting a duplicate.
+    existing = db.query(Session).filter(
+        Session.instructor_id == user.id,
+        Session.title == payload.title,
+        Session.date == payload.date,
+        Session.start_time == payload.start_time,
+    ).first()
+    if existing:
+        refresh_status(existing, db)
+        db.commit()
+        res = SessionOut.model_validate(existing)
+        res.instructor_name = user.name
+        res.linked_content = _get_session_linked_content(existing.id, db)
+        return res
+
     item = Session(**payload.model_dump(), instructor_id=user.id)
     refresh_status(item, db)
     db.add(item)
@@ -808,6 +857,7 @@ def student_my_sessions(request: Request, db: DbSession = Depends(get_db), user:
             "duration": attended_dur if (reg and reg.attended) else s.duration,
             "attended_duration": attended_dur,
             "status": s.status,
+            "effective_status": effective_status(s),
             "instructor_name": inst.name if inst else None,
             "attended": reg.attended if reg else False,
         })

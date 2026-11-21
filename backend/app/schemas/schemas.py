@@ -68,6 +68,7 @@ class SessionOut(SessionIn):
     id: int
     instructor_id: int
     status: str
+    effective_status: str | None = None
     prep_start_time: datetime | None = None
     instructor_name: str | None = None
     linked_content: list[dict] = Field(default_factory=list)
@@ -166,6 +167,7 @@ class PublishExamRequest(BaseModel):
     fullscreen_lock: bool = True
     camera_monitoring: bool = False
     due_date: datetime | None = None
+    available_from: datetime | None = None
     is_published: bool = True
     reveal_answers: bool | None = None
 
@@ -191,6 +193,7 @@ class QuizCreateManual(BaseModel):
     fullscreen_lock: bool | None = None
     camera_monitoring: bool = False
     due_date: datetime | None = None
+    available_from: datetime | None = None
     reveal_answers: bool = True
 
 
@@ -207,6 +210,7 @@ class QuizUpdateSettings(BaseModel):
     fullscreen_lock: bool | None = None
     camera_monitoring: bool | None = None
     due_date: datetime | None = None
+    available_from: datetime | None = None
     reveal_answers: bool | None = None
 
 
@@ -228,8 +232,11 @@ class QuizOut(BaseModel):
     is_exam: bool = False
     lock_back_navigation: bool = False
     due_date: datetime | None = None
+    available_from: datetime | None = None
     reveal_answers: bool = True
     session_title: str | None = None
+    # B4.3: publish visibility
+    enrolled_student_count: int | None = None
 
     model_config = {"from_attributes": True}
 

@@ -309,6 +309,17 @@ def ask_question(
     grade_level = payload.get("grade_level") or None
     top_k       = int(payload.get("top_k", 5))
     source_file = payload.get("source_file") or payload.get("source_id") or None
+    raw_source_ids = payload.get("source_ids")
+    source_ids = [str(s) for s in raw_source_ids] if isinstance(raw_source_ids, list) and raw_source_ids else None
+    if source_ids:
+        # Validate every selected ID against the indexed sources — the KB is
+        # shared, so "ownership" means "must be a real indexed document".
+        known = {str(s.get("source_id") or s.get("source_file"))
+                 for s in ingestion.get_indexed_sources()}
+        unknown = [s for s in source_ids if s not in known]
+        if unknown:
+            raise HTTPException(status_code=400,
+                                detail=f"Unknown source_ids: {', '.join(unknown[:5])}")
 
     # ── Persistent KB conversation (instructor-scoped) ──────────────────
     conversation_id = payload.get("conversation_id") or None
@@ -332,10 +343,22 @@ def ask_question(
             .limit(KB_HISTORY_WINDOW)
             .all()
         )
-        history = [
-            {"role": m.role, "content": m.content}
-            for m in reversed(prior)
-        ]
+        history = []
+        for m in reversed(prior):
+            entry = {"role": m.role, "content": m.content}
+            # Carry forward the sources the assistant grounded its last answer
+            # in, so follow-up questions stay scoped to the same document(s).
+            if m.role == "assistant" and getattr(m, "metadata_json", None):
+                try:
+                    meta = json.loads(m.metadata_json)
+                    srcs = meta.get("sources") or []
+                    files = [s.get("source_file") for s in srcs
+                             if isinstance(s, dict) and s.get("source_file")]
+                    if files:
+                        entry["sources"] = files
+                except Exception:
+                    pass
+            history.append(entry)
 
         if persist:
             db.add(ChatMessage(
@@ -355,6 +378,7 @@ def ask_question(
         top_k=top_k,
         source_file=source_file,
         history=history,
+        source_ids=source_ids,
     )
 
     if persist:

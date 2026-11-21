@@ -4,8 +4,11 @@ import { useToast } from './ToastContext'
 import { useAuth } from './AuthContext'
 
 const STORAGE_KEY = 'edusense_generation_jobs'
-const POLL_MS = 2000
-const MAX_POLLS = 180
+// Exponential-ish backoff: 1s -> 2s -> 5s, then steady 5s. Stops on terminal
+// state so a finished job never keeps hitting the API.
+const POLL_SCHEDULE_MS = [1000, 2000, 5000]
+const STEADY_POLL_MS = 5000
+const MAX_POLLS = 240  // ~20 min ceiling at steady state
 
 const GenerationJobContext = createContext(null)
 
@@ -63,9 +66,13 @@ export function GenerationJobProvider({ children }) {
     pollingRef.current.add(jobId)
 
     for (let attempt = 0; attempt < MAX_POLLS; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+      const delay = attempt < POLL_SCHEDULE_MS.length ? POLL_SCHEDULE_MS[attempt] : STEADY_POLL_MS
+      await new Promise((resolve) => setTimeout(resolve, delay))
       try {
         const status = await api(`/ai/job/${jobId}`)
+        if (status.progress != null || status.message) {
+          updateJob(jobId, { progress: status.progress ?? 0, stage: status.message || '' })
+        }
         if (status.status === 'done') {
           updateJob(jobId, { status: 'done', result: status.result, error: '' })
           notifyComplete(jobId, label, 'done')

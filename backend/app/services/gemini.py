@@ -296,13 +296,23 @@ def generate_content(prompt: str, task_type: str = "general", model: str | None 
                      temperature: float | None = None, max_output_tokens: int | None = None,
                      timeout: float = 30.0) -> str:
     """
-    Generate text via Gemini with key×model fallback.
+    Generate text via the multi-provider LLM router (app.services.llm).
 
-    task_type selects the model chain: "chat" (fast), "script"/"lesson"/
-    "video"/"report" (stronger), anything else uses the default chain.
-    Raises GeminiError with a typed code when every pair is exhausted or a
-    non-rotatable error occurs.
+    All providers (Gemini + OpenAI-compatible: Groq, OpenRouter, NVIDIA NIM,
+    DeepInfra, Cerebras) are tried in the task's chain order with per-pair
+    cooldown, quota groups, and dead-model disabling. Raises GeminiError
+    with a typed code when every combination is exhausted.
     """
+    from app.services.llm import chat as _llm_chat
+    return _llm_chat(prompt, task_type=task_type, model=model,
+                     temperature=temperature, max_output_tokens=max_output_tokens,
+                     timeout=max(timeout, 60.0))
+
+
+def _generate_content_gemini_only(prompt: str, task_type: str = "general", model: str | None = None,
+                                  temperature: float | None = None, max_output_tokens: int | None = None,
+                                  timeout: float = 30.0) -> str:
+    """Gemini-only generation (legacy path, kept for tests/diagnostics)."""
     settings = get_settings()
     keys = settings.gemini_api_keys
     if not keys:

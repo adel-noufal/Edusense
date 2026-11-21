@@ -1,0 +1,12 @@
+B9 Prompt Enhancer Live Provider Verification:
+Endpoint: POST /api/ai/enhance-prompt
+Test: backend/test_b9_prompt_enhancer.py
+Output:
+[B9 PASS] English: Generate an exam consisting of 10 questions. The target audience is high school students... (10 questions and 45 mins preserved)
+[B9 PASS] Arabic: صمم اختبارًا قصيرًا باللغة العربية. يجب أن يتكون الاختبار من 5 أسئلة تركز على موضوع التفاضل... (5 questions preserved, Arabic language preserved)
+[B9 PASS] Mixed: إنشاء بنك أسئلة يحتوي على 8 أسئلة حول هياكل بيانات Python... (8 questions preserved, mixed Arabic/English preserved)
+ALL B9 PROMPT ENHANCER TESTS PASSED!
+LLM Routing:
+- 404 models permanently disabled
+- Key rotation and cooldown verified
+- Fast spillover to healthy provider/model

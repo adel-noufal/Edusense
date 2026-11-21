@@ -120,8 +120,13 @@ class Quiz(Base):
     is_exam: Mapped[bool] = mapped_column(Boolean, default=False)
     lock_back_navigation: Mapped[bool] = mapped_column(Boolean, default=False)
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Exam availability window start (UTC). None = available immediately.
+    available_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Instructor policy: whether students see correct answers/explanations after submit
     reveal_answers: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Owning instructor — used for "all my students" visibility when the exam
+    # is not linked to a specific session.
+    instructor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
 
 class QuizAttempt(Base):

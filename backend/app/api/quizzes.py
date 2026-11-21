@@ -25,7 +25,7 @@ from app.agents.quiz_agent import normalize_difficulty
 router = APIRouter(prefix="/quizzes", tags=["Quiz Attempts"])
 
 
-def _quiz_out(quiz: Quiz, questions: list[dict], session_title: str | None = None) -> QuizOut:
+def _quiz_out(quiz: Quiz, questions: list[dict], session_title: str | None = None, enrolled_student_count: int | None = None) -> QuizOut:
     """Single constructor for QuizOut responses — keeps reveal_answers and
     normalized difficulty consistent across every endpoint."""
     return QuizOut(
@@ -44,7 +44,9 @@ def _quiz_out(quiz: Quiz, questions: list[dict], session_title: str | None = Non
         is_exam=quiz.is_exam,
         lock_back_navigation=quiz.lock_back_navigation,
         due_date=quiz.due_date,
+        available_from=quiz.available_from,
         reveal_answers=quiz.reveal_answers,
+        enrolled_student_count=enrolled_student_count,
     )
 
 
@@ -68,6 +70,17 @@ def create_manual_quiz(
             raise HTTPException(404, "Target session not found")
         if session.instructor_id and session.instructor_id != user.id and user.role != "admin":
             raise HTTPException(403, "Cannot attach quiz to a session owned by another instructor")
+
+    # Idempotent create: an identical quiz (same session + title) already
+    # exists -> return it instead of inserting a duplicate row.
+    existing = db.query(Quiz).filter_by(
+        session_id=payload.session_id, title=payload.title.strip()
+    ).first()
+    if existing:
+        try:
+            return _quiz_out(existing, json.loads(existing.questions_json))
+        except Exception:
+            return _quiz_out(existing, [])
 
     questions_data = []
     for q in payload.questions:
@@ -93,7 +106,9 @@ def create_manual_quiz(
         fullscreen_lock=payload.fullscreen_lock if payload.fullscreen_lock is not None else payload.is_exam,
         camera_monitoring=payload.camera_monitoring,
         due_date=payload.due_date,
+        available_from=payload.available_from,
         reveal_answers=payload.reveal_answers,
+        instructor_id=user.id,
     )
     db.add(quiz)
     db.commit()
@@ -217,22 +232,47 @@ def list_student_exams(
     List all published exams (is_exam=True, is_published=True) for sessions
     the student is enrolled in.  Returns questions WITHOUT correct answers.
     """
-    # Get all session IDs the student is enrolled in
-    enrolled_session_ids = [
-        r.session_id for r in
-        db.query(SessionRegistration).filter_by(student_id=user.id).all()
-    ]
+    # Get all session IDs the student is enrolled in, plus the instructors
+    # who own those sessions (used for session-less "all my students" exams).
+    regs = db.query(SessionRegistration).filter_by(student_id=user.id).all()
+    enrolled_session_ids = [r.session_id for r in regs]
 
-    if not enrolled_session_ids:
+    my_instructor_ids = set()
+    if enrolled_session_ids:
+        my_instructor_ids = {
+            int(row[0]) for row in
+            db.query(ClassSession.instructor_id)
+            .filter(ClassSession.id.in_(enrolled_session_ids),
+                    ClassSession.instructor_id.isnot(None))
+            .all()
+        }
+
+    if not enrolled_session_ids and not my_instructor_ids:
         return []
 
+    # Visibility rule (B4): published exam AND (
+    #   linked to a session the student is enrolled in
+    #   OR not linked to any session and owned by an instructor the student
+    #      has sessions with ("all my students" scope)
+    #   OR legacy rows with no session and no owner — treated as instructor-
+    #      scoped only when we can resolve an owner; otherwise hidden.
+    query = db.query(Quiz).filter(
+        Quiz.is_exam == True,
+        Quiz.is_published == True,
+    )
+    from sqlalchemy import or_, and_
+    conditions = []
+    if enrolled_session_ids:
+        conditions.append(Quiz.session_id.in_(enrolled_session_ids))
+    if my_instructor_ids:
+        conditions.append(and_(
+            Quiz.session_id.is_(None),
+            Quiz.instructor_id.in_(list(my_instructor_ids)),
+        ))
+    if not conditions:
+        return []
     quizzes = (
-        db.query(Quiz)
-        .filter(
-            Quiz.session_id.in_(enrolled_session_ids),
-            Quiz.is_exam == True,
-            Quiz.is_published == True,
-        )
+        query.filter(or_(*conditions))
         .order_by(Quiz.created_at.desc())
         .all()
     )
@@ -292,8 +332,12 @@ def publish_quiz_as_exam(
     quiz.fullscreen_lock = payload.fullscreen_lock
     quiz.camera_monitoring = payload.camera_monitoring
     quiz.due_date = payload.due_date
+    quiz.available_from = payload.available_from
     if payload.reveal_answers is not None:
         quiz.reveal_answers = payload.reveal_answers
+    # Ownership for visibility scoping — prefer the session's instructor,
+    # fall back to the publishing user (covers session-less "all my students" exams).
+    quiz.instructor_id = session.instructor_id or user.id
 
     db.commit()
     db.refresh(quiz)
@@ -312,7 +356,9 @@ def publish_quiz_as_exam(
     )
 
     questions = json.loads(quiz.questions_json)
-    return _quiz_out(quiz, questions)
+    sess_obj = db.query(ClassSession).filter_by(id=quiz.session_id).first() if quiz.session_id else None
+    enrolled_count = db.query(SessionRegistration).filter_by(session_id=quiz.session_id).count() if quiz.session_id else 0
+    return _quiz_out(quiz, questions, session_title=sess_obj.name if sess_obj else None, enrolled_student_count=enrolled_count)
 
 
 @router.patch("/{quiz_id}", response_model=QuizOut)
@@ -371,8 +417,15 @@ def update_quiz_or_settings(
         quiz.camera_monitoring = payload.camera_monitoring
     if payload.due_date is not None:
         quiz.due_date = payload.due_date
+    quiz.available_from = payload.available_from
     if payload.reveal_answers is not None:
         quiz.reveal_answers = payload.reveal_answers
+    if quiz.instructor_id is None:
+        quiz.instructor_id = user.id
+    if payload.session_id is not None:
+        sess = db.query(ClassSession).filter_by(id=payload.session_id).first()
+        if sess and sess.instructor_id:
+            quiz.instructor_id = sess.instructor_id
 
     db.commit()
     db.refresh(quiz)
@@ -384,7 +437,9 @@ def update_quiz_or_settings(
     )
 
     questions = json.loads(quiz.questions_json)
-    return _quiz_out(quiz, questions)
+    sess_obj = db.query(ClassSession).filter_by(id=quiz.session_id).first() if quiz.session_id else None
+    enrolled_count = db.query(SessionRegistration).filter_by(session_id=quiz.session_id).count() if quiz.session_id else 0
+    return _quiz_out(quiz, questions, session_title=sess_obj.name if sess_obj else None, enrolled_student_count=enrolled_count)
 
 
 @router.post("/{quiz_id}/start", response_model=QuizAttemptOut)
@@ -421,6 +476,12 @@ def start_quiz_attempt(
                 due = due.replace(tzinfo=timezone.utc)
             if datetime.now(timezone.utc) > due:
                 raise HTTPException(403, "This exam is past its due date.")
+        if quiz.available_from:
+            avail = quiz.available_from
+            if avail.tzinfo is None:
+                avail = avail.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) < avail:
+                raise HTTPException(403, "This exam is not available yet.")
         # Exams allow exactly one attempt — block API replay/re-entry
         already_submitted = db.query(QuizAttempt).filter_by(
             quiz_id=quiz_id,
@@ -489,6 +550,23 @@ def submit_quiz_attempt(
         submitted_at=None
     ).first()
     if not attempt:
+        # B13: Idempotent submit — if attempt was already submitted (e.g. auto-submit
+        # race or network retry), return the recorded score safely.
+        prior = db.query(QuizAttempt).filter_by(
+            quiz_id=quiz_id, student_id=user.id
+        ).filter(QuizAttempt.submitted_at.isnot(None)).order_by(QuizAttempt.submitted_at.desc()).first()
+        if prior:
+            details = json.loads(prior.details_json) if prior.details_json else []
+            max_s = prior.max_score or 1.0
+            pct = round(((prior.score or 0.0) / max_s) * 100, 1) if max_s > 0 else 0.0
+            return QuizSubmitResponse(
+                attempt_id=prior.id,
+                score=prior.score or 0.0,
+                max_score=max_s,
+                percentage=pct,
+                details=details,
+                passed=(pct >= 60.0),
+            )
         raise HTTPException(400, "No active quiz attempt found. Start the quiz first.")
     if attempt.is_locked:
         raise HTTPException(403, f"Quiz attempt is locked: {attempt.lock_reason}")

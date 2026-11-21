@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BarChart3, BookOpen, ChevronRight, FileDown, FileText, Trash2, Upload, Users } from 'lucide-react'
-import { api } from '../services/api'
+import { api, downloadAuthenticatedRequest, staticUrl } from '../services/api'
 import { EmotionDistribution, EngagementLine, StatsBars } from '../components/Charts'
-import { staticUrl } from '../services/api'
 import InstructorSources from './InstructorSources'
 
 export default function Reports() {
@@ -147,6 +146,12 @@ export default function Reports() {
       a.download = `session-${activeSessionId}-report.csv`
       a.click()
       URL.revokeObjectURL(url)
+    } else if (format === 'pdf') {
+      try {
+        await downloadAuthenticatedRequest(`/reports/sessions/${activeSessionId}/export.pdf`, `session-${activeSessionId}-report.pdf`)
+      } catch (e) {
+        alert(e?.message || 'Failed to download PDF report')
+      }
     }
   }
 
@@ -182,6 +187,9 @@ export default function Reports() {
                 </button>
                 <button className="btn-soft text-xs py-1.5 px-2" type="button" onClick={() => exportReport('csv')} disabled={!sessionDetail}>
                   <FileDown size={14} /> CSV
+                </button>
+                <button className="btn-soft text-xs py-1.5 px-2" type="button" onClick={() => exportReport('pdf')} disabled={!sessionDetail}>
+                  <FileDown size={14} /> PDF
                 </button>
               </div>
             )}

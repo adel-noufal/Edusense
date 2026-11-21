@@ -1,0 +1,8 @@
+B10 Attach from Uploaded Files in AI Chatbot:
+Features added to frontend/src/pages/AITools.jsx (ChatbotGenerator):
+1. `attachKbOpen` state toggle + `attachedKbIds` multi-select state
+2. Dedicated "Attach from Knowledge Base" database button next to file upload button
+3. Multi-select checkbox drawer listing indexed KB documents
+4. Selected source chips with remove buttons
+5. `source_ids` array passed to POST /api/ai/chat for multi-document grounding
+6. Preserved per-conversation context

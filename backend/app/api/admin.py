@@ -81,3 +81,25 @@ def reset_platform_data(db: Session = Depends(get_db), _: User = Depends(require
     db.commit()
     return {"message": "All created sessions, logs, and generated content have been successfully cleared. Admin and user accounts remain active."}
 
+
+
+@router.get("/llm-status")
+def llm_status(_: User = Depends(require_role("admin", "instructor"))):
+    """Multi-provider LLM diagnostics: masked keys, quota groups, per-model
+    cooldown/disable state, requests today, and the effective task chains."""
+    from app.services import llm
+    return llm.status()
+
+
+@router.post("/llm-test")
+def llm_test(_: User = Depends(require_role("admin", "instructor"))):
+    """Trigger on-demand live probe testing of all configured LLM keys."""
+    from app.services import llm
+    results = llm.router.validate_all_keys(probe=True)
+    return {
+        "status": "ok",
+        "keys_tested": len(results),
+        "results": results,
+        "llm_status": llm.status(),
+    }
+

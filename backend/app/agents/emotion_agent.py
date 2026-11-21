@@ -1,6 +1,7 @@
 import base64
 from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
 import cv2
 import numpy as np
 from sqlalchemy.orm import Session
@@ -8,6 +9,13 @@ from app.agents.base import AgentResult, adk_agent
 from app.models.models import EmotionLog
 
 SUPPORTED_EMOTIONS = ["happy", "neutral", "sad", "angry", "surprise", "fear", "disgust"]
+
+_CASCADE_PATH = (
+    Path(__file__).resolve().parents[2] / "static" / "models"
+    / "haarcascade_frontalface_default.xml"
+)
+_face_cascade = None
+_mtcnn_detector = None
 
 # v7 EfficientNet-B0 label ordering (standard AffectNet/FER+ alphabetical order)
 # Confirmed from training: no class_to_idx stored in checkpoint → use standard ordering
@@ -50,14 +58,21 @@ class EmotionAnalysisAgent:
     def analyze_frame(
         self, db: Session, session_id: int, student_id: int, image: str
     ) -> AgentResult:
-        emotion, confidence = self._detect(image)
-        log = EmotionLog(
-            session_id=session_id,
-            student_id=student_id,
-            emotion=emotion,
-            confidence=confidence,
-        )
-        db.add(log)
+        detail = self._detect_detailed(image)
+        emotion = detail.get("emotion") or "unknown"
+        confidence = float(detail.get("confidence") or 0.0)
+
+        # Only persist frames where a usable face was actually classified —
+        # "no face" / low-quality frames must not pollute session distributions.
+        log = None
+        if detail.get("face_detected"):
+            log = EmotionLog(
+                session_id=session_id,
+                student_id=student_id,
+                emotion=emotion,
+                confidence=confidence,
+            )
+            db.add(log)
         try:
             from app.models.models import SessionRegistration
             reg = db.query(SessionRegistration).filter_by(session_id=session_id, student_id=student_id).first()
@@ -70,14 +85,18 @@ class EmotionAnalysisAgent:
         except Exception:
             pass
         db.commit()
-        db.refresh(log)
+        if log is not None:
+            db.refresh(log)
         return AgentResult(
             self.name,
             {
-                "id": log.id,
+                "id": log.id if log is not None else None,
                 "emotion": emotion,
                 "confidence": confidence,
-                "timestamp": log.timestamp.isoformat(),
+                "face_detected": bool(detail.get("face_detected")),
+                "hint": detail.get("hint"),
+                "top_emotions": detail.get("top_emotions"),
+                "timestamp": log.timestamp.isoformat() if log is not None else datetime.now(timezone.utc).isoformat(),
                 "backend": getattr(self, "_active_backend", "unknown"),
             },
         )
@@ -103,22 +122,120 @@ class EmotionAnalysisAgent:
     # ---------- internal detection ----------
 
     def _detect(self, image: str) -> tuple[str, float]:
+        """Legacy tuple API — kept for callers that only need (emotion, conf)."""
+        detail = self._detect_detailed(image)
+        if not detail.get("face_detected"):
+            return "unknown", 0.0
+        return detail.get("emotion") or "neutral", float(detail.get("confidence") or 0.0)
+
+    def _detect_detailed(self, image: str) -> dict:
+        """
+        Full detection pipeline: decode -> face detect -> crop -> classify.
+        Returns a dict; never fabricates a confident 'neutral' on failure.
+        """
+        base = {
+            "emotion": None, "confidence": 0.0, "top_emotions": [],
+            "face_detected": False, "hint": None,
+        }
         try:
             frame = self._decode_frame(image)
+            if frame is None:
+                return {**base, "hint": "bad_image"}
 
-            # --- Primary: v7 PyTorch EfficientNet-B0 ---
-            result = self._detect_pytorch(frame)
+            crop, hint = self._find_face(frame)
+            if crop is None:
+                return {**base, "hint": hint or "no_face"}
+
+            # Face found — classify the cropped face only.
+            result = self._detect_pytorch_full(crop)
             if result is not None:
+                emotion, confidence, probs = result
                 self._active_backend = "pytorch_v7"
-                return result
+            else:
+                self._active_backend = "deepface"
+                emotion, confidence = self._detect_deepface(crop)
+                probs = {emotion: confidence}
 
-            # --- Fallback: DeepFace (TensorFlow) ---
-            self._active_backend = "deepface"
-            return self._detect_deepface(frame)
-
+            if emotion not in SUPPORTED_EMOTIONS:
+                emotion = "neutral"
+            top = sorted(probs.items(), key=lambda kv: -kv[1])[:3]
+            return {
+                "emotion": emotion,
+                "confidence": round(confidence, 4),
+                "top_emotions": [{"emotion": e, "confidence": round(float(c), 4)} for e, c in top],
+                "face_detected": True,
+                "hint": hint,
+            }
         except Exception:
             self._active_backend = "fallback"
-            return "neutral", 0.64
+            return {**base, "hint": "detection_error"}
+
+    def _find_face(self, frame: np.ndarray):
+        """
+        Detect the largest frontal face, crop with padding.
+        Returns (crop_bgr, quality_hint) — crop is None when no usable face.
+        Detectors tried in order: MTCNN (accurate, bundled), OpenCV Haar
+        (when the cv2 build ships cascades), else full-frame fallback.
+        """
+        global _face_cascade, _mtcnn_detector
+        try:
+            faces = None  # list of (x, y, w, h) in BGR-frame coords
+
+            # --- MTCNN (primary; works on RGB) ---
+            try:
+                if _mtcnn_detector is None:
+                    from mtcnn import MTCNN
+                    _mtcnn_detector = MTCNN()
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                detections = _mtcnn_detector.detect_faces(rgb)
+                boxes = [d["box"] for d in detections if d.get("confidence", 0) > 0.5]
+                if boxes:
+                    faces = [(int(x), int(y), int(w), int(h)) for x, y, w, h in boxes]
+            except Exception:
+                faces = None
+
+            # --- OpenCV Haar fallback ---
+            if faces is None:
+                if _face_cascade is None:
+                    if not _CASCADE_PATH.exists() or not hasattr(cv2, "CascadeClassifier"):
+                        return None, "no_face"  # no detector -> honest no-face, never guess
+                    _face_cascade = cv2.CascadeClassifier(str(_CASCADE_PATH))
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray = cv2.equalizeHist(gray)
+                raw = _face_cascade.detectMultiScale(
+                    gray, scaleFactor=1.1, minNeighbors=5,
+                    minSize=(int(frame.shape[1] * 0.08), int(frame.shape[0] * 0.08)),
+                )
+                faces = [tuple(map(int, f)) for f in raw] if len(raw) else []
+
+            if not faces:
+                return None, "no_face"
+
+            # Largest face by area
+            x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+            pad = int(0.25 * max(w, h))
+            x0, y0 = max(0, x - pad), max(0, y - pad)
+            x1 = min(frame.shape[1], x + w + pad)
+            y1 = min(frame.shape[0], y + h + pad)
+            crop = frame[y0:y1, x0:x1]
+            if crop.size == 0:
+                return None, "no_face"
+
+            # Quality gates -> specific hint instead of a guess
+            gray_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            brightness = float(gray_crop.mean())
+            if brightness < 45:
+                return crop, "too_dark"
+            if brightness > 225:
+                return crop, "too_bright"
+            if w < 60:
+                return crop, "too_small"
+            blur = float(cv2.Laplacian(gray_crop, cv2.CV_64F).var())
+            if blur < 30:
+                return crop, "blurry"
+            return crop, None
+        except Exception:
+            return None, "detection_error"
 
     # ---------- frame helpers ----------
 
@@ -135,10 +252,15 @@ class EmotionAnalysisAgent:
         Load and run the v7 EfficientNet-B0 model.
         Returns (emotion, confidence) or None if torch/model unavailable.
         """
+        full = self._detect_pytorch_full(frame)
+        if full is None:
+            return None
+        return full[0], full[1]
+
+    def _detect_pytorch_full(self, frame: np.ndarray):
+        """Returns (emotion, confidence, {label: prob}) or None."""
         try:
-            from pathlib import Path
             import torch
-            from torchvision import transforms, models
             from PIL import Image
 
             backend_root = Path(__file__).resolve().parents[2]
@@ -165,14 +287,19 @@ class EmotionAnalysisAgent:
 
             with torch.no_grad():
                 logits = self._pytorch_model(tensor)
-                probs = torch.softmax(logits, dim=1)[0]
-                top_idx = int(torch.argmax(probs).item())
+                probs_t = torch.softmax(logits, dim=1)[0]
+                top_idx = int(torch.argmax(probs_t).item())
                 emotion = V7_IDX_TO_CLASS.get(top_idx, "neutral").lower()
-                confidence = float(probs[top_idx].item())
+                confidence = float(probs_t[top_idx].item())
+                probs = {
+                    V7_IDX_TO_CLASS[i]: float(probs_t[i].item())
+                    for i in range(len(V7_IDX_TO_CLASS))
+                }
 
             return (
                 emotion if emotion in SUPPORTED_EMOTIONS else "neutral",
                 round(confidence, 3),
+                probs,
             )
 
         except ImportError:

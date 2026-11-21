@@ -350,7 +350,9 @@ export default function Sessions() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-lg font-bold">{session.title}</p>
-                  <p className="text-sm text-slate-500">{session.date} | {session.start_time} | {session.status}</p>
+                  <p className="text-sm text-slate-500">
+                    {session.date}{session.start_time ? ` · ${String(session.start_time).slice(0, 5)}` : ''} · <span className="capitalize font-semibold">{session.effective_status || session.status}</span>
+                  </p>
                   <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{session.description || t('sessions.noDescription')}</p>
                 </div>
                 <div className="flex flex-col items-end gap-2 shrink-0">

@@ -364,6 +364,45 @@ def export_session_csv(
     )
 
 
+@router.get("/reports/sessions/{session_id}/export.pdf")
+def export_session_pdf(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor")),
+):
+    from fastapi.responses import StreamingResponse
+    item = db.query(ClassSession).filter_by(id=session_id, instructor_id=user.id).first()
+    if not item:
+        raise HTTPException(404, "Session not found")
+    payload = _session_report_payload(db, item)
+    assessment = payload["data_assessment"]
+    from app.services.export import _pdf_doc
+    blocks = [
+        ("Session Summary", [
+            f"Title: {item.title}",
+            f"Date: {item.date}",
+            f"Status: {item.status}",
+            f"Attended Duration: {payload['attended_duration']} min",
+            f"Participants: {assessment['participants']}",
+            f"Emotion Samples: {assessment['emotion_samples']}",
+            f"Engagement Score: {payload['engagement_percentage']}%" if payload['engagement_percentage'] is not None else "Engagement: N/A",
+        ]),
+        ("Emotion Distribution", [
+            f"{emo.capitalize()}: {payload['emotion_distribution'].get(emo, 0.0)}%"
+            for emo in ("happy", "neutral", "sad", "angry", "surprise", "fear", "disgust")
+        ])
+    ]
+    if payload.get("ai_summary"):
+        blocks.append(("AI Teaching Recommendations", [payload["ai_summary"]]))
+    buf = _pdf_doc(f"Session Report — {item.title}", blocks)
+    filename = f"session-{session_id}-report.pdf"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/reports/sessions/{session_id}/students/{student_id}")
 def report_student_detail(
     session_id: int,

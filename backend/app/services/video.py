@@ -206,6 +206,155 @@ def enforce_script_quality(scenes: list[dict], duration_min: int, title: str) ->
 
 
 # ---------------------------------------------------------------------------
+# Sectioned narration script generation (outline -> per-section -> budgets)
+# ---------------------------------------------------------------------------
+
+def _section_count(duration_min: int) -> int:
+    return max(2, min(8, int(round(max(1, duration_min)))))
+
+
+def _llm_chat(prompt: str, task_type: str = "video", **kwargs) -> str:
+    from app.services.gemini import generate_content
+    return generate_content(prompt, task_type=task_type, **kwargs)
+
+
+def _llm_chat_json(prompt: str, task_type: str = "video") -> dict | list | None:
+    try:
+        from app.services.gemini import generate_json_any
+        return generate_json_any(prompt, task_type=task_type)
+    except Exception:
+        return None
+
+
+def _section_outline(title: str, prompt: str, duration_min: int, language: str,
+                     notes: str, n_sections: int, target: int) -> list[dict]:
+    """Step 1: ask the LLM for an outline of distinct section goals + budgets."""
+    budget_each = target // n_sections
+    raw = _llm_chat_json(f"""Create an outline for an educational video.
+Title: {title}
+Topic/prompt: {prompt or title}
+Language: {language}
+Target runtime: ~{duration_min} minutes, ~{target} words of narration total.
+Notes: {notes or 'none'}
+
+Produce exactly {n_sections} sections. Each section MUST cover a DISTINCT aspect — no overlap, no repeated points.
+Return ONLY valid JSON:
+{{"sections": [{{"title": "...", "goal": "one sentence on what this section teaches", "budget_words": {budget_each}}}, ...]}}
+Every budget_words must be between {int(budget_each*0.7)} and {int(budget_each*1.3)}.
+""", task_type="video")
+    sections = []
+    if isinstance(raw, dict):
+        sections = raw.get("sections") or []
+    elif isinstance(raw, list):
+        sections = raw
+    out = []
+    for i, s in enumerate(sections[:n_sections]):
+        if not isinstance(s, dict):
+            continue
+        try:
+            budget = int(s.get("budget_words") or budget_each)
+        except (TypeError, ValueError):
+            budget = budget_each
+        budget = max(20, min(budget, int(budget_each * 1.5)))
+        out.append({
+            "title": str(s.get("title") or f"Section {i+1}")[:120],
+            "goal": str(s.get("goal") or "")[:300],
+            "budget_words": budget,
+        })
+    # Pad/truncate to exactly n_sections with sensible defaults
+    while len(out) < n_sections:
+        out.append({"title": f"Section {len(out)+1}", "goal": "", "budget_words": budget_each})
+    return out[:n_sections]
+
+
+def _gen_section_text(section: dict, outline: list[dict], index: int,
+                      running_summary: str, title: str, language: str) -> str:
+    """Step 2: generate one section's narration within its word budget.
+    One corrective expand/condense retry if outside ±15%."""
+    target = section["budget_words"]
+    outline_txt = "\n".join(f"- {s['title']}: {s['goal']}" for s in outline)
+    prev = f"Already covered (do NOT repeat):\n{running_summary}\n\n" if running_summary else ""
+    base_prompt = f"""Write the narration script for ONE section of an educational video titled "{title}".
+Language: {language}
+Section {index+1}/{len(outline)}: "{section['title']}" — goal: {section['goal'] or 'teach the key concept'}
+Full outline (context only — do NOT cover other sections' content):
+{outline_txt}
+{prev}Rules:
+- Write spoken-style narration of approximately {target} words (acceptable range {int(target*0.85)}-{int(target*1.15)}).
+- Plain text only, no headings, no markdown, no stage directions.
+- Do not repeat or restate content from earlier sections.
+Return ONLY the narration text."""
+    text = (_llm_chat(base_prompt, task_type="video",
+                      max_output_tokens=max(600, target * 3), timeout=180) or "").strip()
+    words = _count_words(text)
+    if not (int(target * 0.85) <= words <= int(target * 1.15)) and words > 0:
+        direction = "expand" if words < target else "condense"
+        fix_prompt = f"""Rewrite the narration below to be approximately {target} words ({direction} needed; acceptable {int(target*0.85)}-{int(target*1.15)} words). Keep the same topic and spoken style. Plain text only.
+
+NARRATION:
+{text}"""
+        try:
+            fixed = (_llm_chat(fix_prompt, task_type="video",
+                               max_output_tokens=max(600, target * 3), timeout=180) or "").strip()
+            if _count_words(fixed) > 0:
+                text = fixed
+        except Exception:
+            pass
+    return text
+
+
+def generate_sectioned_scenes(title: str, prompt: str, duration_min: int,
+                              language: str, notes: str = "",
+                              slides: list[dict] | None = None) -> list[dict]:
+    """
+    Generate the video script in sections: outline -> per-section narration
+    with word budgets and a running summary. Returns scene dicts compatible
+    with the rest of the pipeline. Raises GeminiError (typed code) when all
+    providers are exhausted; raises VideoStageError on unrecoverable length.
+    """
+    target = _target_words(duration_min)
+    n = _section_count(duration_min)
+    outline = _section_outline(title, prompt, duration_min, language, notes, n, target)
+
+    scenes: list[dict] = []
+    summary_parts: list[str] = []
+    for i, section in enumerate(outline):
+        text = _gen_section_text(section, outline, i,
+                                 "\n".join(summary_parts[-3:]), title, language)
+        if not text:
+            raise VideoStageError("script_generation", "EMPTY_SECTION",
+                                  f"Section '{section['title']}' produced no narration. Please try again.")
+        slide = (slides[i] if slides and i < len(slides) else {}) or {}
+        scenes.append({
+            "title": section["title"],
+            "narration": text,
+            "content": slide.get("content") or text[:600],
+            "highlight": slide.get("diagram") or slide.get("highlight") or "",
+            "bullets": _split_bullets(slide.get("content") or text),
+            "duration_seconds": DEFAULT_SCENE_SECONDS,
+        })
+        # running summary = first ~25 words of each finished section
+        summary_parts.append(f"{section['title']}: {' '.join(text.split()[:25])}…")
+
+    # Anti-repetition: drop near-duplicate sections deterministically
+    dups = find_duplicate_scene_pairs(scenes)
+    if dups:
+        drop = {j for _, j, _ in dups}
+        scenes = [s for i, s in enumerate(scenes) if i not in drop]
+
+    # Final gate: total must be within ±tolerance of target
+    total = _scenes_word_count(scenes)
+    if not _within_tolerance(total, target):
+        raise VideoStageError(
+            "script_generation", "LENGTH_OUT_OF_TOLERANCE",
+            f"Generated script is ~{total} words but a {duration_min}-minute video needs "
+            f"~{target} words (±{int(get_settings().video_script_tolerance * 100)}%). "
+            "Please try again or choose a shorter duration.",
+        )
+    return scenes
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -623,65 +772,87 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
     lang = lesson.get("language") or "English"
     lang_code = _lang_code(lang)
 
-    # Build scenes with per-scene duration_seconds
-    scenes: list[dict] = []
-    for index, slide in enumerate(slides):
-        content = slide.get("content") or ""
-        scenes.append({
-            "title": slide.get("title") or f"Slide {index + 1}",
-            "narration": content,
-            "content": content,
-            "highlight": slide.get("diagram") or "",
-            "bullets": _split_bullets(content),
-            "duration_seconds": DEFAULT_SCENE_SECONDS,
-        })
-
-    if not scenes:
-        script = lesson.get("script") or title
-        for index, chunk in enumerate(script.split("\n\n")[:6]):
-            scenes.append({
-                "title": f"Part {index + 1}",
-                "narration": chunk,
-                "content": chunk,
-                "bullets": _split_bullets(chunk),
-                "duration_seconds": DEFAULT_SCENE_SECONDS,
-            })
-
-    # Pad scenes ONLY with distinct, not-yet-used script parts — never cycle
-    # back to earlier content (that produced repeated paragraphs).
-    target_count = max(4, duration_min)
-    if len(scenes) < target_count:
-        script_parts = [
-            part.strip()
-            for part in re.split(r"(?<=[.!?])\s+", lesson.get("script") or "")
-            if len(part.strip()) > 24
-        ]
-        used = {_normalize_narration(s.get("narration") or s.get("content") or "") for s in scenes}
-        for part in script_parts:
-            if len(scenes) >= target_count:
-                break
-            norm = _normalize_narration(part)
-            if norm in used:
-                continue
-            used.add(norm)
-            scenes.append({
-                "title": f"Deep Dive {len(scenes) + 1}",
-                "narration": part,
-                "content": part,
-                "highlight": "",
-                "bullets": _split_bullets(part),
-                "duration_seconds": DEFAULT_SCENE_SECONDS,
-            })
-
-    # Script quality gate: word-count vs duration target + anti-repetition.
-    # Raises VideoStageError(stage="script_generation") when it cannot be fixed.
+    # Preferred path: dedicated sectioned narration script (outline -> per-
+    # section budgets -> running summary). Falls back to slide-derived scenes
+    # only when the script service itself is unavailable.
+    scenes: list[dict] | None = None
+    script_warnings: list[str] = []
     try:
-        scenes, script_warnings = enforce_script_quality(scenes, duration_min, title)
+        scenes = generate_sectioned_scenes(
+            title=title,
+            prompt=lesson.get("prompt") or lesson.get("topic") or "",
+            duration_min=duration_min,
+            language=lang,
+            notes=lesson.get("notes") or "",
+            slides=slides,
+        )
     except VideoStageError:
         raise
     except Exception as exc:
-        raise VideoStageError("script_generation", "SCRIPT_VALIDATION_FAILED",
-                              f"Could not validate the generated script: {exc}") from exc
+        from app.services.gemini import GeminiError
+        if isinstance(exc, GeminiError):
+            raise VideoStageError("script_generation", exc.code, exc.user_message) from exc
+        scenes = None  # unexpected — fall back to slide-derived script
+
+    if scenes is None:
+        # Fallback path: derive scenes from lesson slides/script, then pad
+        # ONLY with distinct, not-yet-used script parts — never cycle back
+        # to earlier content (that produced repeated paragraphs).
+        scenes = []
+        for index, slide in enumerate(slides):
+            content = slide.get("content") or ""
+            scenes.append({
+                "title": slide.get("title") or f"Slide {index + 1}",
+                "narration": content,
+                "content": content,
+                "highlight": slide.get("diagram") or "",
+                "bullets": _split_bullets(content),
+                "duration_seconds": DEFAULT_SCENE_SECONDS,
+            })
+
+        if not scenes:
+            script = lesson.get("script") or title
+            for index, chunk in enumerate(script.split("\n\n")[:6]):
+                scenes.append({
+                    "title": f"Part {index + 1}",
+                    "narration": chunk,
+                    "content": chunk,
+                    "bullets": _split_bullets(chunk),
+                    "duration_seconds": DEFAULT_SCENE_SECONDS,
+                })
+
+        target_count = max(4, duration_min)
+        if len(scenes) < target_count:
+            script_parts = [
+                part.strip()
+                for part in re.split(r"(?<=[.!?])\s+", lesson.get("script") or "")
+                if len(part.strip()) > 24
+            ]
+            used = {_normalize_narration(s.get("narration") or s.get("content") or "") for s in scenes}
+            for part in script_parts:
+                if len(scenes) >= target_count:
+                    break
+                norm = _normalize_narration(part)
+                if norm in used:
+                    continue
+                used.add(norm)
+                scenes.append({
+                    "title": f"Deep Dive {len(scenes) + 1}",
+                    "narration": part,
+                    "content": part,
+                    "highlight": "",
+                    "bullets": _split_bullets(part),
+                    "duration_seconds": DEFAULT_SCENE_SECONDS,
+                })
+
+        # Script quality gate on the fallback path too.
+        try:
+            scenes, script_warnings = enforce_script_quality(scenes, duration_min, title)
+        except VideoStageError:
+            raise
+        except Exception as exc:
+            raise VideoStageError("script_generation", "SCRIPT_VALIDATION_FAILED",
+                                  f"Could not validate the generated script: {exc}") from exc
 
     # Distribute total duration evenly (each scene gets equal share)
     secs_per_scene = max(DEFAULT_SCENE_SECONDS, int((duration_min * 60) / max(len(scenes), 1)))

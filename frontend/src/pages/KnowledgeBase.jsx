@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertCircle, BookOpen, Brain, CheckCircle2, ChevronDown, ChevronRight,
   Database, Download, ExternalLink, Eye, FileText, Filter, Layers, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus,
-  RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, Upload, X, Zap
+  Paperclip, RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, Upload, X, Zap
 } from 'lucide-react'
 import { api } from '../services/api'
+import { normalizeSources } from '../utils/sources'
+import SearchInput from '../components/SearchInput'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const SUBJECTS = ['Mathematics', 'Physics', 'Chemistry', 'Biology', 'History',
@@ -470,6 +472,9 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
   const [convSearch, setConvSearch]       = useState('')
   const [sidebarOpen, setSidebarOpen]     = useState(false)
   const [listLoading, setListLoading]     = useState(false)
+  const [attachOpen, setAttachOpen]       = useState(false)
+  const [sourceList, setSourceList]       = useState([])
+  const [selectedSources, setSelectedSources] = useState([])
   const chatEndRef              = useRef(null)
 
   useEffect(() => {
@@ -489,6 +494,9 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
   }, [])
 
   useEffect(() => { loadConversations() }, [loadConversations])
+  useEffect(() => {
+    api('/rag/sources').then(d => setSourceList(Array.isArray(d) ? d : (d.sources || []))).catch(() => {})
+  }, [])
 
   async function openConversation(convId) {
     if (convId === activeConvId) { setSidebarOpen(false); return }
@@ -567,6 +575,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
           grade_level: grade || null,
           top_k: 5,
           source_file: scopedSource || null,
+          source_ids: selectedSources.length ? selectedSources : null,
           conversation_id: activeConvId,
           persist: true,
         }
@@ -602,7 +611,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
     !convSearch || (c.title || '').toLowerCase().includes(convSearch.toLowerCase()))
 
   return (
-    <div className="flex items-start gap-4">
+    <div className="flex items-start gap-4 h-[calc(100dvh-10rem)] min-h-0">
       {/* ── Conversation sidebar (desktop: inline, mobile: overlay) ── */}
       <aside className={`${sidebarOpen ? 'fixed inset-x-3 top-32 z-30 flex' : 'hidden'} lg:static lg:z-auto lg:flex w-full lg:w-64 shrink-0 flex-col gap-2`}>
         <div className="panel flex flex-col gap-2 p-3">
@@ -613,11 +622,8 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
               <Plus size={12} /> New
             </button>
           </div>
-          <div className="relative">
-            <Search size={13} className="absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input className="input w-full py-1.5 ps-8 text-xs" placeholder="Search chats…"
-              value={convSearch} onChange={(e) => setConvSearch(e.target.value)} />
-          </div>
+          <SearchInput value={convSearch} onChange={(e) => setConvSearch(e.target.value)}
+            placeholder="Search chats…" className="[&_input]:py-1.5 [&_input]:text-xs" />
           <div className="max-h-[55vh] space-y-1 overflow-y-auto">
             {listLoading && <p className="px-2 py-3 text-center text-xs text-slate-400"><Loader2 size={13} className="inline animate-spin" /></p>}
             {!listLoading && filteredConvs.length === 0 && (
@@ -646,7 +652,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
         </div>
       </aside>
 
-    <div className="panel flex flex-1 min-w-0 flex-col space-y-4 min-h-[500px]">
+    <div className="panel flex flex-1 min-w-0 flex-col gap-0 h-[calc(100dvh-10rem)] min-h-0">
       {/* Header & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
         <div className="flex items-center gap-3">
@@ -690,7 +696,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
       )}
 
       {/* Messages Feed */}
-      <div className="flex-1 space-y-4 overflow-y-auto max-h-[420px] p-2">
+      <div className="flex-1 space-y-4 overflow-y-auto p-2 min-h-0">
         {messages.map((m, idx) => (
           <div key={idx} className={`flex gap-3 ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
             {m.sender === 'ai' && (
@@ -712,10 +718,10 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
                     Grounded in {m.chunks_used} document chunk{m.chunks_used > 1 ? 's' : ''}:
                   </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {m.sources.map((s, i) => (
+                    {normalizeSources(m.sources).map((s, i) => (
                       <span key={i} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-medium text-slate-700 shadow-xs dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
                         <FileText size={11} className="text-teal-500" />
-                        {s.source_file} {s.page ? `(p.${s.page})` : ''}
+                        {s.label}{s.page != null ? ` (p.${s.page})` : ''}
                       </span>
                     ))}
                   </div>
@@ -757,8 +763,46 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
         </div>
       )}
 
+      {/* Selected source chips */}
+      {selectedSources.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pb-1">
+          {selectedSources.map((sid) => {
+            const src = sourceList.find(x => (x.source_id || x.source_file) === sid)
+            return (
+              <span key={sid} className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">
+                <FileText size={11} /> {src?.source_file || src?.filename || sid}
+                <button type="button" onClick={() => setSelectedSources(prev => prev.filter(x => x !== sid))} className="hover:text-red-500"><X size={11} /></button>
+              </span>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Attach-from-uploads picker */}
+      {attachOpen && (
+        <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 p-2 dark:border-slate-700">
+          {sourceList.length === 0 && <p className="px-2 py-3 text-xs text-slate-400">No uploaded sources yet.</p>}
+          {sourceList.map((src) => {
+            const sid = src.source_id || src.source_file
+            const checked = selectedSources.includes(sid)
+            return (
+              <label key={sid} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800">
+                <input type="checkbox" className="rounded" checked={checked}
+                  onChange={() => setSelectedSources(prev => checked ? prev.filter(x => x !== sid) : [...prev, sid])} />
+                <span className="truncate font-medium">{src.source_file || src.filename || sid}</span>
+                <span className="text-slate-400">{src.chunk_count ? `${src.chunk_count} chunks` : ''}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
+
       {/* Input Form */}
-      <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} className="flex items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+      <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} className="flex shrink-0 items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+        <button type="button" onClick={() => setAttachOpen(o => !o)} title="Attach from uploaded files"
+          className={attachOpen || selectedSources.length ? 'bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}>
+          <Paperclip size={16} />
+        </button>
         <input
           id="qa-question"
           className="input flex-1 py-2.5"
@@ -969,11 +1013,8 @@ export default function KnowledgeBaseDashboard() {
         <div className="space-y-4">
           {/* Filter bar */}
           <div className="panel flex flex-wrap items-center gap-3">
-            <div className="relative flex-1 min-w-48">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input id="kb-search" className="input pl-9" placeholder="Search by filename, subject, topic…"
-                value={searchQ} onChange={(e) => setSearchQ(e.target.value)} />
-            </div>
+            <SearchInput id="kb-search" className="flex-1 min-w-48" value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)} placeholder="Search by filename, subject, topic…" />
             <div className="flex items-center gap-2">
               <Filter size={15} className="text-slate-400" />
               <select id="kb-filter-subject" className="input w-40" value={filterSubject} onChange={(e) => setFilter(e.target.value)}>

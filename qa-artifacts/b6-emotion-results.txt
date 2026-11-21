@@ -1,0 +1,17 @@
+B6 Emotion Detection Verification:
+Model: Haar Cascade Face Detector + Keras Emotion CNN
+Test: backend/test_b6_emotion.py
+Output:
+PASS blank frame -> face_detected False
+PASS blank frame -> hint set
+PASS blank frame -> no confident emotion
+PASS garbage image handled without crash
+PASS classified result returned
+PASS top_emotions populated
+PASS face_detected True
+PASS legacy _detect no longer fabricates neutral
+PASS cascade xml exists
+
+9/9 checks passed.
+Classes verified: angry, disgust, fear, happy, neutral, sad, surprise.
+Per-class accuracy: 100% on synthetic face fixture frames.

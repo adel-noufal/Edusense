@@ -2,27 +2,68 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff, Mic, MicOff, MessageCircle, Paperclip, RotateCcw, Square } from 'lucide-react'
 import MarkdownText from '../utils/markdown'
+import { normalizeSource, normalizeSources } from '../utils/sources'
 import { api, downloadAuthenticatedRequest, staticUrl } from '../services/api'
 import { downloadBlob, downloadText, flashcardsToHtml, lessonToMarkdown, downloadLessonAsDoc, downloadLessonAsHtml, downloadLessonAsPdf, downloadLessonAsPptxHtml, downloadQuizAsDoc, downloadQuizAsHtml, downloadQuizAsPdf, downloadFlashcardsAsDoc, downloadFlashcardsAsPdf } from '../utils/download'
 import { useLanguage } from '../context/LanguageContext'
 import { useGenerationJobs } from '../context/GenerationJobContext'
 import { SessionPickerFields, useInstructorSessions } from '../components/SessionPickerFields'
+import NumberField from '../components/NumberField'
+import PromptEnhancer from '../components/PromptEnhancer'
+
+// Download already-generated content as a real server-side file (pptx/pdf/docx/csv).
+async function postDownload(path, payload, filename) {
+  try {
+    await downloadAuthenticatedRequest(path, filename, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch (e) {
+    alert(e?.message || 'Download failed')
+  }
+}
 import { useToast } from '../context/ToastContext'
 
 const languages = ['English', 'Arabic', 'French', 'Spanish']
 const styles = ['Formal', 'Friendly', 'Interactive', 'Storytelling', 'Professional']
 const difficulties = ['Easy', 'Medium', 'Hard']
-const aiModels = ['Gemini 2.0 Flash (Internet Required)', 'Local Ollama - Mistral / Llama 3.2 (Offline)']
+const FALLBACK_AI_MODELS = ['Gemini (Internet Required)', 'Local Ollama - Mistral / Llama 3.2 (Offline)']
+let cachedModelOptions = null
 
-function checkInternetAndModel(selectedModel, setForm) {
+/** Fetch the backend's currently-healthy model list once; fall back to static labels. */
+function useAiModelOptions() {
+  const [options, setOptions] = useState(() => cachedModelOptions || FALLBACK_AI_MODELS)
+  useEffect(() => {
+    if (cachedModelOptions) {
+      setOptions(cachedModelOptions)
+      return
+    }
+    let cancelled = false
+    api('/ai/available-models')
+      .then((data) => {
+        const labels = (data?.models || []).map((m) => m.label).filter(Boolean)
+        if (labels.length) {
+          cachedModelOptions = labels
+          if (!cancelled) setOptions(labels)
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  return options
+}
+
+function checkInternetAndModel(selectedModel, setForm, options) {
   if (selectedModel && (selectedModel.includes('Gemini') || selectedModel.includes('Internet Required'))) {
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true
     if (!isOnline) {
+      const fallback = (options && options[options.length - 1]) || FALLBACK_AI_MODELS[1]
       if (setForm) {
-        setForm((prev) => ({ ...prev, model: aiModels[1] }))
+        setForm((prev) => ({ ...prev, model: fallback }))
       }
       alert("No Internet Connection\n\nGemini requires an active internet connection. Automatically switching your model to Local Ollama (Offline mode) to proceed.")
-      return aiModels[1]
+      return fallback
     }
   }
   return selectedModel
@@ -100,6 +141,7 @@ function useBackgroundGeneration(type) {
 
 export function LessonGenerator() {
   const { t } = useLanguage()
+  const aiModelOptions = useAiModelOptions()
   const [form, setForm] = useState({
     topic: 'Neural Networks',
     prompt: 'Teach beginners with examples',
@@ -109,11 +151,17 @@ export function LessonGenerator() {
     additional_notes: '',
     session_id: '',
     source_session_id: '',
-    model: aiModels[0],
+    model: aiModelOptions[0] || FALLBACK_AI_MODELS[0],
   })
   const [result, setResult] = useState(null)
   const [history, setHistory] = useState([])
   const { loading, error, setError, queue, job, clearCompletedJob } = useBackgroundGeneration('lesson')
+
+  useEffect(() => {
+    if (aiModelOptions.length && !aiModelOptions.includes(form.model)) {
+      setForm((prev) => ({ ...prev, model: aiModelOptions[0] }))
+    }
+  }, [aiModelOptions])
 
   async function loadHistory() {
     try {
@@ -134,7 +182,7 @@ export function LessonGenerator() {
 
   async function submit(e) {
     e.preventDefault()
-    checkInternetAndModel(form.model, setForm)
+    checkInternetAndModel(form.model, setForm, aiModelOptions)
     if (form.topic.trim().length < 3) {
       setError(t('ai.topicMin'))
       return
@@ -157,11 +205,14 @@ export function LessonGenerator() {
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_320px] items-start">
       <div className="space-y-6">
-        <ToolShell title={t('ai.lessonTitle')} icon={<Sparkles />} onSubmit={submit} loading={loading} error={error}>
+        <ToolShell title={t('ai.lessonTitle')} icon={<Sparkles />} onSubmit={submit} loading={loading} error={error} job={job}>
           <div className="grid gap-4 md:grid-cols-2">
-            <SelectField label="AI Model" value={form.model} options={aiModels} onChange={(value) => setForm({ ...form, model: value })} />
+            <SelectField label="AI Model" value={form.model} options={aiModelOptions} onChange={(value) => setForm({ ...form, model: value })} />
             <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
-            <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} />
+            <div className="md:col-span-2 space-y-2">
+              <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} />
+              <PromptEnhancer value={form.prompt} context={{ feature: 'lesson', topic: form.topic, language: form.language, style: form.teaching_style, duration: form.duration }} onAccept={(p) => setForm({ ...form, prompt: p })} />
+            </div>
             <SelectField label={t('ai.language')} value={form.language} options={languages} onChange={(value) => setForm({ ...form, language: value })} />
             <SelectField label={t('ai.style')} value={form.teaching_style} options={styles} onChange={(value) => setForm({ ...form, teaching_style: value })} />
             <Field label={t('ai.duration')} type="number" value={form.duration} onChange={(value) => setForm({ ...form, duration: Number(value) || 5 })} />
@@ -229,6 +280,7 @@ export function LessonGenerator() {
 
 export function FlashcardGenerator() {
   const { t } = useLanguage()
+  const aiModelOptions = useAiModelOptions()
   const [form, setForm] = useState({
     topic: 'Neural Networks',
     prompt: 'Focus on key definitions, formulas, and practical examples',
@@ -236,12 +288,18 @@ export function FlashcardGenerator() {
     language: 'English',
     session_id: '',
     source_session_id: '',
-    model: aiModels[0],
+    model: aiModelOptions[0] || FALLBACK_AI_MODELS[0],
   })
   const [result, setResult] = useState(null)
   const [flipped, setFlipped] = useState({})
   const [history, setHistory] = useState([])
   const { loading, error, setError, queue, job, clearCompletedJob } = useBackgroundGeneration('flashcard')
+
+  useEffect(() => {
+    if (aiModelOptions.length && !aiModelOptions.includes(form.model)) {
+      setForm((prev) => ({ ...prev, model: aiModelOptions[0] }))
+    }
+  }, [aiModelOptions])
 
   async function loadHistory() {
     try {
@@ -262,7 +320,7 @@ export function FlashcardGenerator() {
 
   async function submit(e) {
     e.preventDefault()
-    checkInternetAndModel(form.model, setForm)
+    checkInternetAndModel(form.model, setForm, aiModelOptions)
     if (form.topic.trim().length < 3) {
       setError(t('ai.topicMin'))
       return
@@ -286,14 +344,15 @@ export function FlashcardGenerator() {
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_320px] items-start">
       <div className="space-y-6">
-        <ToolShell title={t('ai.flashcardTitle')} icon={<Layers />} onSubmit={submit} loading={loading} error={error}>
+        <ToolShell title={t('ai.flashcardTitle')} icon={<Layers />} onSubmit={submit} loading={loading} error={error} job={job}>
           <div className="grid gap-4 md:grid-cols-2">
-            <SelectField label="AI Model" value={form.model} options={aiModels} onChange={(value) => setForm({ ...form, model: value })} />
+            <SelectField label="AI Model" value={form.model} options={aiModelOptions} onChange={(value) => setForm({ ...form, model: value })} />
             <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
             <Field label={t('ai.cardCount')} type="number" value={form.count} onChange={(value) => setForm({ ...form, count: value })} />
             <SelectField label={t('ai.language')} value={form.language} options={languages} onChange={(value) => setForm({ ...form, language: value })} />
             <div className="md:col-span-2">
               <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} textarea />
+              <PromptEnhancer value={form.prompt} context={{ feature: 'flashcards', topic: form.topic, language: form.language, count: form.count }} onAccept={(p) => setForm({ ...form, prompt: p })} />
             </div>
             <SessionPickerFields form={form} setForm={setForm} />
           </div>
@@ -315,7 +374,7 @@ export function FlashcardGenerator() {
                   prompt: h.prompt || h.data.prompt || '',
                   count: h.data.cards?.length || 10,
                   language: h.data.language || 'English',
-                  model: aiModels[0],
+                  model: aiModelOptions[0] || FALLBACK_AI_MODELS[0],
                 })
                 setFlipped({})
               }}
@@ -343,6 +402,7 @@ export function FlashcardGenerator() {
 
 export function QuizGenerator() {
   const { t } = useLanguage()
+  const aiModelOptions = useAiModelOptions()
   const [form, setForm] = useState({
     topic: 'Neural Networks',
     prompt: 'Focus on conceptual understanding and real-world applications',
@@ -350,7 +410,7 @@ export function QuizGenerator() {
     count: 5,
     session_id: '',
     source_session_id: '',
-    model: aiModels[0],
+    model: aiModelOptions[0] || FALLBACK_AI_MODELS[0],
   })
   const [result, setResult] = useState(null)
   const [answers, setAnswers] = useState({})
@@ -358,6 +418,12 @@ export function QuizGenerator() {
   const [history, setHistory] = useState([])
   const [publishModalQuiz, setPublishModalQuiz] = useState(null)
   const { loading, error, setError, queue, job, clearCompletedJob } = useBackgroundGeneration('quiz')
+
+  useEffect(() => {
+    if (aiModelOptions.length && !aiModelOptions.includes(form.model)) {
+      setForm((prev) => ({ ...prev, model: aiModelOptions[0] }))
+    }
+  }, [aiModelOptions])
 
   async function loadHistory() {
     try {
@@ -387,7 +453,7 @@ export function QuizGenerator() {
 
   async function submit(e) {
     e.preventDefault()
-    checkInternetAndModel(form.model, setForm)
+    checkInternetAndModel(form.model, setForm, aiModelOptions)
     if (form.topic.trim().length < 3) {
       setError(t('ai.topicMin'))
       return
@@ -415,6 +481,7 @@ export function QuizGenerator() {
     fullscreen_lock: false,
     camera_monitoring: false,
     due_date: '',
+    available_from: '',
     questions: [
       {
         question: '',
@@ -503,6 +570,13 @@ export function QuizGenerator() {
           if (!isNaN(d.getTime())) formattedDueDate = d.toISOString()
         } catch (_) {}
       }
+      let formattedAvailableFrom = null
+      if (manualForm.available_from && manualForm.available_from.trim()) {
+        try {
+          const d = new Date(manualForm.available_from)
+          if (!isNaN(d.getTime())) formattedAvailableFrom = d.toISOString()
+        } catch (_) {}
+      }
 
       const payload = {
         title: manualForm.title.trim(),
@@ -516,6 +590,7 @@ export function QuizGenerator() {
         fullscreen_lock: manualForm.fullscreen_lock,
         camera_monitoring: manualForm.camera_monitoring,
         due_date: formattedDueDate,
+        available_from: formattedAvailableFrom,
         questions: manualForm.questions.map((q) => ({
           question: q.question.trim(),
           type: q.type,
@@ -562,14 +637,15 @@ export function QuizGenerator() {
         </div>
 
         {creationMode === 'ai' ? (
-          <ToolShell title={t('ai.quizTitle')} icon={<FileQuestion />} onSubmit={submit} loading={loading} error={error}>
+          <ToolShell title={t('ai.quizTitle')} icon={<FileQuestion />} onSubmit={submit} loading={loading} error={error} job={job}>
             <div className="grid gap-4 md:grid-cols-2">
-              <SelectField label="AI Model" value={form.model} options={aiModels} onChange={(value) => setForm({ ...form, model: value })} />
+              <SelectField label="AI Model" value={form.model} options={aiModelOptions} onChange={(value) => setForm({ ...form, model: value })} />
               <Field label={t('ai.topic')} value={form.topic} onChange={(value) => setForm({ ...form, topic: value })} />
               <SelectField label={t('ai.difficulty')} value={form.difficulty} options={difficulties} onChange={(value) => setForm({ ...form, difficulty: value })} />
               <Field label={t('ai.questionCount')} type="number" value={form.count} onChange={(value) => setForm({ ...form, count: value })} />
               <div className="md:col-span-2">
                 <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} textarea />
+                <PromptEnhancer value={form.prompt} context={{ feature: 'quiz', topic: form.topic, difficulty: form.difficulty, count: form.count }} onAccept={(p) => setForm({ ...form, prompt: p })} />
               </div>
               <SessionPickerFields form={form} setForm={setForm} />
             </div>
@@ -678,7 +754,51 @@ export function QuizGenerator() {
                       />
                     </div>
 
-                    <div className="grid gap-2 sm:grid-cols-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Available From (optional)</label>
+                      <input
+                        type="datetime-local"
+                        className="input mt-1 w-full"
+                        value={manualForm.available_from}
+                        onChange={(e) => setManualForm({ ...manualForm, available_from: e.target.value })}
+                      />
+                    </div>
+
+                    {/* B10: Attached KB source chips */}
+          {attachedKbIds.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pb-1">
+              {attachedKbIds.map((sid) => {
+                const src = ragSources.find(x => (x.source_id || x.source_file) === sid)
+                return (
+                  <span key={sid} className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">
+                    <Database className="h-3 w-3" /> {src?.source_file || src?.filename || sid}
+                    <button type="button" onClick={() => setAttachedKbIds(prev => prev.filter(x => x !== sid))} className="hover:text-red-500"><X size={11} /></button>
+                  </span>
+                )
+              })}
+            </div>
+          )}
+
+          {/* B10: KB file attach picker */}
+          {attachKbOpen && (
+            <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 p-2 dark:border-slate-700">
+              {ragSources.length === 0 && <p className="px-2 py-3 text-xs text-slate-400">No uploaded KB sources yet.</p>}
+              {ragSources.map((src) => {
+                const sid = src.source_id || src.source_file
+                const checked = attachedKbIds.includes(sid)
+                return (
+                  <label key={sid} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <input type="checkbox" className="rounded" checked={checked}
+                      onChange={() => setAttachedKbIds(prev => checked ? prev.filter(x => x !== sid) : [...prev, sid])} />
+                    <span className="truncate font-medium">{src.source_file || src.filename || sid}</span>
+                    <span className="text-slate-400">{src.chunk_count ? `${src.chunk_count} chunks` : ''}</span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="grid gap-2 sm:grid-cols-3">
                       <label className="flex items-center gap-2 text-xs cursor-pointer">
                         <input
                           type="checkbox"
@@ -952,7 +1072,7 @@ export function QuizGenerator() {
                   count: h.questions?.length || 5,
                   session_id: h.session_id ? String(h.session_id) : '',
                   source_session_id: '',
-                  model: aiModels[0],
+                  model: aiModelOptions[0] || FALLBACK_AI_MODELS[0],
                 })
                 setAnswers({})
                 setRevealed({})
@@ -963,9 +1083,18 @@ export function QuizGenerator() {
                 <div className="min-w-0">
                   <span className="font-bold text-sm truncate block max-w-[180px]">{h.title}</span>
                   {h.is_exam && (
-                    <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
-                      <Shield size={9} /> Published Exam
-                    </span>
+                    <div className="mt-1 space-y-1">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                        <Shield size={9} /> Published Exam
+                      </span>
+                      {h.session_title && (
+                        <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                          Visible to {h.enrolled_student_count ?? 0} students in {h.session_title}
+                          {h.available_from ? ` · Available from ${new Date(h.available_from).toLocaleDateString()}` : ''}
+                          {h.due_date ? ` until ${new Date(h.due_date).toLocaleDateString()}` : ''}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="flex items-center gap-1">
@@ -1011,6 +1140,7 @@ export function QuizGenerator() {
 
 export function VideoLibrary() {
   const { t } = useLanguage()
+  const aiModelOptions = useAiModelOptions()
   const [form, setForm] = useState({
     title: 'Backpropagation Basics',
     prompt: 'Create a short educational video',
@@ -1020,11 +1150,17 @@ export function VideoLibrary() {
     notes: '',
     session_id: '',
     source_session_id: '',
-    model: aiModels[0],
+    model: aiModelOptions[0] || FALLBACK_AI_MODELS[0],
   })
   const [result, setResult] = useState(null)
   const [history, setHistory] = useState([])
   const { loading, error, setError, queue, job, clearCompletedJob } = useBackgroundGeneration('video')
+
+  useEffect(() => {
+    if (aiModelOptions.length && !aiModelOptions.includes(form.model)) {
+      setForm((prev) => ({ ...prev, model: aiModelOptions[0] }))
+    }
+  }, [aiModelOptions])
 
   async function loadHistory() {
     try {
@@ -1045,7 +1181,7 @@ export function VideoLibrary() {
 
   async function submit(e) {
     e.preventDefault()
-    checkInternetAndModel(form.model, setForm)
+    checkInternetAndModel(form.model, setForm, aiModelOptions)
     if (form.title.trim().length < 3) {
       setError(t('ai.titleMin'))
       return
@@ -1078,7 +1214,7 @@ export function VideoLibrary() {
         notes: detail.notes || '',
         session_id: '',
         source_session_id: '',
-        model: aiModels[0],
+        model: aiModelOptions[0] || FALLBACK_AI_MODELS[0],
       })
     } catch {
       setResult(item)
@@ -1088,11 +1224,14 @@ export function VideoLibrary() {
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_320px] items-start">
       <div className="space-y-6">
-        <ToolShell title={t('ai.videoTitle')} icon={<Video />} onSubmit={submit} loading={loading} error={error}>
+        <ToolShell title={t('ai.videoTitle')} icon={<Video />} onSubmit={submit} loading={loading} error={error} job={job}>
           <div className="grid gap-4 md:grid-cols-2">
-            <SelectField label="AI Model" value={form.model} options={aiModels} onChange={(value) => setForm({ ...form, model: value })} />
+            <SelectField label="AI Model" value={form.model} options={aiModelOptions} onChange={(value) => setForm({ ...form, model: value })} />
             <Field label={t('sessions.titleField')} value={form.title} onChange={(value) => setForm({ ...form, title: value })} />
-            <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} />
+            <div className="md:col-span-2 space-y-2">
+              <Field label={t('ai.prompt')} value={form.prompt} onChange={(value) => setForm({ ...form, prompt: value })} />
+              <PromptEnhancer value={form.prompt} context={{ feature: 'video', title: form.title, language: form.language, style: form.style, duration: form.duration }} onAccept={(p) => setForm({ ...form, prompt: p })} />
+            </div>
             <SelectField label={t('ai.language')} value={form.language} options={languages} onChange={(value) => setForm({ ...form, language: value })} />
             <SelectField label={t('ai.videoStyle')} value={form.style} options={styles} onChange={(value) => setForm({ ...form, style: value })} />
             <Field label={t('ai.duration')} type="number" value={form.duration} onChange={(value) => setForm({ ...form, duration: Number(value) || 5 })} />
@@ -1139,14 +1278,37 @@ export function VideoLibrary() {
   )
 }
 
-function ToolShell({ title, icon, onSubmit, loading, error, children }) {
+function ToolShell({ title, icon, onSubmit, loading, error, children, job }) {
   const { t } = useLanguage()
+  const pending = job?.status === 'pending'
+  const jobFailed = job?.status === 'error'
   return (
     <form className="panel space-y-5" onSubmit={onSubmit}>
       <div className="flex items-center gap-3 text-xl font-black">{icon}{title}</div>
-      {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">{error}</p>}
+      {error && (
+        <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200 space-y-2">
+          <p>{error}</p>
+          {jobFailed && (
+            <button type="button" className="btn-secondary text-xs" onClick={() => onSubmit({ preventDefault() {} })}>
+              Retry
+            </button>
+          )}
+        </div>
+      )}
       {children}
-      {loading && <p className="text-sm text-slate-500">{t('ai.working')}</p>}
+      {(loading || pending) && (
+        <div className="space-y-1">
+          <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-teal-500 transition-all duration-500"
+              style={{ width: `${Math.max(5, job?.progress || 5)}%` }}
+            />
+          </div>
+          <p className="text-sm text-slate-500">
+            {job?.stage || t('ai.working')}{job?.progress ? ` — ${job.progress}%` : ''}
+          </p>
+        </div>
+      )}
     </form>
   )
 }
@@ -1157,6 +1319,8 @@ function Field({ label, value, onChange, type = 'text', textarea = false }) {
       <span>{label}</span>
       {textarea ? (
         <textarea className="input min-h-28" value={value} onChange={(e) => onChange(e.target.value)} />
+      ) : type === 'number' ? (
+        <NumberField value={value} onChange={onChange} />
       ) : (
         <input className="input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
       )}
@@ -1194,11 +1358,11 @@ function LessonResult({ result, request }) {
           },
           {
             label: 'PowerPoint (.pptx)',
-            onClick: () => downloadLessonAsPptxHtml(lesson, `${slug}.pptx.html`),
+            onClick: () => postDownload('/ai/export/pptx', { title: lesson?.topic || 'Lesson', content: lesson }, `${slug}.pptx`),
           },
           {
             label: 'PDF Document (.pdf)',
-            onClick: () => downloadLessonAsPdf(lesson, slug),
+            onClick: () => postDownload('/ai/export/pdf', { title: lesson?.topic || 'Lesson', content: lesson }, `${slug}.pdf`),
           },
           {
             label: 'HTML (.html)',
@@ -1278,6 +1442,14 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
       return String(quiz.due_date).substring(0, 16)
     }
   })
+  const [availableFrom, setAvailableFrom] = useState(() => {
+    if (!quiz.available_from) return ''
+    try {
+      return new Date(quiz.available_from).toISOString().substring(0, 16)
+    } catch (_) {
+      return String(quiz.available_from).substring(0, 16)
+    }
+  })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -1299,6 +1471,15 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
           }
         } catch (_) {}
       }
+      let formattedAvailableFrom = null
+      if (availableFrom && availableFrom.trim()) {
+        try {
+          const parsed = new Date(availableFrom)
+          if (!isNaN(parsed.getTime())) {
+            formattedAvailableFrom = parsed.toISOString()
+          }
+        } catch (_) {}
+      }
 
       const payload = {
         session_id: sessionId ? Number(sessionId) : (quiz.session_id || null),
@@ -1308,13 +1489,19 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
         fullscreen_lock: fullscreenLock,
         camera_monitoring: cameraMonitoring,
         due_date: formattedDueDate,
+        available_from: formattedAvailableFrom,
         is_published: true,
       }
       const updated = await api(`/quizzes/${quiz.id}/publish-as-exam`, {
         method: 'POST',
         body: payload,
       })
-      toast.success(quiz.is_exam ? 'Exam settings updated successfully!' : 'Exam published successfully! Enrolled students can now take it from their Exams tab.')
+      const targetSession = sessions.find((s) => String(s.id) === String(sessionId || quiz.session_id))
+      const sessionLabel = targetSession ? targetSession.title : (updated.session_title || 'session')
+      const studentCount = updated.enrolled_student_count ?? 0
+      const availMsg = updated.available_from ? ` available from ${new Date(updated.available_from).toLocaleString()}` : ''
+      const dueMsg = updated.due_date ? ` until ${new Date(updated.due_date).toLocaleString()}` : ''
+      toast.success(`Visible to ${studentCount} students in session ${sessionLabel}${availMsg || dueMsg ? `,${availMsg}${dueMsg}` : ''}`)
       onPublished(updated)
       onClose()
     } catch (err) {
@@ -1365,6 +1552,11 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
           <div>
             <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Exam Due Date & Time</label>
             <input type="datetime-local" className="input mt-1 w-full" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Available From (optional — exam hidden before this time)</label>
+            <input type="datetime-local" className="input mt-1 w-full" value={availableFrom} onChange={(e) => setAvailableFrom(e.target.value)} />
           </div>
 
           <div className="space-y-2 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3.5 dark:border-slate-800 dark:bg-slate-800/40">
@@ -1429,8 +1621,9 @@ function QuizResult({ result, answers, revealed, onAnswer, onReveal, onPublishEx
         <div className="flex flex-wrap items-center gap-2">
           <DownloadBar
             items={[
-              { label: 'Word (.doc)', onClick: () => downloadQuizAsDoc(result, `${slug}.doc`) },
-              { label: 'PDF Document (.pdf)', onClick: () => downloadQuizAsPdf(result, slug) },
+              { label: 'Word (.docx)', onClick: () => postDownload('/ai/export/docx', { title: result.title, content: { title: result.title, questions: result.questions } }, `${slug}.docx`) },
+              { label: 'PDF Document (.pdf)', onClick: () => postDownload('/ai/export/pdf', { title: result.title, content: { title: result.title, questions: result.questions } }, `${slug}.pdf`) },
+              { label: 'JSON (.json)', onClick: () => downloadText(JSON.stringify(result, null, 2), `${slug}.json`, 'application/json') },
               { label: 'HTML (.html)', onClick: () => downloadQuizAsHtml(result, `${slug}.html`) },
             ]}
           />
@@ -1611,7 +1804,11 @@ function VideoResult({ result, initialForm, onReplace, onHistoryRefresh }) {
       <ResultHeader title={result.title || t('ai.videoReady')} subtitle={result.status} />
       <DownloadBar
         items={[
-          ...(mp4Url ? [{ label: t('ai.downloadMp4'), onClick: () => downloadStatic(mp4Url, `${(result.lesson?.topic || result.id || 'video').toString().replace(/\s+/g, '-').toLowerCase()}.mp4`) }] : []),
+          ...(mp4Url ? [{ label: t('ai.downloadMp4'), onClick: () => downloadStatic(mp4Url, `${(result.title || result.id || 'video').toString().replace(/\s+/g, '-').toLowerCase()}.mp4`) }] : []),
+          { label: 'Script (.docx)', onClick: () => downloadAuthenticatedRequest(`/ai/videos/${result.id}/script-docx`, `${(result.title || 'video').replace(/\s+/g, '-').toLowerCase()}-script.docx`) },
+          { label: 'Script (.pdf)', onClick: () => downloadAuthenticatedRequest(`/ai/videos/${result.id}/script-pdf`, `${(result.title || 'video').replace(/\s+/g, '-').toLowerCase()}-script.pdf`) },
+          { label: 'Subtitles (.srt)', onClick: () => downloadAuthenticatedRequest(`/ai/videos/${result.id}/subtitles-srt`, `${(result.title || 'video').replace(/\s+/g, '-').toLowerCase()}-subtitles.srt`) },
+          { label: 'Package (.zip)', onClick: () => downloadAuthenticatedRequest(`/ai/videos/${result.id}/download`, `${(result.title || 'video').replace(/\s+/g, '-').toLowerCase()}-package.zip`) },
         ]}
       />
       {result.fallback && (
@@ -1715,8 +1912,12 @@ function FlashcardResult({ result, request, flipped, onFlip }) {
             onClick: () => downloadFlashcardsAsDoc(result, `${slug}.doc`),
           },
           {
+            label: 'CSV / Anki (.csv)',
+            onClick: () => postDownload('/ai/export/csv', { title: result.title, content: result }, `${slug}.csv`),
+          },
+          {
             label: 'PDF Document (.pdf)',
-            onClick: () => downloadFlashcardsAsPdf(result, slug),
+            onClick: () => postDownload('/ai/export/pdf', { title: result.title, content: result }, `${slug}.pdf`),
           },
           { label: t('ai.downloadHtml'), onClick: () => downloadText(flashcardsToHtml(result), `${slug}.html`, 'text/html') },
         ]}
@@ -1816,6 +2017,9 @@ export function ChatbotGenerator() {
   const messagesEndRef = useRef(null)
   const abortRef = useRef(null)
   const pendingUserRef = useRef(null)
+  // B10: attach from KB files
+  const [attachKbOpen, setAttachKbOpen] = useState(false)
+  const [attachedKbIds, setAttachedKbIds] = useState([])
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -1957,6 +2161,8 @@ export function ChatbotGenerator() {
           grade_level: gradeLevel || undefined,
           file_context: fileContext || undefined,
           source_id: selectedSourceId || undefined,
+          // B10: multi-select KB source IDs
+          source_ids: attachedKbIds.length > 0 ? attachedKbIds : undefined,
         }
       })
 
@@ -2085,9 +2291,9 @@ export function ChatbotGenerator() {
   })()
 
   return (
-    <div className="flex flex-col gap-4 xl:flex-row xl:items-stretch">
+    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:h-[calc(100dvh-6rem)]">
       {/* History Sidebar */}
-      <aside className="panel flex w-full shrink-0 flex-col space-y-3 xl:w-64">
+      <aside className="panel flex w-full shrink-0 flex-col space-y-3 xl:w-64 xl:h-full xl:overflow-y-auto">
         <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-sm font-bold"><MessageCircle size={16} className="text-ocean dark:text-mint" /> Conversations</h2>
           <button className="btn-soft text-xs px-2.5 py-1.5" onClick={startNewConversation}>+ New</button>
@@ -2096,7 +2302,7 @@ export function ChatbotGenerator() {
         {!historyLoading && conversations.length === 0 && (
           <p className="text-xs text-slate-400 italic">No past conversations</p>
         )}
-        <div className="max-h-56 space-y-1 overflow-y-auto xl:max-h-none xl:flex-1">
+        <div className="max-h-56 space-y-1 overflow-y-auto xl:max-h-none xl:flex-1 xl:overflow-y-auto">
           {conversations.map(conv => (
             <div
               key={conv.conversation_id}
@@ -2115,7 +2321,7 @@ export function ChatbotGenerator() {
       </aside>
 
       {/* Main Chat Panel */}
-      <section className="panel flex min-h-[70vh] w-full flex-1 flex-col overflow-hidden xl:h-[calc(100dvh-9rem)]">
+      <section className="panel flex h-[calc(100dvh-8rem)] min-h-0 w-full flex-1 flex-col overflow-hidden">
         {/* Chat header */}
         <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-500 text-white shadow-sm">
@@ -2173,8 +2379,13 @@ export function ChatbotGenerator() {
                   <details className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                     <summary className="cursor-pointer select-none">Sources</summary>
                     <div className="mt-1 space-y-1">
-                      {msg.metadata.sources?.map((s, i) => (
-                        <div key={i} className="font-mono">{s}</div>
+                      {normalizeSources(msg.metadata.sources).map((s, i) => (
+                        <div key={i} className="font-mono">
+                          {s.url
+                            ? <a href={s.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-ocean">{s.label}</a>
+                            : s.label}
+                          {s.page != null ? ` (p.${s.page})` : ''}
+                        </div>
                       ))}
                       {msg.metadata.web_sources?.map((w, i) => (
                         <div key={i} className="font-mono">
@@ -2227,6 +2438,40 @@ export function ChatbotGenerator() {
               <button className="flex-shrink-0 text-blue-400 hover:text-blue-700" onClick={() => { setFileContext(null); setFileLabel(null) }}>✕</button>
             </div>
           )}
+          {/* B10: Attached KB source chips */}
+          {attachedKbIds.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pb-1">
+              {attachedKbIds.map((sid) => {
+                const src = ragSources.find(x => (x.source_id || x.source_file) === sid)
+                return (
+                  <span key={sid} className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">
+                    <Database className="h-3 w-3" /> {src?.source_file || src?.filename || sid}
+                    <button type="button" onClick={() => setAttachedKbIds(prev => prev.filter(x => x !== sid))} className="hover:text-red-500"><X size={11} /></button>
+                  </span>
+                )
+              })}
+            </div>
+          )}
+
+          {/* B10: KB file attach picker */}
+          {attachKbOpen && (
+            <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 p-2 dark:border-slate-700">
+              {ragSources.length === 0 && <p className="px-2 py-3 text-xs text-slate-400">No uploaded KB sources yet.</p>}
+              {ragSources.map((src) => {
+                const sid = src.source_id || src.source_file
+                const checked = attachedKbIds.includes(sid)
+                return (
+                  <label key={sid} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <input type="checkbox" className="rounded" checked={checked}
+                      onChange={() => setAttachedKbIds(prev => checked ? prev.filter(x => x !== sid) : [...prev, sid])} />
+                    <span className="truncate font-medium">{src.source_file || src.filename || sid}</span>
+                    <span className="text-slate-400">{src.chunk_count ? `${src.chunk_count} chunks` : ''}</span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+
           <div className="grid gap-2 sm:grid-cols-3">
             <input className="input text-sm" placeholder="Subject (optional)" value={subject} onChange={(e) => setSubject(e.target.value)} disabled={loading} />
             <input className="input text-sm" placeholder="Grade level (optional)" value={gradeLevel} onChange={(e) => setGradeLevel(e.target.value)} disabled={loading} />
@@ -2276,6 +2521,16 @@ export function ChatbotGenerator() {
                 {fileUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
               </button>
               <input ref={fileInputRef} type="file" className="hidden" accept=".txt,.md,.pdf,.docx,.csv" onChange={handleFileUpload} />
+              {/* B10: Attach from KB */}
+              <button
+                type="button"
+                className={`btn-soft h-10 w-10 justify-center p-0 ${attachKbOpen || attachedKbIds.length ? 'text-teal-600' : ''}`}
+                title="Attach from Knowledge Base"
+                disabled={loading}
+                onClick={() => setAttachKbOpen(o => !o)}
+              >
+                <Database className="h-4 w-4" />
+              </button>
               <button
                 type="button"
                 className="btn-primary flex h-10 w-10 items-center justify-center p-0"

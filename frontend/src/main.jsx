@@ -129,7 +129,9 @@ function App() {
       <AuthProvider>
         <ToastProvider>
           <GenerationJobProvider>
-            <RouterProvider router={router} />
+            <ErrorBoundary>
+              <RouterProvider router={router} />
+            </ErrorBoundary>
           </GenerationJobProvider>
         </ToastProvider>
       </AuthProvider>

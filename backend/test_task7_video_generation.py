@@ -123,7 +123,8 @@ def test_task7_video_generation():
         # Pin the corrective LLM pass off so the test is deterministic — the
         # fixture script is sized to the duration target on purpose.
         with patch("app.services.video._gtts_scene", side_effect=_mock_gtts_scene), \
-             patch("app.services.video._llm_adjust_scenes", return_value=None):
+             patch("app.services.video._llm_adjust_scenes", return_value=None), \
+             patch("app.services.video.generate_sectioned_scenes", return_value=None):
             result = generate_educational_video(99901, "Python Basics", fake_generation_data)
 
         check("returns dict", isinstance(result, dict))

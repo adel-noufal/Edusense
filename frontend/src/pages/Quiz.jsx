@@ -111,12 +111,23 @@ export default function Quiz() {
         // Set server start time for validation
         serverStartTimeRef.current = parseServerTime(attemptData.started_at)
 
-        // Set initial time remaining accounting for elapsed attempt time on resumption
+        // Set initial time remaining accounting for elapsed attempt time on resumption,
+        // and capping at the deadline min(timer end, deadline) exactly once (B13)
+        let computedRemaining = null
         if (quizData.time_limit_seconds) {
           const serverStart = parseServerTime(attemptData?.started_at)
           const elapsed = Math.max(0, Math.floor((Date.now() - serverStart) / 1000))
-          const remaining = Math.max(0, quizData.time_limit_seconds - elapsed)
-          setTimeRemaining(remaining)
+          computedRemaining = Math.max(0, quizData.time_limit_seconds - elapsed)
+        }
+        if (quizData.due_date) {
+          const deadlineTime = parseServerTime(quizData.due_date)
+          const remainingUntilDeadline = Math.max(0, Math.floor((deadlineTime - Date.now()) / 1000))
+          computedRemaining = computedRemaining != null
+            ? Math.min(computedRemaining, remainingUntilDeadline)
+            : remainingUntilDeadline
+        }
+        if (computedRemaining != null) {
+          setTimeRemaining(computedRemaining)
         }
 
         // Enable fullscreen lock if required.

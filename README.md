@@ -187,33 +187,82 @@ The student dashboard home page includes a self-contained **Emotion Recognition 
 
 ---
 
-## 🔄 Multi-Key × Multi-Model Rotation for Google Gemini
+## 🔄 Open-Ended Multi-Provider, Multi-Key LLM Layer (Part A)
 
-All AI features (video scripts, reports, recommendations, Knowledge Base chat, AI Chatbot, quizzes, flashcards, exams) share **one central Gemini client** — `backend/app/services/gemini.py`. There are no scattered direct Gemini calls.
+All AI features (video scripts, reports, recommendations, Knowledge Base chat, AI Chatbot, quizzes, flashcards, exams, question bank) route through **one central multi-provider router** — `backend/app/services/llm.py` (with transparent compatibility via `gemini.py`). Supports unlimited keys per provider, any number of providers, capability profiling, and best-fit routing.
 
-### ⚙️ Configuration
+### 🔑 Key Registry Naming Convention (Unlimited Keys & Hot-Add)
+You can configure **any number of keys** across any number of providers in `backend/.env` without code changes.
 
-```env
-# API keys — comma-separated or numbered variables (auto-discovered):
-EDUSENSE_GEMINI_API_KEY=AIzaSyA1...,AIzaSyB2...
-EDUSENSE_GEMINI_API_KEY_1=AIzaSyA1...
-EDUSENSE_GEMINI_API_KEY_2=AIzaSyB2...
-EDUSENSE_GEMINI_API_KEY_3=AIzaSyC3...
-# Optional dedicated chatbot key (uses the main pool if unset):
-EDUSENSE_CHATBOT_GEMINI_API_KEY=AIzaSyC4...
+1. **Pooled keys (comma-separated list)**:
+   ```env
+   <PROVIDER>_API_KEYS=key1,key2,key3
+   # Examples:
+   GROQ_API_KEYS=gsk_key1,gsk_key2
+   NVIDIA_API_KEYS=nvapi-key1,nvapi-key2
+   OPENROUTER_API_KEYS=sk-or-v1-key1,sk-or-v1-key2
+   DEEPINFRA_API_KEYS=sk-di-key1
+   CEREBRAS_API_KEYS=csk-key1
+   ```
+2. **Named & Feature-Dedicated keys**:
+   ```env
+   <PROVIDER>_KEY_<LABEL>=<key>
+   # Examples:
+   GEMINI_KEY_VIDEO_1=AIzaSy...       # Dedicated to video_script
+   GROQ_KEY_CHAT=gsk_...              # Dedicated to kb_chat/chatbot
+   NVIDIA_KEY_EXAM_PROD=nvapi-...     # Dedicated to quizzes/exams
+   ```
+3. **Full Backward Compatibility**:
+   Existing Gemini variables remain fully detected and supported:
+   ```env
+   GEMINI_API_KEY=AIzaSy...
+   EDUSENSE_GEMINI_API_KEY=AIzaSy...
+   GEMINI_API_KEY_1=AIzaSy..., GEMINI_API_KEY_2=...
+   CHATBOT_GEMINI_API_KEY=AIzaSy...   # Dedicated chatbot key
+   ```
+4. **Per-Key Metadata & Quota Groups**:
+   Keys from the same Google Cloud project or provider account share quota. Set quota groups to cool down together on 429 rate limits:
+   ```env
+   <PROVIDER>_KEY_<LABEL>_GROUP=<project_or_account_name>
+   <PROVIDER>_KEY_<LABEL>_FEATURE=<feature_name>
+   <PROVIDER>_KEY_<LABEL>_PRIORITY=<1..100>
+   # Legacy Gemini group mapping:
+   GEMINI_KEY_GROUPS=0:projectA,1:projectB,2:projectB
+   ```
 
-# Ordered model fallback chains (comma-separated, optional overrides):
-EDUSENSE_GEMINI_MODELS=gemini-2.5-flash,gemini-2.5-flash-lite,gemini-flash-latest
-EDUSENSE_GEMINI_MODELS_CHAT=gemini-2.5-flash,gemini-flash-latest
-EDUSENSE_GEMINI_MODELS_SCRIPT=gemini-2.5-flash,gemini-2.5-pro
-```
+### 🧠 Model Capability Profiles & Best-Fit Routing
+Every model profile (`backend/app/core/llm_config.json`) defines verified specs: context window, max output tokens, latency/speed tier, Arabic quality, strict-JSON reliability, streaming, free RPM/RPD, and privacy flags (`may_train_on_data`).
 
-### 🛡️ Rotation & Failover Mechanics
-1. **Key × Model pairs**: the rotator iterates `(key, model)` combinations — keys round-robin first, then the next model in the task's chain.
-2. **Failure classes**: 429/quota, 503/overloaded, timeouts, and model-not-found put that pair on a cooldown (honors `retry-after`, else exponential backoff with jitter). 400/invalid-request and safety blocks are surfaced immediately — never retried.
-3. **Typed errors**: when every combination is exhausted, callers get a `GeminiError` with a machine-readable code (`QUOTA_EXHAUSTED`, `MODEL_UNAVAILABLE`, `SAFETY_BLOCKED`, `TIMEOUT`, `INVALID_RESPONSE`, ...).
-4. **Observability**: server logs record which key index (masked to last 4 chars) and model served each request, latency, and failures. `GET /api/ai/gemini-health` reports per-pair health for diagnostics.
-5. **Task chains**: `chat` uses the fast/cheap chain; long-form `script`/`report` tasks use the stronger chain; everything else uses `EDUSENSE_GEMINI_MODELS`.
+| Feature | Primary Requirements | Default Best-Fit Preference Chain |
+|---|---|---|
+| **`video_script`** | Long output + long context + high Arabic quality + coherence | **Gemini (dedicated keys)** > Other Gemini > Long-context OpenRouter / NVIDIA |
+| **`kb_chat` / `chatbot`** | Low latency + streaming + good Arabic + moderate context | **Groq (ultra-fast speed)** > Gemini > OpenRouter / NVIDIA |
+| **`quizzes` / `flashcards` / `exams`** | Reliable strict JSON, short outputs, high throughput | **NVIDIA / OpenRouter / DeepInfra / Groq** (JSON throughput) > Gemini |
+| **`reports` / `recommendations`** | Strict JSON + analytical reasoning, deterministic (`temp=0.2`) | **Gemini Flash** > Groq > NVIDIA |
+| **`question_bank`** | Bulk volume + JSON reliability + Arabic/English + verification | **Groq / Cerebras** (bulk volume) + Gemini (Arabic-heavy) *(Validation uses divergent provider)* |
+
+### 🛡️ Routing Rules & Self-Healing
+* **Dedicated keys**: A key tagged for a feature (e.g. video) is prioritized first for that feature, and acts only as last-resort spillover for other tasks to prevent quota draining.
+* **Strict-JSON features**: Validates schema and performs one automatic syntax repair (markdown strip, trailing comma fix) or fast re-prompt repair before rotating.
+* **Verification divergence**: Question-bank verification tasks use `exclude_provider` to guarantee verification by a *different* provider than the generator.
+* **Privacy protection**: Features touching student data reject models flagged `may_train_on_data=true`.
+* **Failure classification**: 429/quota and timeouts trigger backoff + jitter cooling down the whole quota group. 400 bad syntax / safety blocks raise immediately without retrying.
+
+### 🩺 Visibility & Diagnostics
+* **CLI Diagnostic Command**:
+  ```bash
+  # View masked keys, quota groups, availability, and routing chains:
+  python backend/scripts/llm_diagnostic.py
+
+  # Test connectivity & validate every key live:
+  python backend/scripts/llm_diagnostic.py --test-all
+  ```
+* **Admin REST Endpoints**:
+  - `GET /api/admin/llm-status`: Current key pool, health, quota groups, daily usage, and active chains.
+  - `POST /api/admin/llm-test`: On-demand live probe test of all keys.
+* **Per-Request Operational Logs**:
+  `[LLM] feature=video_script provider=gemini model=gemini-2.5-flash key=...SjNg latency=1.24s outcome=SUCCESS`
+* **Adding a Provider**: Add adapter spec to `backend/app/core/llm_config.json` (`base_url`, `auth_style`, `default_models`). OpenAI-compatible providers share the generic adapter with zero Python code changes.
 
 ### 🎬 Video generation tuning
 ```env

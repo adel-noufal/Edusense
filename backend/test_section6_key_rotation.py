@@ -183,9 +183,10 @@ def test_section6():
                 check("5.1 generate_content rotates past 429 to succeed with Key 2",
                       res_text == "Hello from Gemini Key 2!",
                       f"Got: {res_text}")
+                gen_calls = [u for u in call_log if "generateContent" in u]
                 check("5.2 Both keys attempted in order",
-                      len(call_log) == 2 and "FailKey_1111" in call_log[0] and "SuccessKey_2222" in call_log[1],
-                      f"Call log: {call_log}")
+                      len(gen_calls) == 2 and "FailKey_1111" in gen_calls[0] and "SuccessKey_2222" in gen_calls[1],
+                      f"Call log: {gen_calls}")
             except Exception as exc:
                 check("5.1 generate_content rotation failed", False, str(exc))
 

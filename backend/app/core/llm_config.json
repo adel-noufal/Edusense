@@ -1,0 +1,504 @@
+{
+  "providers": {
+    "gemini": {
+      "name": "gemini",
+      "kind": "gemini",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "auth_style": "query_param",
+      "default_models": [
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-flash-latest",
+        "gemini-2.5-pro"
+      ]
+    },
+    "groq": {
+      "name": "groq",
+      "kind": "openai",
+      "base_url": "https://api.groq.com/openai/v1",
+      "auth_style": "bearer",
+      "default_models": [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "openai/gpt-oss-120b",
+        "qwen/qwen3.8-27b",
+        "openai/gpt-oss-20b"
+      ]
+    },
+    "cerebras": {
+      "name": "cerebras",
+      "kind": "openai",
+      "base_url": "https://api.cerebras.ai/v1",
+      "auth_style": "bearer",
+      "default_models": [
+        "llama-3.3-70b",
+        "llama3.1-8b"
+      ]
+    },
+    "openrouter": {
+      "name": "openrouter",
+      "kind": "openai",
+      "base_url": "https://openrouter.ai/api/v1",
+      "auth_style": "bearer",
+      "default_models": [
+        "meta-llama/llama-3.3-70b-instruct",
+        "google/gemini-2.0-flash-001",
+        "deepseek/deepseek-chat",
+        "openai/gpt-4o-mini",
+        "qwen/qwen-2.5-72b-instruct"
+      ]
+    },
+    "nvidia": {
+      "name": "nvidia",
+      "kind": "openai",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "auth_style": "bearer",
+      "default_models": [
+        "meta/llama-3.3-70b-instruct",
+        "deepseek-ai/deepseek-v3.1",
+        "qwen/qwen2.5-72b-instruct",
+        "deepseek-ai/deepseek-r1"
+      ]
+    },
+    "deepinfra": {
+      "name": "deepinfra",
+      "kind": "openai",
+      "base_url": "https://api.deepinfra.com/v1/openai",
+      "auth_style": "bearer",
+      "default_models": [
+        "meta-llama/Meta-Llama-3.1-70B-Instruct",
+        "Qwen/Qwen2.5-72B-Instruct",
+        "deepseek-ai/DeepSeek-V3"
+      ]
+    }
+  },
+  "model_profiles": {
+    "gemini": {
+      "gemini-2.5-flash": {
+        "context_window": 1048576,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 15,
+        "free_rpd": 1500,
+        "free_tpm": 1000000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "gemini-2.5-flash-lite": {
+        "context_window": 1048576,
+        "max_output_tokens": 8192,
+        "speed": "ultra",
+        "arabic_quality": "medium-high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 1500,
+        "free_tpm": 1000000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "gemini-2.0-flash": {
+        "context_window": 1048576,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 15,
+        "free_rpd": 1500,
+        "free_tpm": 1000000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "gemini-flash-latest": {
+        "context_window": 1048576,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 15,
+        "free_rpd": 1500,
+        "free_tpm": 1000000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "gemini-2.5-pro": {
+        "context_window": 2097152,
+        "max_output_tokens": 8192,
+        "speed": "medium",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 2,
+        "free_rpd": 50,
+        "free_tpm": 32000,
+        "cost": "free",
+        "may_train_on_data": false
+      }
+    },
+    "groq": {
+      "llama-3.3-70b-versatile": {
+        "context_window": 128000,
+        "max_output_tokens": 32768,
+        "speed": "ultra",
+        "arabic_quality": "medium-high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 6000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "llama-3.1-8b-instant": {
+        "context_window": 128000,
+        "max_output_tokens": 8192,
+        "speed": "ultra",
+        "arabic_quality": "medium",
+        "json_reliability": "medium-high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 20000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "openai/gpt-oss-120b": {
+        "context_window": 8192,
+        "max_output_tokens": 4096,
+        "speed": "ultra",
+        "arabic_quality": "medium",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 10000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "qwen/qwen3.8-27b": {
+        "context_window": 32768,
+        "max_output_tokens": 4096,
+        "speed": "ultra",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 10000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "openai/gpt-oss-20b": {
+        "context_window": 8192,
+        "max_output_tokens": 2048,
+        "speed": "ultra",
+        "arabic_quality": "medium",
+        "json_reliability": "medium",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 10000,
+        "cost": "free",
+        "may_train_on_data": false
+      }
+    },
+    "cerebras": {
+      "llama-3.3-70b": {
+        "context_window": 8192,
+        "max_output_tokens": 8192,
+        "speed": "ultra",
+        "arabic_quality": "medium-high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 60000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "llama3.1-8b": {
+        "context_window": 8192,
+        "max_output_tokens": 8192,
+        "speed": "ultra",
+        "arabic_quality": "medium",
+        "json_reliability": "medium-high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 60000,
+        "cost": "free",
+        "may_train_on_data": false
+      }
+    },
+    "nvidia": {
+      "meta/llama-3.3-70b-instruct": {
+        "context_window": 128000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "medium-high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 5000,
+        "free_tpm": 20000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "deepseek-ai/deepseek-v3.1": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 5000,
+        "free_tpm": 20000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "qwen/qwen2.5-72b-instruct": {
+        "context_window": 32768,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 5000,
+        "free_tpm": 20000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "deepseek-ai/deepseek-r1": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "medium",
+        "arabic_quality": "high",
+        "json_reliability": "medium-high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 5000,
+        "free_tpm": 20000,
+        "cost": "free",
+        "may_train_on_data": false
+      }
+    },
+    "openrouter": {
+      "meta-llama/llama-3.3-70b-instruct": {
+        "context_window": 131072,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "medium-high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 1000,
+        "free_tpm": 15000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "google/gemini-2.0-flash-001": {
+        "context_window": 1048576,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 1000,
+        "free_tpm": 15000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "deepseek/deepseek-chat": {
+        "context_window": 64000,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 1000,
+        "free_tpm": 15000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "openai/gpt-4o-mini": {
+        "context_window": 128000,
+        "max_output_tokens": 16384,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 1000,
+        "free_tpm": 15000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "qwen/qwen-2.5-72b-instruct": {
+        "context_window": 32768,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 1000,
+        "free_tpm": 15000,
+        "cost": "free",
+        "may_train_on_data": false
+      }
+    },
+    "deepinfra": {
+      "meta-llama/Meta-Llama-3.1-70B-Instruct": {
+        "context_window": 128000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "medium-high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 3000,
+        "free_tpm": 20000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "Qwen/Qwen2.5-72B-Instruct": {
+        "context_window": 32768,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 3000,
+        "free_tpm": 20000,
+        "cost": "free",
+        "may_train_on_data": false
+      },
+      "deepseek-ai/DeepSeek-V3": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 3000,
+        "free_tpm": 20000,
+        "cost": "free",
+        "may_train_on_data": false
+      }
+    }
+  },
+  "feature_requirements": {
+    "video_script": {
+      "min_context": 16000,
+      "min_output": 2500,
+      "min_arabic_quality": "high",
+      "coherence_needed": true,
+      "strict_json": false,
+      "provider_affinity": ["gemini", "openrouter", "nvidia"],
+      "description": "Long output + long context + high Arabic quality + coherence"
+    },
+    "kb_chat": {
+      "min_context": 8000,
+      "min_output": 1000,
+      "min_arabic_quality": "medium",
+      "speed_priority": "high",
+      "streaming_preferred": true,
+      "strict_json": false,
+      "provider_affinity": ["groq", "gemini", "openrouter", "nvidia"],
+      "description": "Low latency + streaming + good Arabic + moderate context"
+    },
+    "chatbot": {
+      "min_context": 8000,
+      "min_output": 1000,
+      "min_arabic_quality": "medium",
+      "speed_priority": "high",
+      "streaming_preferred": true,
+      "strict_json": false,
+      "provider_affinity": ["groq", "gemini", "openrouter", "nvidia"],
+      "description": "Low latency + streaming + good Arabic + moderate context"
+    },
+    "quizzes": {
+      "min_context": 4000,
+      "min_output": 1500,
+      "strict_json": true,
+      "throughput_priority": "high",
+      "provider_affinity": ["nvidia", "openrouter", "deepinfra", "groq", "gemini"],
+      "description": "Reliable strict JSON, short outputs, high throughput"
+    },
+    "flashcards": {
+      "min_context": 4000,
+      "min_output": 1500,
+      "strict_json": true,
+      "throughput_priority": "high",
+      "provider_affinity": ["nvidia", "openrouter", "deepinfra", "groq", "gemini"],
+      "description": "Reliable strict JSON, short outputs, high throughput"
+    },
+    "exams": {
+      "min_context": 8000,
+      "min_output": 2500,
+      "strict_json": true,
+      "throughput_priority": "high",
+      "provider_affinity": ["nvidia", "openrouter", "deepinfra", "groq", "gemini"],
+      "description": "Reliable strict JSON, structured schema, high throughput"
+    },
+    "reports": {
+      "min_context": 8000,
+      "min_output": 2000,
+      "strict_json": true,
+      "analytical_reasoning": true,
+      "deterministic": true,
+      "default_temperature": 0.2,
+      "provider_affinity": ["gemini", "groq", "nvidia"],
+      "description": "Strict JSON + analytical reasoning, deterministic (low temp)"
+    },
+    "recommendations": {
+      "min_context": 8000,
+      "min_output": 2000,
+      "strict_json": true,
+      "analytical_reasoning": true,
+      "deterministic": true,
+      "default_temperature": 0.2,
+      "provider_affinity": ["gemini", "groq", "nvidia"],
+      "description": "Strict JSON + analytical reasoning, deterministic"
+    },
+    "question_bank": {
+      "min_context": 12000,
+      "min_output": 2000,
+      "bulk_volume": true,
+      "strict_json": true,
+      "min_arabic_quality": "high",
+      "answer_verification": true,
+      "provider_affinity": ["groq", "cerebras", "gemini"],
+      "verification_provider_affinity": ["gemini", "nvidia", "openrouter"],
+      "description": "Bulk volume + JSON reliability + Arabic/English/Mixed + answer verification"
+    },
+    "prompt_enhance": {
+      "min_context": 4000,
+      "min_output": 1000,
+      "strict_json": false,
+      "speed_priority": true,
+      "min_arabic_quality": "high",
+      "provider_affinity": ["groq", "gemini", "nvidia", "openrouter"],
+      "description": "Fast low-latency prompt rewriting preserving language, duration and counts"
+    },
+    "general": {
+      "min_context": 4000,
+      "min_output": 1000,
+      "strict_json": false,
+      "provider_affinity": ["gemini", "groq", "openrouter", "nvidia", "deepinfra", "cerebras"],
+      "description": "General task fallback"
+    }
+  }
+}

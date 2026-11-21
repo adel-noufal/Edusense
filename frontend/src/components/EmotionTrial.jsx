@@ -29,6 +29,9 @@ export default function EmotionTrial() {
   const [error, setError] = useState('')
   const [consentOpen, setConsentOpen] = useState(false)
   const [camErrorKind, setCamErrorKind] = useState('') // 'denied' | 'in_use' | 'unavailable' | ''
+  const [cameras, setCameras] = useState([])
+  const [cameraId, setCameraId] = useState(() => localStorage.getItem('edusense_camera_id') || '')
+  const historyRef = useRef([]) // last N per-frame probability vectors for smoothing
 
   function cameraErrorMessage(err) {
     const name = err?.name || ''
@@ -89,8 +92,29 @@ export default function EmotionTrial() {
     }
   }
 
+  // Enumerate cameras once permission is granted (labels need an active stream)
+  useEffect(() => {
+    if (!active || !navigator.mediaDevices?.enumerateDevices) return
+    navigator.mediaDevices.enumerateDevices()
+      .then((devices) => {
+        const cams = devices.filter((d) => d.kind === 'videoinput')
+        setCameras(cams)
+        if (cams.length && !cams.some((c) => c.deviceId === cameraId)) {
+          setCameraId(cams[0].deviceId)
+        }
+      })
+      .catch(() => {})
+  }, [active])
+
   async function acquireCamera() {
-    const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 } })
+    const constraints = {
+      video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        ...(cameraId ? { deviceId: { exact: cameraId } } : {}),
+      },
+    }
+    const mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
     streamRef.current = mediaStream
     setStream(mediaStream)
     setActive(true)
@@ -140,7 +164,7 @@ export default function EmotionTrial() {
       canvas.getContext('2d').drawImage(video, 0, 0, 320, 240)
       const image = canvas.toDataURL('image/jpeg', 0.7)
       const res = await api('/emotions/analyze-trial', { method: 'POST', body: { image } })
-      setResult(res)
+      setResult(smoothResult(res))
       setError('')
     } catch (err) {
       if (showResult) setError(err.message || 'Analysis failed.')
@@ -150,7 +174,48 @@ export default function EmotionTrial() {
     }
   }
 
-  const colorClass = EMOTION_COLORS[(result?.emotion || '').toLowerCase()] || EMOTION_COLORS.neutral
+  // Temporal smoothing: average per-emotion probabilities over the last 4
+  // frames so a single noisy frame can't flip the displayed emotion.
+  function smoothResult(res) {
+    if (!res?.face_detected) {
+      historyRef.current = []
+      return { ...res, smoothed: true }
+    }
+    const top = res.top_emotions || []
+    const vec = {}
+    top.forEach((t) => { vec[t.emotion] = t.confidence })
+    historyRef.current = [...historyRef.current, vec].slice(-4)
+    const avg = {}
+    historyRef.current.forEach((v) => {
+      Object.entries(v).forEach(([k, val]) => { avg[k] = (avg[k] || 0) + val / historyRef.current.length })
+    })
+    const sorted = Object.entries(avg).sort((a, b) => b[1] - a[1])
+    const best = sorted[0] || [res.emotion, res.confidence || 0]
+    const uncertain = (best[1] || 0) < 0.45
+    return {
+      ...res,
+      emotion: uncertain ? 'uncertain' : best[0],
+      confidence: best[1] || 0,
+      top_emotions: sorted.slice(0, 3).map(([emotion, confidence]) => ({ emotion, confidence })),
+      uncertain,
+      smoothed: true,
+    }
+  }
+
+  const HINT_MESSAGES = {
+    no_face: 'No face detected — move closer to the camera and face it directly.',
+    too_dark: 'Face is too dark — add more light or move away from backlight.',
+    too_bright: 'Face is overexposed — reduce lighting or move slightly away.',
+    too_small: 'Face is too small — move closer to the camera.',
+    blurry: 'Image is blurry — hold the camera steady.',
+    detection_error: 'Detection failed for this frame — trying again…',
+    bad_image: 'Could not read the camera frame.',
+  }
+
+  const displayEmotion = result?.emotion || ''
+  const colorClass = EMOTION_COLORS[displayEmotion] || EMOTION_COLORS.neutral
+  const noFace = result && result.face_detected === false
+  const hintText = noFace ? (HINT_MESSAGES[result.hint] || HINT_MESSAGES.no_face) : null
 
   return (
     <div className="panel space-y-4">
@@ -180,9 +245,9 @@ export default function EmotionTrial() {
                 <Loader2 size={11} className="animate-spin" /> Analyzing…
               </div>
             )}
-            {result && !analyzing && (
+            {result && !analyzing && !noFace && (
               <div className={`absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-2xl px-4 py-2.5 shadow-lg backdrop-blur ${colorClass} bg-opacity-95`}>
-                <span className="text-base font-bold capitalize">{result.emotion}</span>
+                <span className="text-base font-bold capitalize">{displayEmotion}</span>
                 <span className="flex items-center gap-2">
                   <span className="h-2 w-24 overflow-hidden rounded-full bg-black/20">
                     <span className="block h-full rounded-full bg-current" style={{ width: `${Math.round((result.confidence || 0) * 100)}%` }} />
@@ -191,14 +256,45 @@ export default function EmotionTrial() {
                 </span>
               </div>
             )}
-            {result && (result.confidence || 0) < 0.4 && !analyzing && (
-              <p className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-[11px] text-white">
-                No clear face detected — move closer to the camera.
-              </p>
+            {result && !analyzing && noFace && (
+              <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-slate-800/90 px-4 py-2.5 text-sm font-semibold text-amber-200 shadow-lg">
+                <CameraOff size={15} /> {hintText}
+              </div>
+            )}
+            {result && !analyzing && !noFace && result.top_emotions?.length > 1 && (
+              <div className="absolute bottom-16 left-1/2 flex -translate-x-1/2 gap-2">
+                {result.top_emotions.slice(0, 3).map((t) => (
+                  <span key={t.emotion} className="rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-semibold text-white capitalize">
+                    {t.emotion} {Math.round(t.confidence * 100)}%
+                  </span>
+                ))}
+              </div>
             )}
           </div>
 
           <div className="flex gap-2">
+            {cameras.length > 1 && (
+              <select
+                className="input flex-1 text-xs"
+                value={cameraId}
+                onChange={(e) => {
+                  const id = e.target.value
+                  setCameraId(id)
+                  localStorage.setItem('edusense_camera_id', id)
+                  if (active) {
+                    stopCamera()
+                    setTimeout(() => acquireCamera().catch((err) => setError(cameraErrorMessage(err))), 50)
+                  }
+                }}
+                aria-label="Camera"
+              >
+                {cameras.map((c, i) => (
+                  <option key={c.deviceId || i} value={c.deviceId}>
+                    {c.label || `Camera ${i + 1}`}
+                  </option>
+                ))}
+              </select>
+            )}
             <button type="button" onClick={() => switchMode('live')}
               className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${mode === 'live' ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
               Live Webcam

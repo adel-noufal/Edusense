@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Activity, BellRing, BookMarked, BookOpen, CheckCircle2, Clock3, Download, Eye, FileText, FolderOpen, Palette, Search, Sparkles, Users, Video, XCircle } from 'lucide-react'
 import { EmotionDistribution, EngagementLine } from '../components/Charts'
+import SearchInput from '../components/SearchInput'
 import { api, staticUrl } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
@@ -9,7 +10,33 @@ import EmotionTrial from '../components/EmotionTrial'
 
 const LIVE_STATUSES = ['ongoing', 'live']
 const UPCOMING_STATUSES = ['pending', 'ongoing', 'live', 'preparing', 'scheduled', 'upcoming']
+const PAST_STATUSES = ['ended', 'missed', 'cancelled', 'canceled', 'completed', 'finished']
 const PAGE_SIZE = 5
+
+/** Server-computed effective status wins over the stored status. */
+function effStatus(session) {
+  return session?.effective_status || session?.status || 'upcoming'
+}
+function isLiveSession(session) {
+  return effStatus(session) === 'live'
+}
+function isUpcomingSession(session) {
+  return effStatus(session) === 'upcoming'
+}
+function isPastSession(session) {
+  return PAST_STATUSES.includes(effStatus(session))
+}
+/** Locale-aware "Nov 20, 2026, 7:45 PM" — never raw microseconds. */
+function formatSessionWhen(session) {
+  if (!session?.date) return ''
+  const time = String(session.start_time || '00:00').slice(0, 8)
+  const dt = new Date(`${session.date}T${time}`)
+  if (Number.isNaN(dt.getTime())) return `${session.date} ${session.start_time || ''}`.trim()
+  return dt.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  })
+}
 
 function paginate(items, page, pageSize = PAGE_SIZE) {
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize))
@@ -70,17 +97,17 @@ export function StudentDashboard() {
   useEffect(() => { loadSessions() }, [])
 
   const filtered = enrolledSessions.filter((session) => {
-    if (mode === 'upcoming') return UPCOMING_STATUSES.includes(session.status)
+    if (mode === 'upcoming') return isUpcomingSession(session) || isLiveSession(session)
     if (mode === 'history') {
-      // History = completed/past sessions only
+      // History = ended/missed/cancelled sessions only — never upcoming ones
       const today = new Date().toISOString().slice(0, 10)
-      return session.status === 'ended' || session.attended || (session.date && session.date < today)
+      return isPastSession(session) || session.attended || (session.date && session.date < today)
     }
     return true
   })
 
   const upcomingSessions = useMemo(
-    () => enrolledSessions.filter((session) => UPCOMING_STATUSES.includes(session.status)),
+    () => enrolledSessions.filter(isUpcomingSession),
     [enrolledSessions],
   )
   const openCatalog = useMemo(
@@ -90,10 +117,10 @@ export function StudentDashboard() {
 
   const titles = { all: t('dashboard.student'), upcoming: t('dashboard.upcoming'), history: t('dashboard.historyTitle'), browse: t('nav.browse') }
   const upcomingCount = upcomingSessions.length
-  const completedCount = enrolledSessions.filter((session) => session.attended || ['ended', 'cancelled'].includes(session.status)).length
+  const completedCount = enrolledSessions.filter((session) => session.attended || isPastSession(session)).length
   // Single source of truth for "Live Now": enrolled sessions currently live.
   // Both the top stat card and the summary card below use this same count.
-  const liveCount = enrolledSessions.filter((session) => LIVE_STATUSES.includes(session.status)).length
+  const liveCount = enrolledSessions.filter(isLiveSession).length
 
   return (
     <div className="page-shell space-y-6">
@@ -368,7 +395,7 @@ export function InstructorDashboard() {
 
   useEffect(() => { loadSessions() }, [])
 
-  const endedSessions = useMemo(() => sessions.filter((s) => s.status === 'ended'), [sessions])
+  const endedSessions = useMemo(() => sessions.filter((s) => effStatus(s) === 'ended'), [sessions])
 
   // Toggle session selection
   function toggleSessionSelection(sessionId) {
@@ -472,7 +499,10 @@ export function InstructorDashboard() {
     try {
       const res = await api('/ai/recommendations/queue', {
         method: 'POST',
-        body: { session_id: targetIds.length === 1 ? targetIds[0] : 'all' },
+        body: {
+          session_id: targetIds.length === 1 ? targetIds[0] : 'all',
+          session_ids: targetIds.length > 1 ? targetIds.map(Number) : null,
+        },
       })
 
       if (res.status === 'done' && res.result) {
@@ -556,11 +586,35 @@ export function InstructorDashboard() {
               </p>
             </div>
           ) : report ? (
-            <ul className="space-y-2">
-              {report.recommendations.recommendations.map((item) => (
-                <li className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-800" key={item}>{item}</li>
-              ))}
-            </ul>
+            <div className="space-y-4">
+              {report.recommendations?.recommendations?.length > 0 && (
+                <ul className="space-y-2">
+                  {report.recommendations.recommendations.map((item) => (
+                    <li className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-800" key={item}>{item}</li>
+                  ))}
+                </ul>
+              )}
+              {report.recommendations?.insufficient_data && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200 space-y-1">
+                  <p className="font-semibold">{report.recommendations.message || 'Not enough data for some sessions.'}</p>
+                  {(report.recommendations.insufficient_sessions || []).map((s) => (
+                    <p key={s.session_id}>
+                      <span className="font-medium">{s.session_title}:</span> {s.message}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {!(report.recommendations?.recommendations?.length > 0) && !report.recommendations?.insufficient_data && (
+                <p className="text-sm text-slate-500">Analysis completed but produced no recommendations.</p>
+              )}
+            </div>
+          ) : error && !analyzing ? (
+            <div className="space-y-2">
+              <p className="rounded-md bg-red-50 p-3 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-200">{error}</p>
+              <button className="btn-secondary text-xs py-1.5 px-3" type="button" onClick={analyze}>
+                Retry
+              </button>
+            </div>
           ) : (
             <p className="text-sm text-slate-500">{t('dashboard.runLoopHint')}</p>
           )}
@@ -676,23 +730,23 @@ function SessionList({ sessions, join = false, emptyLabel = '', onReload, showUn
             )}
             <div>
               <p className="font-bold">{session.title}</p>
-              <p className="text-sm text-slate-500">{session.date} | {session.start_time} | <span className="capitalize font-semibold text-ocean dark:text-mint">{session.status}</span></p>
+              <p className="text-sm text-slate-500">{formatSessionWhen(session)} · <span className="capitalize font-semibold text-ocean dark:text-mint">{effStatus(session)}</span></p>
               {session.description && <p className="mt-2 max-w-xl text-sm text-slate-600 dark:text-slate-300">{session.description}</p>}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {showEdit && session.status === 'pending' && (
+            {showEdit && isUpcomingSession(session) && (
               <button className="btn-soft" type="button" onClick={(e) => handleEdit(e, session)}>Edit</button>
             )}
-            {showUnregister && session.status !== 'ongoing' && (
+            {showUnregister && !isLiveSession(session) && (
               <button className="btn-soft text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={() => unregister(session.id)}>Unenroll</button>
             )}
-            {join && LIVE_STATUSES.includes(session.status) && (
+            {join && isLiveSession(session) && (
               <button className="btn-primary text-xs flex items-center gap-1.5 py-1.5 px-3 font-bold" type="button" onClick={() => joinSession(session.id)}>
                 <Video size={14} /> Join Live Now
               </button>
             )}
-            {join && session.status !== 'ongoing' && (
+            {join && isUpcomingSession(session) && (
               <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-500">
                 Not Started Yet
               </span>
@@ -749,16 +803,8 @@ function SessionCatalog({ sessions, onReload }) {
 
   return (
     <div className="grid gap-4">
-      <div className="relative">
-        <Search className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-        <input 
-          type="text" 
-          placeholder="Search for a topic or session name..." 
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="input ps-10 w-full"
-        />
-      </div>
+      <SearchInput value={search} onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search for a topic or session name..." />
       
       {!sessions.length ? (
         <p className="text-sm text-slate-500 mt-2">All open sessions are already in your list.</p>
@@ -769,7 +815,7 @@ function SessionCatalog({ sessions, onReload }) {
         <article key={session.id} className="group overflow-hidden rounded-[1.5rem] border border-slate-200 bg-gradient-to-br from-white via-white to-teal-50/60 p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-xl dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-2">
-              <div className="inline-flex rounded-full bg-ocean/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-ocean dark:bg-mint/10 dark:text-mint">{session.status}</div>
+              <div className="inline-flex rounded-full bg-ocean/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-ocean dark:bg-mint/10 dark:text-mint">{effStatus(session)}</div>
               <h3 className="text-xl font-black">{session.title}</h3>
               <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-300">{session.description || 'A live learning session ready for registration.'}</p>
             </div>
@@ -780,8 +826,7 @@ function SessionCatalog({ sessions, onReload }) {
             )}
           </div>
           <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-500">
-            <span>{session.date}</span>
-            <span>{session.start_time}</span>
+            <span>{formatSessionWhen(session)}</span>
             <span>{session.duration != null ? `${session.duration} min` : 'No time limit'}</span>
             <span>{session.registration_count} registered</span>
           </div>

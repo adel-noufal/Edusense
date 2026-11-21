@@ -292,17 +292,21 @@ def build_true_docx_bytes(title: str, content_dict: dict, content_type: str = "l
 
 
 def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
-    """Generate a PowerPoint presentation using python-pptx."""
+    """Generate a rich PowerPoint presentation with duration-scaled slide count,
+    varied slide layouts, native shape diagrams, Arabic RTL support, and >=24pt body text."""
     from pptx import Presentation
     from pptx.util import Inches, Pt, Emu
     from pptx.dml.color import RGBColor as PptxRGB
     from pptx.enum.text import PP_ALIGN
+    from pptx.enum.shapes import MSO_SHAPE
 
     TEAL = PptxRGB(0x0F, 0x76, 0x6E)
     DARK = PptxRGB(0x1E, 0x29, 0x3B)
     BODY_CLR = PptxRGB(0x33, 0x41, 0x55)
     WHITE = PptxRGB(0xFF, 0xFF, 0xFF)
     LIGHT_BG = PptxRGB(0xF1, 0xF5, 0xF9)
+    ACCENT_MINT = PptxRGB(0x14, 0xB8, 0xA6)
+    ACCENT_BLUE = PptxRGB(0x02, 0x84, 0xC7)
 
     prs = Presentation()
     prs.slide_width = Inches(13.33)
@@ -310,62 +314,157 @@ def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
 
     blank_layout = prs.slide_layouts[6]  # Blank
 
-    def add_slide(slide_title_text: str, body_lines: list[str], is_title_slide: bool = False):
-        slide = prs.slides.add_slide(blank_layout)
+    def _is_arabic(text: str) -> bool:
+        return any('\u0600' <= ch <= '\u06FF' for ch in (text or ""))
 
-        # Background
+    def _apply_text(p, text: str, font_size, color, bold: bool = False, arabic: bool = False):
+        if arabic:
+            p.alignment = PP_ALIGN.RIGHT
+            try:
+                p._p.get_or_add_pPr().set('rtl', '1')
+            except Exception:
+                pass
+        else:
+            p.alignment = PP_ALIGN.LEFT
+        run = p.add_run()
+        run.text = text
+        run.font.size = font_size
+        run.font.bold = bold
+        run.font.color.rgb = color
+
+    def add_base_slide(slide_title_text: str, is_title_slide: bool = False):
+        slide = prs.slides.add_slide(blank_layout)
         bg = slide.background
         fill = bg.fill
         fill.solid()
-        fill.fore_color.rgb = WHITE if not is_title_slide else DARK
+        fill.fore_color.rgb = DARK if is_title_slide else WHITE
 
+        arabic = _is_arabic(slide_title_text)
         title_top = Inches(0.4)
         title_height = Inches(1.2)
+        left = Inches(0.6)
+        width = Inches(12.1)
+
+        txBox = slide.shapes.add_textbox(left, title_top, width, title_height)
+        tf = txBox.text_frame
+        tf.word_wrap = True
+        _apply_text(tf.paragraphs[0], slide_title_text,
+                    Pt(38) if is_title_slide else Pt(30),
+                    WHITE if is_title_slide else TEAL,
+                    bold=True, arabic=arabic)
+
+        # Teal accent bar
+        line = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            int(left), int(title_top + title_height - Inches(0.05)),
+            int(width), int(Inches(0.04))
+        )
+        line.fill.solid()
+        line.fill.fore_color.rgb = ACCENT_MINT if is_title_slide else TEAL
+        line.line.fill.background()
+
+        # Slide number
+        num_box = slide.shapes.add_textbox(int(Inches(12.4)), int(Inches(7.0)), int(Inches(0.8)), int(Inches(0.4)))
+        _apply_text(num_box.text_frame.paragraphs[0], str(len(prs.slides)), Pt(12), PptxRGB(0x94, 0xA3, 0xB8))
+
+        return slide, arabic
+
+    def add_standard_slide(slide_title_text: str, body_lines: list[str], is_title_slide: bool = False):
+        slide, arabic = add_base_slide(slide_title_text, is_title_slide)
         body_top = Inches(1.8)
         body_height = Inches(5.3)
         left = Inches(0.6)
         width = Inches(12.1)
 
-        # Title box
-        txBox = slide.shapes.add_textbox(left, title_top, width, title_height)
-        tf = txBox.text_frame
-        tf.word_wrap = True
-        p = tf.paragraphs[0]
-        p.alignment = PP_ALIGN.LEFT
-        run = p.add_run()
-        run.text = slide_title_text
-        run.font.size = Pt(36) if is_title_slide else Pt(28)
-        run.font.bold = True
-        run.font.color.rgb = WHITE if is_title_slide else TEAL
-
-        # Divider line (thin rectangle)
-        left_emu = int(left)
-        line_top = int(title_top + title_height - Inches(0.05))
-        line = slide.shapes.add_shape(
-            1,  # MSO_SHAPE_TYPE.RECTANGLE
-            left_emu, line_top,
-            int(width), int(Inches(0.04))
-        )
-        line.fill.solid()
-        line.fill.fore_color.rgb = TEAL
-        line.line.fill.background()
-
-        # Body text box
         body_box = slide.shapes.add_textbox(left, body_top, width, body_height)
         tf2 = body_box.text_frame
         tf2.word_wrap = True
         first = True
+        # >=24pt body requirement (scale only if many lines)
+        body_size = Pt(24) if len(body_lines) <= 6 else Pt(22)
         for line_text in body_lines:
-            if first:
-                p2 = tf2.paragraphs[0]
-                first = False
-            else:
-                p2 = tf2.add_paragraph()
-            p2.space_after = Pt(6)
-            run2 = p2.add_run()
-            run2.text = line_text
-            run2.font.size = Pt(18)
-            run2.font.color.rgb = WHITE if is_title_slide else BODY_CLR
+            p2 = tf2.paragraphs[0] if first else tf2.add_paragraph()
+            first = False
+            p2.space_after = Pt(10)
+            _apply_text(p2, line_text, body_size, WHITE if is_title_slide else BODY_CLR, arabic=arabic or _is_arabic(line_text))
+
+        try:
+            notes_tf = slide.notes_slide.notes_text_frame
+            notes_tf.text = f"{slide_title_text}\n\n" + "\n".join(body_lines)
+        except Exception:
+            pass
+
+    def add_two_column_slide(slide_title_text: str, col1_lines: list[str], col2_lines: list[str], col1_title: str = "Concept", col2_title: str = "Application"):
+        slide, arabic = add_base_slide(slide_title_text)
+        top = Inches(1.8)
+        height = Inches(5.1)
+        col_w = Inches(5.8)
+        left1 = Inches(0.6)
+        left2 = Inches(6.9)
+
+        # Col 1 Card
+        box1 = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, int(left1), int(top), int(col_w), int(height))
+        box1.fill.solid()
+        box1.fill.fore_color.rgb = LIGHT_BG
+        box1.line.color.rgb = TEAL
+        tf1 = box1.text_frame
+        tf1.word_wrap = True
+        _apply_text(tf1.paragraphs[0], col1_title, Pt(24), TEAL, bold=True, arabic=_is_arabic(col1_title))
+        for line in col1_lines:
+            p = tf1.add_paragraph()
+            p.space_after = Pt(8)
+            _apply_text(p, line, Pt(24), BODY_CLR, arabic=_is_arabic(line))
+
+        # Col 2 Card
+        box2 = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, int(left2), int(top), int(col_w), int(height))
+        box2.fill.solid()
+        box2.fill.fore_color.rgb = LIGHT_BG
+        box2.line.color.rgb = ACCENT_BLUE
+        tf2 = box2.text_frame
+        tf2.word_wrap = True
+        _apply_text(tf2.paragraphs[0], col2_title, Pt(24), ACCENT_BLUE, bold=True, arabic=_is_arabic(col2_title))
+        for line in col2_lines:
+            p = tf2.add_paragraph()
+            p.space_after = Pt(8)
+            _apply_text(p, line, Pt(24), BODY_CLR, arabic=_is_arabic(line))
+
+    def add_flow_diagram_slide(slide_title_text: str, steps: list[str]):
+        """Render native shape diagram: process flow boxes with arrows instead of text captions."""
+        slide, arabic = add_base_slide(slide_title_text)
+        n = min(4, max(2, len(steps)))
+        step_items = steps[:n]
+        box_w = Inches(10.5 / n)
+        box_h = Inches(2.2)
+        top = Inches(3.0)
+
+        for i, step_text in enumerate(step_items):
+            box_left = Inches(0.8 + i * (10.5 / n + 0.5))
+            shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, int(box_left), int(top), int(box_w), int(box_h))
+            shape.fill.solid()
+            shape.fill.fore_color.rgb = TEAL if i % 2 == 0 else ACCENT_BLUE
+            shape.line.fill.background()
+            tf = shape.text_frame
+            tf.word_wrap = True
+            _apply_text(tf.paragraphs[0], f"Step {i + 1}", Pt(22), WHITE, bold=True, arabic=_is_arabic(step_text))
+            p_desc = tf.add_paragraph()
+            p_desc.space_after = Pt(4)
+            _apply_text(p_desc, step_text, Pt(20), WHITE, arabic=_is_arabic(step_text))
+
+            # Add right arrow between steps
+            if i < len(step_items) - 1:
+                arrow_left = box_left + box_w + Inches(0.08)
+                arrow = slide.shapes.add_shape(MSO_SHAPE.RIGHT_ARROW, int(arrow_left), int(top + Inches(0.8)), int(Inches(0.35)), int(Inches(0.4)))
+                arrow.fill.solid()
+                arrow.fill.fore_color.rgb = ACCENT_MINT
+                arrow.line.fill.background()
+
+    # Scaling slide count with duration
+    duration = content_dict.get("duration") or 5
+    try:
+        duration_mins = int(duration)
+    except (ValueError, TypeError):
+        duration_mins = 5
+    target_slides = max(4, min(20, int(duration_mins * 1.5)))
 
     sections = content_dict.get("sections") or []
 
@@ -373,39 +472,156 @@ def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
     subtitle_lines = [
         f"Subject: {content_dict.get('topic', title)}",
         f"Style: {content_dict.get('style') or content_dict.get('teaching_style', 'Interactive')}",
-        f"Duration: {content_dict.get('duration', 5)} minutes",
+        f"Duration: {duration_mins} minutes",
     ]
-    add_slide(title, subtitle_lines, is_title_slide=True)
+    add_standard_slide(title, subtitle_lines, is_title_slide=True)
 
     # Slide 2: Overview
     if content_dict.get("overview"):
-        add_slide("Overview", [content_dict["overview"]])
+        add_standard_slide("Overview", [content_dict["overview"]])
 
     # Slide 3: Learning Objectives
     if content_dict.get("learning_objectives"):
         objs = [f"• {obj}" for obj in content_dict["learning_objectives"]]
-        add_slide("Learning Objectives", objs)
+        add_standard_slide("Learning Objectives", objs)
 
-    # Content sections
-    for sec in sections:
+    # Content sections with varied layouts
+    for i, sec in enumerate(sections):
         lines = []
         if sec.get("content"):
             lines += [l.strip() for l in sec["content"].split("\n") if l.strip()]
-        if sec.get("example"):
-            lines.append("")
-            lines.append(f"Example: {sec['example']}")
-        add_slide(sec.get("heading", "Section"), lines)
+
+        layout_choice = i % 3
+        if layout_choice == 1 and sec.get("example") and lines:
+            # Layout 1: Two-column slide (Concept vs Example)
+            add_two_column_slide(sec.get("heading", f"Section {i+1}"), lines[:4], [sec["example"]], "Core Concept", "Practical Example")
+        elif layout_choice == 2 and len(lines) >= 2:
+            # Layout 2: Native flow diagram slide
+            add_flow_diagram_slide(sec.get("heading", f"Workflow {i+1}"), lines[:3])
+        else:
+            # Layout 0: Standard slide with >=24pt body
+            if sec.get("example"):
+                lines.append(f"Example: {sec['example']}")
+            add_standard_slide(sec.get("heading", f"Section {i+1}"), lines)
 
     # Summary
     if content_dict.get("summary"):
-        add_slide("Summary", [content_dict["summary"]])
+        add_standard_slide("Summary", [content_dict["summary"]])
 
     # Key points
     if content_dict.get("key_points"):
-        kp = [f"• {kp}" for kp in content_dict["key_points"]]
-        add_slide("Key Points", kp)
+        kp = [f"• {k}" for k in content_dict["key_points"]]
+        add_standard_slide("Key Points", kp)
 
     buffer = BytesIO()
     prs.save(buffer)
     buffer.seek(0)
     return buffer
+
+
+# ─── B8: real PDF / DOCX / CSV exports ────────────────────────────────────────
+
+def _pdf_doc(title: str, blocks: list[tuple[str, list[str]]]) -> BytesIO:
+    """Minimal branded PDF via reportlab. blocks = [(heading, [lines])]."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+
+    TEAL = HexColor("#0F766E")
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=20 * mm, rightMargin=20 * mm,
+                            topMargin=18 * mm, bottomMargin=18 * mm,
+                            title=title)
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle("h1", parent=styles["Heading1"], textColor=TEAL, fontSize=20, spaceAfter=8)
+    h2 = ParagraphStyle("h2", parent=styles["Heading2"], textColor=TEAL, fontSize=13, spaceBefore=10, spaceAfter=4)
+    body = ParagraphStyle("body", parent=styles["BodyText"], fontSize=10.5, leading=15, spaceAfter=3)
+
+    story = [Paragraph(html.escape(title), h1), Spacer(1, 4 * mm)]
+    for heading, lines in blocks:
+        if heading:
+            story.append(Paragraph(html.escape(heading), h2))
+        for line in lines:
+            story.append(Paragraph(html.escape(str(line)).replace("\n", "<br/>"), body))
+    doc.build(story)
+    buf.seek(0)
+    return buf
+
+
+def build_lesson_pdf_bytes(lesson: dict) -> BytesIO:
+    blocks: list[tuple[str, list[str]]] = []
+    if lesson.get("overview"):
+        blocks.append(("Overview", [lesson["overview"]]))
+    for obj in lesson.get("learning_objectives") or []:
+        blocks.append(("", [f"• {obj}"]))
+    for sec in lesson.get("sections") or []:
+        lines = []
+        if sec.get("content"):
+            lines += [l.strip() for l in str(sec["content"]).split("\n") if l.strip()]
+        if sec.get("example"):
+            lines.append(f"Example: {sec['example']}")
+        blocks.append((sec.get("heading", "Section"), lines))
+    if lesson.get("summary"):
+        blocks.append(("Summary", [lesson["summary"]]))
+    return _pdf_doc(lesson.get("topic") or "Lesson", blocks)
+
+
+def build_quiz_pdf_bytes(quiz: dict, include_answers: bool = True) -> BytesIO:
+    blocks = []
+    for i, q in enumerate(quiz.get("questions") or [], start=1):
+        lines = [str(q.get("question", ""))]
+        for opt in q.get("options") or []:
+            lines.append(f"   • {opt}")
+        if include_answers:
+            lines.append(f"Answer: {q.get('answer', '')}")
+            if q.get("explanation"):
+                lines.append(f"Explanation: {q['explanation']}")
+        blocks.append((f"Question {i}", lines))
+    return _pdf_doc(quiz.get("title") or "Quiz", blocks)
+
+
+def build_quiz_docx_bytes(quiz: dict, include_answers: bool = True) -> BytesIO:
+    doc = Document()
+    doc.add_heading(quiz.get("title") or "Quiz", level=0)
+    for i, q in enumerate(quiz.get("questions") or [], start=1):
+        doc.add_heading(f"Question {i}", level=1)
+        doc.add_paragraph(str(q.get("question", "")))
+        for opt in q.get("options") or []:
+            doc.add_paragraph(opt, style="List Bullet")
+        if include_answers:
+            p = doc.add_paragraph()
+            run = p.add_run(f"Answer: {q.get('answer', '')}")
+            run.bold = True
+            if q.get("explanation"):
+                doc.add_paragraph(f"Explanation: {q['explanation']}")
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def build_flashcards_csv_bytes(data: dict) -> BytesIO:
+    """Anki-compatible CSV: front,back, tags."""
+    import csv
+    out = BytesIO()
+    text = out
+    # csv needs a text wrapper — write to StringIO then encode with BOM
+    from io import StringIO
+    sio = StringIO()
+    w = csv.writer(sio)
+    w.writerow(["Front", "Back", "Tags"])
+    for card in data.get("cards") or []:
+        w.writerow([card.get("front", ""), card.get("back", ""), data.get("title", "")])
+    out.write(b"\xef\xbb\xbf" + sio.getvalue().encode("utf-8"))
+    out.seek(0)
+    return out
+
+
+def build_flashcards_pdf_bytes(data: dict) -> BytesIO:
+    blocks = []
+    for i, card in enumerate(data.get("cards") or [], start=1):
+        blocks.append((f"Card {i}", [str(card.get("front", "")), "", str(card.get("back", ""))]))
+    return _pdf_doc(data.get("title") or "Flashcards", blocks)

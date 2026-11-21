@@ -80,10 +80,72 @@ def _format_vector_chunks(chunks: list[dict]) -> list[dict]:
 def _is_document_overview_question(question: str) -> bool:
     return bool(re.search(
         r"\b(?:summar(?:y|ize|ise)|overview|main idea|what is it talking about|"
-        r"what is this about|what does (?:this|the) (?:pdf|document|file) (?:cover|discuss))\b",
+        r"what is this about|what does (?:this|the|that) (?:\w+ )?(?:pdf|document|file|book|"
+        r"textbook|chapter|material)s? (?:cover|discuss|contain|include)|"
+        r"(?:what|which) topics?|covered topics?|table of contents|"
+        r"(?:list|outline) (?:the )?(?:main )?(?:topics|chapters|sections)|"
+        r"what(?:'s| is) in (?:this|the|that))\b",
         question,
         re.IGNORECASE,
     ))
+
+
+_FOLLOWUP_RE = re.compile(
+    r"\b(?:it|that|this|they|them|those|these|the book|the document|the file|"
+    r"the chapter|the topic|the material|the above|previous|earlier|"
+    r"what else|and what|also|too)\b",
+    re.IGNORECASE,
+)
+
+
+def _needs_rewrite(question: str, history: list[dict] | None) -> bool:
+    """Follow-ups are short or contain anaphora referring to earlier turns."""
+    if not history:
+        return False
+    words = question.split()
+    # Very short questions are almost always follow-ups; longer ones only
+    # when they contain an explicit anaphora/reference to earlier turns.
+    return len(words) <= 6 or (len(words) <= 15 and bool(_FOLLOWUP_RE.search(question)))
+
+
+def _rewrite_followup_query(question: str, history: list[dict] | None) -> str:
+    """
+    Rewrite a follow-up into a standalone retrieval query using recent turns.
+    Falls back to the raw question when no rewrite is possible — retrieval
+    then behaves exactly as before.
+    """
+    if not _needs_rewrite(question, history):
+        return question
+    try:
+        from app.services import llm
+        convo = []
+        for turn in (history or [])[-6:]:
+            role = "User" if turn.get("role") == "user" else "Assistant"
+            convo.append(f"{role}: {str(turn.get('content', ''))[:400]}")
+        prompt = (
+            "Rewrite the latest user question as a standalone search query that "
+            "resolves pronouns and references (\"the book\", \"it\", \"that topic\") "
+            "using the conversation. Output ONLY the rewritten query, no explanation.\n\n"
+            + "\n".join(convo)
+            + f"\n\nLatest question: {question}\n\nStandalone query:"
+        )
+        rewritten = llm.chat(prompt, task_type="chat", temperature=0.0,
+                             max_output_tokens=80, timeout=20.0).strip().strip('"')
+        if rewritten and len(rewritten) > 3 and rewritten.casefold() != question.casefold():
+            return rewritten
+    except Exception:
+        pass
+    return question
+
+
+def _history_source_files(history: list[dict] | None) -> list[str]:
+    """Source files the assistant grounded recent answers in (newest first)."""
+    files: list[str] = []
+    for turn in reversed(history or []):
+        for src in turn.get("sources") or []:
+            if src and src not in files:
+                files.append(src)
+    return files
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -177,6 +239,7 @@ def answer_question(
     min_score: Optional[float] = None,
     source_file: Optional[str] = None,
     history: Optional[list[dict]] = None,
+    source_ids: Optional[list[str]] = None,
 ) -> dict:
     """
     Retrieve relevant chunks from the vector store and use them to answer
@@ -195,26 +258,47 @@ def answer_question(
     settings = get_settings()
     threshold = min_score if min_score is not None else settings.rag_min_score
 
-    chunks = RAG_Search_Tool(
-        query=question,
-        subject=subject,
-        grade_level=grade_level,
-        top_k=top_k,
-        min_score=threshold,
-    )
+    # Follow-up questions ("what else does the book cover?") fail similarity
+    # search because pronouns don't match document text — rewrite to a
+    # standalone query first.
+    search_query = _rewrite_followup_query(question, history)
 
-    referenced_source = source_file or _find_referenced_source(question)
+    if source_ids:
+        # B10: retrieval restricted to the user-selected documents only.
+        ids = [str(s) for s in source_ids]
+        scoped = vector_store.query(
+            query_text=search_query,
+            top_k=top_k * 2,
+            metadata_filter={"source_id": {"": ids}},
+        )
+        if not scoped:
+            scoped = vector_store.query(
+                query_text=search_query,
+                top_k=top_k * 2,
+                metadata_filter={"source_file": {"": ids}},
+            )
+        chunks = _format_vector_chunks(scoped)
+    else:
+        chunks = RAG_Search_Tool(
+            query=search_query,
+            subject=subject,
+            grade_level=grade_level,
+            top_k=top_k,
+            min_score=threshold,
+        )
+
+    referenced_source = source_file or _find_referenced_source(search_query) or _find_referenced_source(question)
     if referenced_source:
         source_chunks = vector_store.get_by_source(referenced_source)
         if source_chunks:
             scoped_results = vector_store.query(
-                query_text=question,
+                query_text=search_query,
                 top_k=top_k,
                 metadata_filter={"source_file": referenced_source},
             )
             if not scoped_results:
                 scoped_results = vector_store.query(
-                    query_text=question,
+                    query_text=search_query,
                     top_k=top_k,
                     metadata_filter={"source_id": referenced_source},
                 )
@@ -223,6 +307,42 @@ def answer_question(
             else:
                 selected_chunks = scoped_results or _representative_chunks(source_chunks, top_k)
             chunks = _format_vector_chunks(selected_chunks)
+
+    # Follow-up fallback: retrieval found nothing, but the previous answer was
+    # grounded in specific documents — retry scoped to those sources before
+    # declaring "nothing found".
+    if not chunks:
+        prev_files = _history_source_files(history)
+        for prev_file in prev_files[:2]:
+            scoped = vector_store.query(
+                query_text=search_query,
+                top_k=top_k,
+                metadata_filter={"source_file": prev_file},
+            )
+            if not scoped:
+                scoped = vector_store.query(
+                    query_text=search_query,
+                    top_k=top_k,
+                    metadata_filter={"source_id": prev_file},
+                )
+            if scoped:
+                chunks = _format_vector_chunks(scoped)
+                break
+
+    # Overview questions without an explicit document name: similarity search
+    # only surfaces the most similar chunks, which misses the document's
+    # structure. Anchor on the dominant source among the hits and pull
+    # representative chunks (head/middle/tail) from it instead.
+    if chunks and _is_document_overview_question(question) and not referenced_source:
+        from collections import Counter
+        dominant = Counter(
+            c.get("source_file") or c.get("source_id") or ""
+            for c in chunks
+        ).most_common(1)[0][0]
+        if dominant:
+            source_chunks = vector_store.get_by_source(dominant)
+            if source_chunks:
+                chunks = _format_vector_chunks(_representative_chunks(source_chunks, top_k))
 
     source_meta = [
         {
@@ -241,12 +361,18 @@ def answer_question(
         # indexed, say so plainly instead of answering from general knowledge.
         scope = f" for {subject}" if subject else ""
         scope += f" (grade {grade_level})" if grade_level else ""
-        answer = (
-            "I couldn't find anything about that in the uploaded course materials"
-            f"{scope}. The Knowledge Base only answers from indexed documents — "
-            "please ask your instructor to upload relevant material, or try the AI "
-            "Chatbot for general questions."
-        )
+        if source_ids:
+            answer = (
+                "I couldn't find an answer to that in the selected files. "
+                "Try a different question, add more files, or ask without a file filter."
+            )
+        else:
+            answer = (
+                "I couldn't find anything about that in the uploaded course materials"
+                f"{scope}. The Knowledge Base only answers from indexed documents — "
+                "please ask your instructor to upload relevant material, or try the AI "
+                "Chatbot for general questions."
+            )
 
         return {
             "question":     question,
@@ -256,6 +382,7 @@ def answer_question(
             "subject":      subject,
             "grade_level":  grade_level,
             "unverified":   True,
+            "scoped_to":    source_ids or None,
         }
 
     context_block, _ = _format_context(chunks)
@@ -327,6 +454,7 @@ Answer:"""
         "subject":      subject,
         "grade_level":  grade_level,
         "unverified":   False,
+        "scoped_to":    source_ids or None,
     }
 
 

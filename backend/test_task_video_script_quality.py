@@ -126,6 +126,7 @@ def test_padding_never_repeats_content():
         return True, "narration.mp3", []
 
     with patch("app.services.video.get_settings") as gs, \
+         patch("app.services.video.generate_sectioned_scenes", return_value=None), \
          patch("app.services.video._tts_all_scenes", side_effect=fake_tts), \
          patch("app.services.video._write_player"), \
          patch("app.services.video._try_ffmpeg", return_value=None):

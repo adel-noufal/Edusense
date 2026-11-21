@@ -73,6 +73,19 @@ app.include_router(assignments.router, prefix="/api")
 @app.on_event("startup")
 def startup():
     init_db(seed=True)
+    # Reconcile stale session statuses (missed/ended) on boot
+    try:
+        from app.db.session import SessionLocal
+        from app.api.sessions import reconcile_session_statuses
+        _db = SessionLocal()
+        try:
+            n = reconcile_session_statuses(_db)
+            if n:
+                print(f"Startup: reconciled {n} stale session statuses")
+        finally:
+            _db.close()
+    except Exception as exc:
+        print(f"Startup session reconcile skipped: {exc}")
     start_scheduler()
 
 @app.on_event("shutdown")

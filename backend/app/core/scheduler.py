@@ -14,9 +14,15 @@ scheduler = AsyncIOScheduler()
 async def check_upcoming_sessions():
     """
     Checks the database for sessions starting soon that haven't sent a reminder yet.
+    Also reconciles stale session statuses (missed/ended) once per run.
     """
     db = SessionLocal()
     try:
+        from app.api.sessions import reconcile_session_statuses
+        changed = reconcile_session_statuses(db)
+        if changed:
+            print(f"Scheduler: reconciled {changed} stale session statuses")
+
         now = datetime.now()
         
         # We define 'soon' as starting within the next 15 minutes

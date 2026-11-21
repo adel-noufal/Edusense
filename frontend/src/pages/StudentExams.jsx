@@ -108,8 +108,36 @@ export default function StudentExams() {
     )
   }
 
+  // Group exams into sections. `available_from` arrives with B13; until then
+  // every published exam is treated as already open.
+  const now = new Date()
+  const buckets = { available: [], upcoming: [], submitted: [], expired: [] }
+  exams.forEach((exam) => {
+    const myAttempts = attempts[exam.id] ?? []
+    const lastAttempt = myAttempts.length
+      ? myAttempts.reduce((a, b) => (a.started_at > b.started_at ? a : b))
+      : null
+    const submitted = lastAttempt?.submitted_at != null
+    const availableFrom = exam.available_from ? new Date(exam.available_from) : null
+    const dueDate = exam.due_date ? new Date(exam.due_date) : null
+    const notYetOpen = availableFrom && availableFrom > now
+    const isPast = dueDate && dueDate < now
+
+    if (submitted) buckets.submitted.push({ exam, lastAttempt })
+    else if (notYetOpen) buckets.upcoming.push({ exam, lastAttempt })
+    else if (isPast) buckets.expired.push({ exam, lastAttempt })
+    else buckets.available.push({ exam, lastAttempt })
+  })
+
+  const sections = [
+    { key: 'available', title: 'Available now', items: buckets.available },
+    { key: 'upcoming', title: 'Upcoming', items: buckets.upcoming },
+    { key: 'submitted', title: 'Submitted', items: buckets.submitted },
+    { key: 'expired', title: 'Expired', items: buckets.expired },
+  ].filter((s) => s.items.length > 0)
+
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    <div className="mx-auto max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold">My Exams</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -117,17 +145,21 @@ export default function StudentExams() {
         </p>
       </div>
 
-      <div className="space-y-4">
-        {exams.map(exam => {
-          const myAttempts = attempts[exam.id] ?? []
-          const lastAttempt = myAttempts.length
-            ? myAttempts.reduce((a, b) => (a.started_at > b.started_at ? a : b))
-            : null
-          const submitted = lastAttempt?.submitted_at != null
-          const isPast = exam.due_date && new Date(exam.due_date) < new Date()
-          const canTake = !isPast && !submitted
+      {sections.map(({ key, title, items }) => (
+        <section key={key} className="space-y-3">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            {title} ({items.length})
+          </h2>
+          <div className="space-y-4">
+            {items.map(({ exam, lastAttempt }) => {
+              const submitted = lastAttempt?.submitted_at != null
+              const availableFrom = exam.available_from ? new Date(exam.available_from) : null
+              const dueDate = exam.due_date ? new Date(exam.due_date) : null
+              const notYetOpen = availableFrom && availableFrom > now
+              const isPast = dueDate && dueDate < now
+              const canTake = !notYetOpen && !isPast && !submitted
 
-          return (
+              return (
             <div
               key={exam.id}
               className="card rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-900"
@@ -143,6 +175,7 @@ export default function StudentExams() {
                     {exam.questions.length} question{exam.questions.length !== 1 ? 's' : ''} ·{' '}
                     {exam.difficulty} difficulty
                     {exam.due_date ? ` · Due ${formatDate(exam.due_date)}` : ''}
+                    {exam.available_from ? ` · Opens ${formatDate(exam.available_from)}` : ''}
                   </p>
                 </div>
 
@@ -167,6 +200,16 @@ export default function StudentExams() {
 
               {/* Anti-cheat / timer info row */}
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                {exam.available_from && (
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-0.5 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
+                    <Clock size={11} /> Available from {formatDate(exam.available_from)}
+                  </span>
+                )}
+                {exam.due_date && !isPast && (
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-teal-50 px-2 py-0.5 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
+                    <Clock size={11} /> Deadline {formatDate(exam.due_date)}
+                  </span>
+                )}
                 {exam.time_limit_seconds && (
                   <span className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
                     <Clock size={11} /> Timer: {formatTimer(exam.time_limit_seconds)}
@@ -208,9 +251,11 @@ export default function StudentExams() {
                 </div>
               )}
             </div>
-          )
-        })}
-      </div>
+              )
+            })}
+          </div>
+        </section>
+      ))}
     </div>
   )
 }

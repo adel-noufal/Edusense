@@ -1,0 +1,13 @@
+B11 Full Viewport Height Verification:
+Components modified:
+1. frontend/src/pages/AITools.jsx (ChatbotGenerator):
+   - Outer layout container uses xl:h-[calc(100dvh-6rem)] with independent sidebar scroll
+   - Chat panel container uses h-[calc(100dvh-8rem)] min-h-0 w-full flex-1 flex-col overflow-hidden
+   - Messages container uses flex-1 overflow-y-auto min-h-0
+   - Composer stays pinned at bottom
+2. frontend/src/pages/KnowledgeBase.jsx (KBChatPanel):
+   - Outer layout container uses h-[calc(100dvh-10rem)] min-h-0
+   - Panel container uses h-[calc(100dvh-10rem)] min-h-0 flex-1
+   - Messages feed uses flex-1 overflow-y-auto min-h-0 (max-h-[420px] removed)
+   - Input form has shrink-0 to remain pinned at bottom
+Both pages now fill the full viewport height without body double-scroll.

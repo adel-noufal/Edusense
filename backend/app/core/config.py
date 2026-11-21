@@ -31,6 +31,24 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("GEMINI_MODELS_SCRIPT", "EDUSENSE_GEMINI_MODELS_SCRIPT", "gemini_models_script")
     )
+    # Maps Gemini key_index -> quota group (keys in the same Google project
+    # share quota). Format: "0:1,1:2,2:2". Default: each key its own group.
+    gemini_key_groups: str = Field(
+        default="",
+        validation_alias=AliasChoices("GEMINI_KEY_GROUPS", "EDUSENSE_GEMINI_KEY_GROUPS", "gemini_key_groups")
+    )
+
+    # ── Additional LLM providers (comma-separated keys; OpenAI-compatible) ──
+    groq_api_keys: str = Field(default="", validation_alias=AliasChoices("GROQ_API_KEYS", "EDUSENSE_GROQ_API_KEYS", "groq_api_keys"))
+    openrouter_api_keys: str = Field(default="", validation_alias=AliasChoices("OPENROUTER_API_KEYS", "EDUSENSE_OPENROUTER_API_KEYS", "openrouter_api_keys"))
+    nvidia_api_keys: str = Field(default="", validation_alias=AliasChoices("NVIDIA_API_KEYS", "EDUSENSE_NVIDIA_API_KEYS", "nvidia_api_keys"))
+    deepinfra_api_keys: str = Field(default="", validation_alias=AliasChoices("DEEPINFRA_API_KEYS", "EDUSENSE_DEEPINFRA_API_KEYS", "deepinfra_api_keys"))
+    cerebras_api_keys: str = Field(default="", validation_alias=AliasChoices("CEREBRAS_API_KEYS", "EDUSENSE_CEREBRAS_API_KEYS", "cerebras_api_keys"))
+    groq_models: str = Field(default="", validation_alias=AliasChoices("GROQ_MODELS", "EDUSENSE_GROQ_MODELS", "groq_models"))
+    openrouter_models: str = Field(default="", validation_alias=AliasChoices("OPENROUTER_MODELS", "EDUSENSE_OPENROUTER_MODELS", "openrouter_models"))
+    nvidia_models: str = Field(default="", validation_alias=AliasChoices("NVIDIA_MODELS", "EDUSENSE_NVIDIA_MODELS", "nvidia_models"))
+    deepinfra_models: str = Field(default="", validation_alias=AliasChoices("DEEPINFRA_MODELS", "EDUSENSE_DEEPINFRA_MODELS", "deepinfra_models"))
+    cerebras_models: str = Field(default="", validation_alias=AliasChoices("CEREBRAS_MODELS", "EDUSENSE_CEREBRAS_MODELS", "cerebras_models"))
 
     # ── Video generation ──────────────────────────────────────────────────────
     # Narration pace used to map requested duration -> target script word count
@@ -68,6 +86,12 @@ class Settings(BaseSettings):
     report_max_attended_minutes: float = Field(
         default=720.0,
         validation_alias=AliasChoices("REPORT_MAX_ATTENDED_MINUTES", "EDUSENSE_REPORT_MAX_ATTENDED_MINUTES", "report_max_attended_minutes")
+    )
+    # Minutes after a scheduled start during which a never-started session is
+    # still considered "upcoming"; afterwards it becomes "missed".
+    session_missed_grace_minutes: int = Field(
+        default=30,
+        validation_alias=AliasChoices("SESSION_MISSED_GRACE_MINUTES", "EDUSENSE_SESSION_MISSED_GRACE_MINUTES", "session_missed_grace_minutes")
     )
     ollama_url: str = "http://localhost:11434/api/generate"
     ollama_model: str = "llama3.2"
@@ -162,6 +186,28 @@ class Settings(BaseSettings):
             cb_k = self.chatbot_gemini_api_key.strip()
             if cb_k and cb_k not in keys:
                 keys.append(cb_k)
+
+        # 3. Pooled GEMINI_API_KEYS / EDUSENSE_GEMINI_API_KEYS
+        for pool_var in ("GEMINI_API_KEYS", "EDUSENSE_GEMINI_API_KEYS"):
+            raw_pool = os.environ.get(pool_var, "").strip()
+            if raw_pool:
+                for k in raw_pool.split(","):
+                    k = k.strip()
+                    if k and k not in keys:
+                        keys.append(k)
+
+        # 4. Named GEMINI_KEY_<LABEL> / EDUSENSE_GEMINI_KEY_<LABEL>
+        gemini_named = []
+        for env_name, val in os.environ.items():
+            upper = env_name.upper()
+            if (upper.startswith("GEMINI_KEY_") or upper.startswith("EDUSENSE_GEMINI_KEY_")) and not upper.endswith(("_GROUP", "_FEATURE", "_PRIORITY")):
+                val = val.strip()
+                if val:
+                    gemini_named.append((upper, val))
+        for _, val in sorted(gemini_named):
+            if val not in keys:
+                keys.append(val)
+
         return keys
 
     @property

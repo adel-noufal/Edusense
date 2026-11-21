@@ -51,10 +51,13 @@ def analyze_trial(
     image = payload.get("image")
     if not image:
         raise HTTPException(400, "image is required")
-    emotion, confidence = agent._detect(image)
+    detail = agent._detect_detailed(image)
     return {
-        "emotion": emotion,
-        "confidence": round(confidence, 4),
+        "emotion": detail.get("emotion"),
+        "confidence": detail.get("confidence", 0.0),
+        "top_emotions": detail.get("top_emotions", []),
+        "face_detected": detail.get("face_detected", False),
+        "hint": detail.get("hint"),
         "backend": getattr(agent, "_active_backend", "unknown"),
     }
 
