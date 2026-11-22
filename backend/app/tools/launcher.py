@@ -86,8 +86,22 @@ def save_active_port(port: int):
         print(f"[WARN] Failed to write {ENV_LOCAL_FILE}: {e}")
 
 
+def ensure_local_models():
+    """Start Ollama if it is installed and not running so offline routing works."""
+    try:
+        from app.tools.ollama_boot import ensure_ollama
+        info = ensure_ollama()
+        if info["running"]:
+            print(f"[LAUNCHER] Ollama online ({len(info['models'])} local models)")
+        else:
+            print(f"[LAUNCHER] Ollama offline: {info['hint']}")
+    except Exception as exc:
+        print(f"[LAUNCHER] Ollama check skipped: {exc}")
+
+
 def run_server():
     os.chdir(BACKEND_DIR)
+    ensure_local_models()
 
     # Ensure venv python is used
     venv_python = BACKEND_DIR / ".venv" / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")

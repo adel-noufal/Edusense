@@ -171,6 +171,11 @@ def run_doctor():
         check("Playwright", False, f"Playwright browser check failed: {e}", "python -m playwright install chromium")
 
     # 9. Ollama Service & Local Models
+    try:
+        from app.tools.ollama_boot import ensure_ollama
+        boot = ensure_ollama(log=lambda m: print(m))
+    except Exception as exc:
+        boot = {"running": False, "hint": f"Ollama auto-start check failed: {exc}"}
     raw_ollama_url = os.getenv("EDUSENSE_OLLAMA_URL", "http://localhost:11434")
     ollama_base = raw_ollama_url.split("/api")[0].rstrip("/")
     try:
@@ -202,8 +207,9 @@ def run_doctor():
                   f"Ollama running but missing required offline models: {', '.join(missing)} (found: {', '.join(detected)})",
                   "Verify models in D:\\OllamaModels or start Ollama with local model directory")
     except Exception as e:
-        check("Ollama & Local Models", False, f"Cannot connect to Ollama at {ollama_base}: {e}",
-              "Start Ollama from D:\\Ollama\\ollama.exe or ensure Ollama service is running")
+        check("Ollama & Local Models", False,
+              f"Ollama not reachable at {ollama_base}: {e}. {boot.get('hint', '')}",
+              "Start Ollama: \"D:\\Ollama\\ollama.exe\" serve (the launcher also tries this automatically)")
 
     # Print Report
     # 10. Import smoke test (must stay green: a broken site-package such as a
