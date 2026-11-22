@@ -24,14 +24,18 @@ from app.schemas.schemas import FlashcardRequest, LessonRequest, QuizRequest, Qu
 from app.services.export import build_json_bytes, build_video_zip, build_word_document_bytes, lesson_to_markdown, build_true_docx_bytes, build_pptx_bytes
 from app.services.generation_jobs import create_job, get_job_payload, list_pending_jobs, set_job_status
 from app.services.source_extractor import build_session_source_context
-from app.services.video import generate_educational_video, rebuild_video_from_scenes
+from app.services.video import (
+    generate_educational_video,
+    rebuild_video_from_scenes,
+    validate_video_artifacts,
+)
 from app.core.audit import log_audit_event
 
 VIDEO_STATIC_DIR = Path(__file__).resolve().parents[1] / "static" / "videos"
 
 
 # Rate limiter: 30 requests per minute per user (token bucket)
-# TODO: This is in-memory only â€” correct for single-process deployment.
+# TODO: This is in-memory only — correct for single-process deployment.
 # For multi-worker deployments, replace with a shared store (e.g., Redis).
 class _RateLimiter:
     def __init__(self, rate: int = 30, per: int = 60):
@@ -80,6 +84,13 @@ class ChatMessageItem(BaseModel):
     content: str
 
 
+# Conversation kinds (addendum #11 §2). Knowledge Base chats live under the
+# "kb:" prefix (app/api/rag.py); AI Chatbot conversations use "web:". Legacy
+# unprefixed chatbot conversations are migrated on startup — deleting the
+# prefix reverses the migration.
+WEB_PREFIX = "web:"
+
+
 class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[str] = None
@@ -87,9 +98,13 @@ class ChatRequest(BaseModel):
     subject: Optional[str] = None
     grade_level: Optional[str] = None
     stream: bool = False
-    # Uploaded file text to inject as context (from /api/chat/upload)
+    # Ad-hoc file attached to THIS chat only (from /api/chat/upload)
     file_context: Optional[str] = None
+    # Chatbot is web+general knowledge only; these fields are accepted for
+    # backward compatibility and deliberately ignored.
     source_id: Optional[str] = None
+    source_ids: List[str] = []
+    kind: str = "web"
 
 
 class EnhancePromptRequest(BaseModel):
@@ -162,7 +177,7 @@ def _append_source(notes: str | None, context: str) -> str:
 
 
 def _run_lesson_bg(job_id: str, payload: LessonRequest, instructor_id: int):
-    """Runs in a daemon thread â€” survives tab close."""
+    """Runs in a daemon thread — survives tab close."""
     try:
         db = SessionLocal()
         try:
@@ -350,6 +365,8 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
             instructor_id,
             getattr(payload, "source_resource_ids", None)
         )
+        # Keep the user's visible Notes clean: retrieved excerpts go to the
+        # prompt only, never into the Notes field shown in the UI.
         notes = _append_source(payload.notes, source)
         project = VideoProject(
             instructor_id=instructor_id,
@@ -358,7 +375,7 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
             language=payload.language,
             style=payload.style,
             duration=payload.duration,
-            notes=notes,
+            notes=payload.notes or "",
             status="processing",
         )
         db.add(project)
@@ -380,6 +397,12 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
         _update_job_progress(job_id, progress=40, message="Building scenes and narration...")
         video = generate_educational_video(project.id, project.title, lesson)
         _update_job_progress(job_id, progress=85, message="Finalizing video...")
+        ok, reason = validate_video_artifacts(project.id)
+        if not ok:
+            project.status = "failed"
+            db.commit()
+            _finish_job(job_id, "error", error=reason)
+            return
         project.video_path = video["video_url"]
         project.status = "completed"
         if payload.session_id:
@@ -543,7 +566,7 @@ def export_lesson_pptx(payload: LessonRequest, _: User = Depends(require_role("i
     )
 
 
-# â”€â”€â”€ B8: export already-generated content (no regeneration) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── B8: export already-generated content (no regeneration) ──────────────────
 
 class ContentExportRequest(BaseModel):
     title: str = "Export"
@@ -674,7 +697,7 @@ def download_video_script_docx(video_id: int, db: Session = Depends(get_db), use
         except Exception:
             pass
     doc = Document()
-    doc.add_heading(f"{project.title} â€” Video Script", level=0)
+    doc.add_heading(f"{project.title} — Video Script", level=0)
     p_meta = doc.add_paragraph()
     p_meta.add_run(f"Duration: {project.duration} mins | Style: {project.style} | Language: {project.language}").italic = True
     doc.add_heading("Script Narration by Scene", level=1)
@@ -723,11 +746,11 @@ def download_video_script_pdf(video_id: int, db: Session = Depends(get_db), user
         for idx, sc in enumerate(scenes, 1):
             lines = [sc.get("narration") or sc.get("content") or ""]
             if sc.get("bullets"):
-                lines += [f"â€¢ {b}" for b in sc.get("bullets")]
+                lines += [f"• {b}" for b in sc.get("bullets")]
             blocks.append((f"Scene {idx}: {sc.get('title', '')}", lines))
     else:
         blocks.append(("Script", [project.prompt]))
-    buf = _pdf_doc(f"{project.title} â€” Script", blocks)
+    buf = _pdf_doc(f"{project.title} — Script", blocks)
     safe_title = _safe_filename(project.title + "-script", ".pdf")
     return StreamingResponse(
         buf,
@@ -903,7 +926,7 @@ def delete_quiz(quiz_id: int, db: Session = Depends(get_db), _: User = Depends(r
     return {"message": "Quiz deleted"}
 
 
-# â”€â”€â”€ Quiz Agent Config Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Quiz Agent Config Endpoints ───────────────────────────────────────────────────
 
 @router.post("/quiz-configs", response_model=QuizAgentConfigOut)
 def create_quiz_config(
@@ -1024,7 +1047,7 @@ def list_generations(type: str | None = None, db: Session = Depends(get_db), use
     query = db.query(AIGeneration).filter_by(instructor_id=user.id)
     if type and type != "quiz":
         query = query.filter_by(type=type)
-    # Quiz-type AIGeneration rows mirror Quiz records (appended below) â€”
+    # Quiz-type AIGeneration rows mirror Quiz records (appended below) —
     # listing both would show every quiz twice.
     query = query.filter(AIGeneration.type != "quiz")
     generations = query.order_by(AIGeneration.created_at.desc()).all()
@@ -1047,7 +1070,7 @@ def list_generations(type: str | None = None, db: Session = Depends(get_db), use
                 "id": q.id,
                 "type": "quiz",
                 "topic": q.title,
-                "prompt": f"Quiz Â· {q.difficulty}",
+                "prompt": f"Quiz · {q.difficulty}",
                 "session_id": q.session_id,
                 "created_at": q.created_at,
                 "data": {"title": q.title, "difficulty": q.difficulty}
@@ -1085,7 +1108,7 @@ def delete_generation(gen_id: int, db: Session = Depends(get_db), user: User = D
     return {"message": "Generation deleted"}
 
 
-# â”€â”€ Background-safe queue endpoints (generation continues even if tab closes) â”€â”€â”€
+# ── Background-safe queue endpoints (generation continues even if tab closes) ───
 
 @router.post("/lessons/queue")
 def queue_lesson(payload: LessonRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
@@ -1167,6 +1190,10 @@ def available_models(user: User = Depends(get_current_user)):
     allow_paid = getattr(settings, "allow_paid_models", False)
 
     now = time.time()
+    # Re-check the local daemon so the dropdown always shows the 4 local models
+    # when Ollama is up, and an actionable message when it is down.
+    llm.router._ensure_ollama()
+    ollama_up = bool(llm.router.provider_keys("ollama"))
     healthy = [
         {"provider": "auto", "model": "auto", "label": "Auto (best free model)"}
     ]
@@ -1176,7 +1203,7 @@ def available_models(user: User = Depends(get_current_user)):
         if (provider, model) in seen:
             continue
 
-        # Ollama local models get the "Offline" badge â€” always free
+        # Ollama local models get the "Offline" badge — always free
         if provider == "ollama":
             seen.add((provider, model))
             healthy.append({
@@ -1206,13 +1233,23 @@ def available_models(user: User = Depends(get_current_user)):
         cooling = bool((st and st.cooldown_until > now) or gb > 0)
         if not disabled and not cooling:
             seen.add((provider, model))
+            profile = llm.router.get_model_profile(provider, model)
             healthy.append({
                 "provider": provider,
                 "model": model,
                 "label": f"{provider}: {model}",
                 "free_tier": True,
+                "badge": profile.get("badge") or "Free",
+                "task": profile.get("task"),
+                "speed": profile.get("speed"),
             })
-    return {"models": healthy}
+    return {
+        "models": healthy,
+        "ollama_running": ollama_up,
+        "ollama_hint": None if ollama_up else (
+            "Local Ollama is not running. Fix: open a terminal and run `ollama serve`."
+        ),
+    }
 
 
 @router.get("/engagement/{session_id}")
@@ -1495,7 +1532,7 @@ def update_video_scenes(
     """
     Update a video's scenes (titles, narration, duration_seconds) and re-render
     the player HTML + re-TTS each segment + re-stitch MP4 (when ffmpeg available).
-    Does NOT re-generate the lesson â€” edits are applied directly to the scenes.
+    Does NOT re-generate the lesson — edits are applied directly to the scenes.
     """
     project = db.query(VideoProject).filter_by(id=video_id, instructor_id=user.id).first()
     if not project:
@@ -1542,13 +1579,13 @@ def delete_video(video_id: int, db: Session = Depends(get_db), user: User = Depe
     return {"message": "Video deleted"}
 
 
-# â”€â”€â”€ Gemini Health Diagnostics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Gemini Health Diagnostics ───────────────────────────────────────────────
 
 @router.get("/gemini-health")
 def gemini_health(user: User = Depends(require_role("instructor"))):
     """
     Probe every configured (key, model) pair with a tiny prompt.
-    Returns masked keys only â€” never key material.
+    Returns masked keys only — never key material.
     """
     from app.services.gemini import rotator
     import concurrent.futures
@@ -1601,7 +1638,7 @@ def gemini_health(user: User = Depends(require_role("instructor"))):
     }
 
 
-# â”€â”€â”€ Chat Endpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Chat Endpoint ────────────────────────────────────────────────────────────
 
 def _get_chatbot_settings():
     """Return (name, persona) from config, cached."""
@@ -1615,6 +1652,28 @@ def _build_chat_query(message: str, file_context: str | None) -> str:
     if file_context and file_context.strip():
         return f"[Uploaded file context]\n{file_context.strip()}\n\n[User question]\n{message}"
     return message
+
+
+def migrate_conversation_kinds(db) -> int:
+    """Tag legacy (unprefixed) AI Chatbot conversations with "web:".
+
+    Reversible: dropping the prefix restores the original ids. Knowledge Base
+    conversations (already "kb:") are untouched.
+    """
+    rows = db.query(ChatMessageModel.conversation_id).filter(
+        ~ChatMessageModel.conversation_id.like("kb:%"),
+        ~ChatMessageModel.conversation_id.like(f"{WEB_PREFIX}%"),
+    ).distinct().all()
+    moved = 0
+    for (cid,) in rows:
+        if not cid:
+            continue
+        moved += db.query(ChatMessageModel).filter(
+            ChatMessageModel.conversation_id == cid
+        ).update({"conversation_id": f"{WEB_PREFIX}{cid}"}, synchronize_session=False)
+    if moved:
+        db.commit()
+    return moved
 
 
 @router.post("/enhance-prompt")
@@ -1640,21 +1699,33 @@ def enhance_prompt(payload: EnhancePromptRequest, user: User = Depends(get_curre
         "You are a prompt engineer for an educational content generator. "
         "Rewrite the user's prompt into a clearer, more effective instruction. "
         "Improve clarity, audience, structure and constraints while preserving "
-        "the user's intent AND their language (Arabic stays Arabic, mixed stays mixed). "
+        "the user's intent AND their language. Detect the prompt's language and answer in "
+        "that exact language: English stays English, Arabic stays Arabic, mixed stays mixed. "
+        "Never translate the prompt into another language. "
         "Never change concrete values such as duration, question counts, topics or languages. "
-        "Return ONLY the improved prompt text â€” no preamble, no quotes, no explanation.\n\n"
+        "Return ONLY the improved prompt text — no preamble, no quotes, no explanation.\n\n"
         f"Form context: {context_line}\n\n"
         f"User prompt:\n{prompt_text}"
     )
+    import hashlib
+    cache_key = "enhance:" + hashlib.sha256(
+        (prompt_text + "|" + context_line).encode("utf-8")
+    ).hexdigest()
     try:
+        # Cached for an hour: repeated enhance clicks no longer spend quota.
         enhanced = llm.chat(instruction, task_type="prompt_enhance",
-                            temperature=0.4, timeout=45)
-    except Exception as exc:
-        raise HTTPException(502, f"PROMPT_ENHANCE_FAILED: {exc}")
+                            temperature=0.4, timeout=45,
+                            cache_key=cache_key, cache_ttl=3600)
+    except Exception:
+        # Short readable message — never the raw provider JSON.
+        raise HTTPException(
+            503,
+            "The prompt enhancer is busy right now. Please try again in a minute.",
+        )
 
     enhanced = (enhanced or "").strip().strip('"').strip()
     if not enhanced:
-        raise HTTPException(502, "INVALID_RESPONSE: enhancer returned empty text")
+        raise HTTPException(502, "The prompt enhancer returned an empty answer. Please try again.")
     return {"prompt": enhanced}
 
 
@@ -1674,8 +1745,10 @@ async def chat(
 
     bot_name, bot_persona = _get_chatbot_settings()
 
-    # Generate or use existing conversation_id
-    conversation_id = payload.conversation_id or str(uuid.uuid4())
+    # AI Chatbot conversations are always kind="web" and never read the KB.
+    if payload.conversation_id and payload.conversation_id.startswith("kb:"):
+        raise HTTPException(400, "Knowledge Base conversations belong to the KB chat page.")
+    conversation_id = payload.conversation_id or f"{WEB_PREFIX}{uuid.uuid4()}"
 
     # Load history from DB if conversation_id provided and history not in request
     history = []
@@ -1703,7 +1776,8 @@ async def chat(
         subject=payload.subject,
         grade_level=payload.grade_level,
         conversation_history=history,
-        source_id=payload.source_id,
+        source_id=None,
+        use_kb=False,  # web + attached-file context only, never KB retrieval
     )
 
     # Persist user message and assistant response
@@ -1728,6 +1802,8 @@ async def chat(
                 "rag_chunks_used": result.rag_chunks_used,
                 "web_results_used": result.web_results_used,
                 "fallback_reason": result.fallback_reason,
+                "provider": result.provider,
+                "model": result.model,
             })
         )
         db.add(user_msg)
@@ -1738,6 +1814,7 @@ async def chat(
 
     return {
         "conversation_id": conversation_id,
+        "kind": "web",
         "answer": result.answer,
         "chatbot_name": bot_name,
         "sources": result.sources,
@@ -1746,10 +1823,12 @@ async def chat(
         "rag_chunks_used": result.rag_chunks_used,
         "web_results_used": result.web_results_used,
         "fallback_reason": result.fallback_reason,
+        "provider": result.provider,
+        "model": result.model,
     }
 
 
-# â”€â”€â”€ Chat File Upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Chat File Upload ──────────────────────────────────────────────────────────
 
 @router.post("/chat/upload")
 async def chat_upload(
@@ -1808,14 +1887,14 @@ async def chat_upload(
     }
 
 
-# â”€â”€â”€ Chat Conversation History Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Chat Conversation History Endpoints ──────────────────────────────────────
 
 @router.get("/chat/conversations")
 async def list_conversations(
     user: User = Depends(get_current_user),
     limit: int = 50,
 ):
-    """List all conversation IDs for the current user, ordered by most recent activity."""
+    """List this user's AI Chatbot conversations (never Knowledge Base chats)."""
     from sqlalchemy import func
     db = SessionLocal()
     try:
@@ -1824,7 +1903,9 @@ async def list_conversations(
             func.max(ChatMessageModel.created_at).label("last_at"),
             func.count(ChatMessageModel.id).label("message_count"),
         ).filter(
-            ChatMessageModel.user_id == user.id
+            ChatMessageModel.user_id == user.id,
+            ChatMessageModel.conversation_id.like(f"{WEB_PREFIX}%"),
+            ~ChatMessageModel.conversation_id.like("kb:%"),
         ).group_by(
             ChatMessageModel.conversation_id
         ).order_by(
@@ -1840,6 +1921,7 @@ async def list_conversations(
             ).order_by(ChatMessageModel.created_at.asc()).first()
             results.append({
                 "conversation_id": conv_id,
+                "kind": "web",
                 "last_at": str(last_at),
                 "message_count": count,
                 "preview": (first_msg[0] if first_msg else "")[:80],
@@ -1854,7 +1936,9 @@ async def get_conversation(
     conversation_id: str,
     user: User = Depends(get_current_user),
 ):
-    """Load full message history for a conversation."""
+    """Load full message history for an AI Chatbot conversation."""
+    if conversation_id.startswith("kb:"):
+        raise HTTPException(status_code=404, detail="Conversation not found")
     db = SessionLocal()
     try:
         messages = db.query(ChatMessageModel).filter_by(
@@ -1885,7 +1969,9 @@ async def delete_conversation(
     conversation_id: str,
     user: User = Depends(get_current_user),
 ):
-    """Delete all messages in a conversation."""
+    """Delete all messages in an AI Chatbot conversation."""
+    if conversation_id.startswith("kb:"):
+        raise HTTPException(status_code=404, detail="Conversation not found")
     db = SessionLocal()
     try:
         deleted = db.query(ChatMessageModel).filter_by(
@@ -1925,7 +2011,9 @@ async def chat_stream(
     """
     _check_rate_limit(user)
 
-    conversation_id = payload.conversation_id or str(uuid.uuid4())
+    if payload.conversation_id and payload.conversation_id.startswith("kb:"):
+        raise HTTPException(400, "Knowledge Base conversations belong to the KB chat page.")
+    conversation_id = payload.conversation_id or f"{WEB_PREFIX}{uuid.uuid4()}"
 
     # Load history from DB if conversation_id provided and history not in request
     history = []
@@ -1966,7 +2054,8 @@ async def chat_stream(
             subject=payload.subject,
             grade_level=payload.grade_level,
             conversation_history=history,
-            source_id=payload.source_id,
+            source_id=None,
+            use_kb=False,
         ):
             if chunk.startswith("\n\n__METADATA__"):
                 import json as _json

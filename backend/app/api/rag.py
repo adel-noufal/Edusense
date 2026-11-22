@@ -67,7 +67,7 @@ def _kb_set_title(db, conversation_id: str, user_id: int, title: str):
     db.commit()
 
 
-# â”€â”€ Task 2: Document Ingestion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Task 2: Document Ingestion ────────────────────────────────────────────
 
 @router.post("/ingest", response_model=Dict[str, Any])
 async def ingest_document(
@@ -264,7 +264,7 @@ def delete_source(
     }
 
 
-# â”€â”€ Task 5: Student RAG Q&A â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Task 5: Student RAG Q&A ───────────────────────────────────────────────
 
 @router.post("/ask", response_model=Dict[str, Any])
 def ask_question(
@@ -272,7 +272,7 @@ def ask_question(
     current_user: User = Depends(get_current_user)
 ):
     """
-    **Student Q&A** â€” Ask a question and receive an AI answer grounded in the
+    **Student Q&A** — Ask a question and receive an AI answer grounded in the
     indexed course material (RAG).
 
     Request body:
@@ -298,7 +298,7 @@ def ask_question(
     ```
     - Open to **all authenticated users** (students and instructors).
     - If no relevant material exists, returns a polite message asking the instructor to upload documents.
-    - AI answer uses Gemini â†’ Ollama â†’ fallback message chain.
+    - AI answer uses Gemini → Ollama → fallback message chain.
     """
     question = (payload.get("question") or "").strip()
     if not question:
@@ -312,7 +312,7 @@ def ask_question(
     raw_source_ids = payload.get("source_ids")
     source_ids = [str(s) for s in raw_source_ids] if isinstance(raw_source_ids, list) and raw_source_ids else None
     if source_ids:
-        # Validate every selected ID against the indexed sources â€” the KB is
+        # Validate every selected ID against the indexed sources — the KB is
         # shared, so "ownership" means "must be a real indexed document".
         known = {str(s.get("source_id") or s.get("source_file"))
                  for s in ingestion.get_indexed_sources()}
@@ -321,7 +321,7 @@ def ask_question(
             raise HTTPException(status_code=400,
                                 detail=f"Unknown source_ids: {', '.join(unknown[:5])}")
 
-    # â”€â”€ Persistent KB conversation (instructor-scoped) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Persistent KB conversation (instructor-scoped) ──────────────────
     conversation_id = payload.get("conversation_id") or None
     persist = bool(payload.get("persist", True))
     db = SessionLocal()
@@ -379,6 +379,7 @@ def ask_question(
         source_file=source_file,
         history=history,
         source_ids=source_ids,
+        engine=(payload.get("engine") or None),
     )
 
     if persist:
@@ -402,7 +403,34 @@ def ask_question(
     return result
 
 
-# â”€â”€ Task 6: Instructor Knowledge-Base Suggestions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── KB Engine / Privacy ─────────────────────────────────────────────────
+
+@router.get("/engine", response_model=Dict[str, Any])
+def kb_engine(current_user: User = Depends(get_current_user)):
+    """Which provider tier answers Knowledge Base questions, and its privacy.
+
+    auto    -> Groq -> NVIDIA -> OpenRouter -> Ollama -> Gemini (cloud last)
+    private -> local Ollama only (recommended for uploaded books)
+    cloud   -> cloud providers only, never local Ollama
+    """
+    from app.core.config import get_settings
+    s = get_settings()
+    engine = (getattr(s, "kb_engine", "auto") or "auto").lower()
+    return {
+        "engine": engine if engine in ("auto", "private", "cloud") else "auto",
+        "options": [
+            {"value": "auto", "label": "Auto — cloud first, local fallback"},
+            {"value": "private", "label": "Private — this computer only (Ollama)"},
+            {"value": "cloud", "label": "Cloud — remote providers only"},
+        ],
+        "embeddings": "local (sentence-transformers all-MiniLM-L6-v2)",
+        "may_train_on_data": False,
+        "privacy_source": "https://ai.google.dev/gemini-api/terms (paid services are not used for training; verify per provider before uploading books)",
+        "recommended": "private",
+    }
+
+
+# ── Task 6: Instructor Knowledge-Base Suggestions ────────────────────────
 
 @router.get("/suggest", response_model=Dict[str, Any])
 def suggest_material(
@@ -410,11 +438,11 @@ def suggest_material(
     subject: Optional[str] = Query(None, description="Filter by subject (e.g. Biology)."),
     grade_level: Optional[str] = Query(None, description="Filter by grade level (e.g. 10)."),
     top_k: int = Query(8, ge=1, le=20, description="Number of top chunks to return."),
-    min_score: Optional[float] = Query(None, ge=0.0, le=1.0, description="Minimum similarity score (0â€“1)."),
+    min_score: Optional[float] = Query(None, ge=0.0, le=1.0, description="Minimum similarity score (0–1)."),
     current_user: User = Depends(require_role("instructor"))
 ):
     """
-    **Instructor Knowledge-Base Suggestions** â€” Preview what source material
+    **Instructor Knowledge-Base Suggestions** — Preview what source material
     exists in the knowledge base for a given topic before generating content.
 
     Returns the top-k most relevant chunks ranked by similarity score.
@@ -422,11 +450,11 @@ def suggest_material(
     `/ai/lessons`, `/ai/quizzes`, or `/ai/flashcards`.
 
     Query params:
-    - `topic` *(required)* â€” keyword or topic phrase
-    - `subject` â€” optional subject filter
-    - `grade_level` â€” optional grade level filter
-    - `top_k` â€” number of chunks (default 8, max 20)
-    - `min_score` â€” override the default relevance threshold
+    - `topic` *(required)* — keyword or topic phrase
+    - `subject` — optional subject filter
+    - `grade_level` — optional grade level filter
+    - `top_k` — number of chunks (default 8, max 20)
+    - `min_score` — override the default relevance threshold
 
     Response:
     ```json
@@ -450,7 +478,7 @@ def suggest_material(
     )
 
 
-# â”€â”€ KB Chat History (instructor-scoped, user-owned) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── KB Chat History (instructor-scoped, user-owned) ────────────────────────
 
 class KBRenameIn(BaseModel):
     title: str

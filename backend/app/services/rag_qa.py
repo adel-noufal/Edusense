@@ -1,9 +1,9 @@
 """
-rag_qa.py â€” RAG-grounded Q&A and knowledge-base suggestion service.
+rag_qa.py — RAG-grounded Q&A and knowledge-base suggestion service.
 
 Provides two public functions:
-  answer_question()  â€” used by POST /api/rag/ask  (students)
-  suggest_chunks()   â€” used by GET  /api/rag/suggest (instructors)
+  answer_question()  — used by POST /api/rag/ask  (students)
+  suggest_chunks()   — used by GET  /api/rag/suggest (instructors)
 """
 from __future__ import annotations
 
@@ -111,7 +111,7 @@ def _needs_rewrite(question: str, history: list[dict] | None) -> bool:
 def _rewrite_followup_query(question: str, history: list[dict] | None) -> str:
     """
     Rewrite a follow-up into a standalone retrieval query using recent turns.
-    Falls back to the raw question when no rewrite is possible â€” retrieval
+    Falls back to the raw question when no rewrite is possible — retrieval
     then behaves exactly as before.
     """
     if not _needs_rewrite(question, history):
@@ -148,7 +148,7 @@ def _history_source_files(history: list[dict] | None) -> list[str]:
     return files
 
 
-# â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── helpers ────────────────────────────────────────────────────────────────
 
 def _format_context(chunks: list[dict]) -> tuple[str, list[str]]:
     """
@@ -169,13 +169,32 @@ def _format_context(chunks: list[dict]) -> tuple[str, list[str]]:
 
 def _call_llm(prompt: str, subject: Optional[str] = None, grade_level: Optional[str] = None,
               topic: Optional[str] = None, has_rag_sources: bool = False,
-              rag_source_count: int = 0) -> tuple[str, str, bool]:
+              rag_source_count: int = 0, engine: str = "auto",
+              cache_key: Optional[str] = None) -> tuple[str, str, bool]:
     """
-    Try Gemini first, fall back to Ollama, fall back to a polite refusal.
+    Answer through the multi-provider router (addendum #11 §1.7).
+
+    engine:
+      auto    -> Groq -> NVIDIA -> OpenRouter -> Ollama -> Gemini (cloud last)
+      private -> local Ollama only (recommended for uploaded books)
+      cloud   -> cloud providers only, no local Ollama
+
     Returns (response, model_used, fallback_used).
     """
+    from app.services import llm as _llm
+
     settings = get_settings()
-    if settings.gemini_api_key and settings.ai_provider in ("auto", "gemini"):
+    engine = (engine or getattr(settings, "kb_engine", "auto") or "auto").lower()
+    attempts: list[dict] = []
+    if engine == "private":
+        attempts.append({"only_provider": "ollama", "label": "ollama"})
+    elif engine == "cloud":
+        attempts.append({"exclude_provider": "ollama", "label": "cloud"})
+    else:
+        attempts.append({"label": "auto"})
+
+    for attempt in attempts:
+        kwargs = {k: v for k, v in attempt.items() if k != "label"}
         try:
             with LLMAuditContext(
                 agent_name="RAG_QA_Service",
@@ -187,30 +206,25 @@ def _call_llm(prompt: str, subject: Optional[str] = None, grade_level: Optional[
                 rag_source_count=rag_source_count,
             ) as audit_ctx:
                 audit_ctx.set_prompt(prompt)
-                response = generate_content(prompt)
-                audit_ctx.set_response(response, model_used="gemini", fallback_used=False)
-            return response, "gemini", False
+                response = _llm.chat(
+                    prompt, task_type="kb_chat", temperature=0.3,
+                    max_output_tokens=1200, timeout=90.0,
+                    touch_student_data=True,
+                    cache_key=cache_key, cache_ttl=3600.0,
+                    **kwargs,
+                )
+                audit_ctx.set_response(
+                    response,
+                    model_used=attempt["label"],
+                    fallback_used=attempt["label"] != "auto",
+                )
+            return response, attempt["label"], attempt["label"] != "auto"
         except Exception as exc:
-            print(f"[RAG-QA] Gemini unavailable ({exc}), trying Ollama...")
-    if settings.ai_provider in ("auto", "gemini", "ollama"):
-        try:
-            with LLMAuditContext(
-                agent_name="RAG_QA_Service",
-                method_name="answer_question",
-                subject=subject,
-                grade_level=grade_level,
-                topic=topic,
-                has_rag_sources=has_rag_sources,
-                rag_source_count=rag_source_count,
-            ) as audit_ctx:
-                audit_ctx.set_prompt(prompt)
-                response = generate_via_ollama(prompt)
-                audit_ctx.set_response(response, model_used="ollama", fallback_used=True)
-            return response, "ollama", True
-        except Exception as exc:
-            print(f"[RAG-QA] Ollama unavailable ({exc}), using fallback answer.")
-    # Use template fallback with scope check â€” pass the real question so the
-    # template can never echo prompt scaffolding back to the user.
+            # Never surface provider JSON to the user; log and try the next tier.
+            print(f"[RAG-QA] KB engine {attempt['label']} unavailable ({str(exc)[:160]})")
+
+    # Auto/cloud/private exhausted: honest template fallback with scope check.
+    # Private mode never silently calls a cloud provider.
     llm = LocalLLM()
     fallback = llm._template(
         prompt, subject=subject, grade_level=grade_level, query=topic or None
@@ -229,7 +243,32 @@ def _call_llm(prompt: str, subject: Optional[str] = None, grade_level: Optional[
     return fallback, "template", True
 
 
-# â”€â”€ public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+_PAGE_RANGE_RE = re.compile(
+    r"(?:^|[^A-Za-z])pages?[ 	]+([0-9]{1,4})(?:[ 	]*(?:-|–|to|until)[ 	]*([0-9]{1,4}))?",
+    re.IGNORECASE,
+)
+
+
+def _page_span(question: str) -> Optional[tuple[int, int]]:
+    """Extract an explicit page reference ("page 40", "pages 40-45")."""
+    match = _PAGE_RANGE_RE.search(question or "")
+    if not match:
+        return None
+    start = int(match.group(1))
+    end = int(match.group(2) or start)
+    if end < start:
+        start, end = end, start
+    return start, end
+
+
+def _chunk_page(chunk: dict) -> int:
+    try:
+        return int(chunk.get("page") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+# ── public API ─────────────────────────────────────────────────────────────
 
 def answer_question(
     question: str,
@@ -240,6 +279,7 @@ def answer_question(
     source_file: Optional[str] = None,
     history: Optional[list[dict]] = None,
     source_ids: Optional[list[str]] = None,
+    engine: Optional[str] = None,
 ) -> dict:
     """
     Retrieve relevant chunks from the vector store and use them to answer
@@ -259,7 +299,7 @@ def answer_question(
     threshold = min_score if min_score is not None else settings.rag_min_score
 
     # Follow-up questions ("what else does the book cover?") fail similarity
-    # search because pronouns don't match document text â€” rewrite to a
+    # search because pronouns don't match document text — rewrite to a
     # standalone query first.
     search_query = _rewrite_followup_query(question, history)
 
@@ -309,7 +349,7 @@ def answer_question(
             chunks = _format_vector_chunks(selected_chunks)
 
     # Follow-up fallback: retrieval found nothing, but the previous answer was
-    # grounded in specific documents â€” retry scoped to those sources before
+    # grounded in specific documents — retry scoped to those sources before
     # declaring "nothing found".
     if not chunks:
         prev_files = _history_source_files(history)
@@ -344,6 +384,40 @@ def answer_question(
             if source_chunks:
                 chunks = _format_vector_chunks(_representative_chunks(source_chunks, top_k))
 
+    # Page/section awareness: "explain X on page 40" or "pages 40-45" filters
+    # to those pages plus one neighbour on each side.
+    page_span = _page_span(question)
+    if page_span and chunks:
+        span_start, span_end = page_span
+        in_range = [c for c in chunks if span_start - 1 <= _chunk_page(c) <= span_end + 1]
+        if not in_range:
+            # Similarity hits landed elsewhere: pull the referenced pages
+            # directly from the named/dominant source.
+            from collections import Counter
+            target = referenced_source or Counter(
+                c.get("source_file") or "" for c in chunks if c.get("source_file")
+            ).most_common(1)[0][0]
+            direct = vector_store.get_by_source(target) if target else []
+            direct_chunks = _format_vector_chunks(direct) if direct else []
+            in_range = [c for c in direct_chunks
+                        if span_start - 1 <= _chunk_page(c) <= span_end + 1]
+        if in_range:
+            chunks = in_range[:max(top_k, 6)]
+
+    cache_key = None
+    if chunks:
+        import hashlib
+        digest = hashlib.sha256(
+            (
+                question.strip().lower()
+                + "|" + ",".join(sorted(source_ids or []))
+                + "|" + ",".join(
+                    f"{c.get('source_file')}:{c.get('page')}" for c in chunks
+                )
+            ).encode("utf-8")
+        ).hexdigest()
+        cache_key = f"rag:{digest}"
+
     source_meta = [
         {
             "source_file":  c.get("source_file", ""),
@@ -369,7 +443,7 @@ def answer_question(
         else:
             answer = (
                 "I couldn't find anything about that in the uploaded course materials"
-                f"{scope}. The Knowledge Base only answers from indexed documents â€” "
+                f"{scope}. The Knowledge Base only answers from indexed documents — "
                 "please ask your instructor to upload relevant material, or try the AI "
                 "Chatbot for general questions."
             )
@@ -406,7 +480,7 @@ def answer_question(
                 lines.append(f"{role}: {content}")
         if lines:
             history_block = (
-                "\n\nCONVERSATION SO FAR (for context only â€” answer the latest question):\n"
+                "\n\nCONVERSATION SO FAR (for context only — answer the latest question):\n"
                 + "\n".join(lines)
                 + "\n"
             )
@@ -418,7 +492,7 @@ A student has asked the following question:{history_block}
 QUESTION: {question}
 
 Use ONLY the source material below to answer. If the sources do not contain enough
-information to answer fully, say so explicitly â€” do NOT invent facts.
+information to answer fully, say so explicitly — do NOT invent facts.
 Be concise, clear, and student-friendly. Cite sources where helpful using [Source: label] format.
 
 === SOURCE MATERIAL ===
@@ -434,15 +508,17 @@ Answer:"""
         topic=question,
         has_rag_sources=True,
         rag_source_count=len(chunks),
+        engine=engine or getattr(settings, "kb_engine", "auto"),
+        cache_key=cache_key,
     )
 
     if model_used == "template":
-        # Every LLM tier failed â€” be honest instead of showing a pseudo-answer.
+        # Every LLM tier failed — be honest instead of showing a pseudo-answer.
         # The grounded source excerpts are still returned below for the user.
         answer = (
             "The AI writing service is temporarily unavailable, so I can't generate "
             "a written answer right now. The most relevant excerpts from your uploaded "
-            "documents are shown below â€” please try again in a moment."
+            "documents are shown below — please try again in a moment."
         )
     answer = ensure_clean_user_answer(answer)
 
@@ -466,7 +542,7 @@ def suggest_chunks(
     min_score: Optional[float] = None,
 ) -> dict:
     """
-    Return the top-k RAG chunks matching a topic â€” used by instructors to
+    Return the top-k RAG chunks matching a topic — used by instructors to
     preview what source material exists before generating a lesson/quiz.
 
     Returns:

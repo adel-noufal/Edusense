@@ -8,7 +8,7 @@ import { api } from '../services/api'
 import { normalizeSources } from '../utils/sources'
 import SearchInput from '../components/SearchInput'
 
-// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function Pill({ label, color = 'slate' }) {
   const map = {
     slate:  'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
@@ -38,7 +38,7 @@ function StatCard({ icon: Icon, label, value, color = 'teal', sub }) {
         <Icon size={22} />
       </div>
       <div className="min-w-0">
-        <p className="text-2xl font-black tabular-nums">{value ?? 'â€”'}</p>
+        <p className="text-2xl font-black tabular-nums">{value ?? '—'}</p>
         <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">{label}</p>
         {sub && <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{sub}</p>}
       </div>
@@ -46,7 +46,7 @@ function StatCard({ icon: Icon, label, value, color = 'teal', sub }) {
   )
 }
 
-// â”€â”€â”€ Upload Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Upload Modal ─────────────────────────────────────────────────────────────
 function UploadModal({ onClose, onSuccess }) {
   const [file, setFile]           = useState(null)
   const [subject, setSubject]     = useState('')
@@ -117,7 +117,7 @@ function UploadModal({ onClose, onSuccess }) {
               clearInterval(pollInterval)
               try { localStorage.removeItem('edusense_kb_ingest_job') } catch (_) {}
               setProgressPct(100)
-              setProgress(`âœ“ Complete: ${statusRes.chunks_indexed || statusRes.result?.chunk_count || 0} chunks indexed!`)
+              setProgress(`✓ Complete: ${statusRes.chunks_indexed || statusRes.result?.chunk_count || 0} chunks indexed!`)
               setTimeout(() => {
                 onSuccess()
                 onClose()
@@ -139,7 +139,7 @@ function UploadModal({ onClose, onSuccess }) {
         }, 1200)
       } else {
         setProgressPct(100)
-        setProgress(`âœ“ Indexed ${data.chunk_count || data.chunks_added || 0} chunks successfully`)
+        setProgress(`✓ Indexed ${data.chunk_count || data.chunks_added || 0} chunks successfully`)
         setTimeout(() => {
           onSuccess()
           onClose()
@@ -187,7 +187,7 @@ function UploadModal({ onClose, onSuccess }) {
               <>
                 <CheckCircle2 size={32} className="text-teal-500" />
                 <p className="text-center text-sm font-semibold text-teal-700 dark:text-teal-300">{file.name}</p>
-                <p className="text-xs text-slate-500">{roundMb(file.size)} MB â€” click to change</p>
+                <p className="text-xs text-slate-500">{roundMb(file.size)} MB — click to change</p>
               </>
             ) : (
               <>
@@ -220,7 +220,7 @@ function UploadModal({ onClose, onSuccess }) {
           {loading && (
             <div className="space-y-2 rounded-2xl bg-teal-50/70 p-4 dark:bg-teal-950/30">
               <div className="flex justify-between text-xs font-semibold text-teal-800 dark:text-teal-200">
-                <span className="truncate max-w-[280px]">{progress || 'Processingâ€¦'}</span>
+                <span className="truncate max-w-[280px]">{progress || 'Processing…'}</span>
                 <span>{progressPct}%</span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-teal-200/60 dark:bg-teal-900/60">
@@ -235,7 +235,7 @@ function UploadModal({ onClose, onSuccess }) {
           <button id="kb-upload-submit" type="button" disabled={loading}
             className="btn-primary w-full justify-center gap-2 py-3"
             onClick={submit}>
-            {loading ? <><Loader2 size={18} className="animate-spin" />Processing ({progressPct}%)â€¦</> : <><Zap size={18} />Upload & Index</>}
+            {loading ? <><Loader2 size={18} className="animate-spin" />Processing ({progressPct}%)…</> : <><Zap size={18} />Upload & Index</>}
           </button>
         </div>
       </div>
@@ -302,7 +302,7 @@ function SourceCard({ src, onDelete, onPreview, onAsk }) {
   )
 }
 
-// â”€â”€â”€ Preview Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Preview Panel ────────────────────────────────────────────────────────────
 function PreviewPanel({ src, onClose }) {
   const [tab, setTab]         = useState(src?.initialTab || (src?.file_url ? 'doc' : 'chunks'))
   const [query, setQuery]     = useState(src?.topic || '')
@@ -343,7 +343,7 @@ function PreviewPanel({ src, onClose }) {
             </div>
             <div className="min-w-0">
               <h2 className="font-black text-lg truncate">{src?.filename || src?.source_file}</h2>
-              <p className="text-xs text-slate-500">{src?.subject} Â· Grade {src?.grade_level || 'All'}</p>
+              <p className="text-xs text-slate-500">{src?.subject} · Grade {src?.grade_level || 'All'}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -392,7 +392,7 @@ function PreviewPanel({ src, onClose }) {
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex gap-2 border-b border-slate-100 px-6 py-3 dark:border-slate-800">
-              <input id="preview-query" className="input flex-1" placeholder="Search topic or keywords in this sourceâ€¦"
+              <input id="preview-query" className="input flex-1" placeholder="Search topic or keywords in this source…"
                 value={query} onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && search()} />
               <button id="preview-search" type="button" className="btn-primary px-4" onClick={search} disabled={loading}>
@@ -413,7 +413,7 @@ function PreviewPanel({ src, onClose }) {
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-xs text-slate-500">
                       <FileText size={13} />
-                      <span>{c.source_file || src?.filename} Â· page {c.page}</span>
+                      <span>{c.source_file || src?.filename} · page {c.page}</span>
                     </div>
                     {c.score != null && (
                       <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-bold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
@@ -455,6 +455,9 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
   const [sourceList, setSourceList]       = useState([])
   const [selectedSources, setSelectedSources] = useState([])
   const [focusMode, setFocusMode] = useState(false)
+  // Engine tier for KB answers: auto | private | cloud (addendum #11 §1.7)
+  const [engine, setEngine] = useState('auto')
+  const [engineInfo, setEngineInfo] = useState(null)
   const chatEndRef              = useRef(null)
 
   useEffect(() => {
@@ -484,6 +487,10 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
   useEffect(() => { loadConversations() }, [loadConversations])
   useEffect(() => {
     api('/rag/sources').then(d => setSourceList(Array.isArray(d) ? d : (d.sources || []))).catch(() => {})
+    api('/rag/engine').then(d => {
+      if (d?.engine) setEngine(d.engine)
+      setEngineInfo(d || null)
+    }).catch(() => {})
   }, [])
 
   async function openConversation(convId) {
@@ -564,6 +571,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
           source_ids: selectedSources.length ? selectedSources : null,
           conversation_id: activeConvId,
           persist: true,
+          engine,
         }
       })
 
@@ -588,7 +596,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
 
   const SUGGESTIONS = [
     'Explain the Calvin cycle in simple terms',
-    'What are Newtonâ€™s laws of motion?',
+    'What are Newton’s laws of motion?',
     'Summarize key topics from uploaded biology PDFs',
     'Create 3 review questions on cell division'
   ]
@@ -598,7 +606,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
 
   return (
     <div className={`flex h-full min-h-0 items-stretch gap-4 ${focusMode ? 'fixed inset-0 z-[70] bg-white p-3 dark:bg-slate-950' : ''}`}>
-      {/* â”€â”€ Conversation sidebar (desktop: inline, mobile: overlay) â”€â”€ */}
+      {/* ── Conversation sidebar (desktop: inline, mobile: overlay) ── */}
       <aside className={`${focusMode ? 'hidden' : sidebarOpen ? 'fixed inset-x-3 top-32 z-30 flex' : 'hidden'} lg:static lg:z-auto lg:flex w-full lg:w-64 shrink-0 flex-col gap-2 h-full min-h-0 overflow-hidden`}>
         <div className="panel flex flex-col gap-2 p-3 h-full min-h-0">
           <div className="flex shrink-0 items-center justify-between">
@@ -610,7 +618,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
           </div>
           <div className="shrink-0">
             <SearchInput value={convSearch} onChange={(e) => setConvSearch(e.target.value)}
-              placeholder="Search chatsâ€¦" className="[&_input]:py-1.5 [&_input]:text-xs" />
+              placeholder="Search chats…" className="[&_input]:py-1.5 [&_input]:text-xs" />
           </div>
           <div className="flex-1 min-h-0 space-y-1 overflow-y-auto pr-1">
             {listLoading && <p className="px-2 py-3 text-center text-xs text-slate-400"><Loader2 size={13} className="inline animate-spin" /></p>}
@@ -652,12 +660,29 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
             <Sparkles size={20} />
           </div>
           <div>
-            <h2 className="text-base font-black">EduSense AI Assistant</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Direct grounded Q&A with your Knowledge Base & Gemini AI</p>
+            <h2 className="text-base font-black">Knowledge Base Chat</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Answers from your uploaded documents only — never the web</p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500" title={engineInfo?.privacy_source || ''}>
+            Engine
+            <select
+              className="input h-8 min-w-[210px] w-auto py-1 text-xs"
+              value={engine}
+              onChange={(e) => setEngine(e.target.value)}
+            >
+              {(engineInfo?.options || [
+                { value: 'auto', label: 'Auto' },
+                { value: 'private', label: 'Private (local)' },
+                { value: 'cloud', label: 'Cloud' },
+              ]).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+          </label>
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${engine === 'private' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
+            {engine === 'private' ? 'Private: stays on this computer' : `Privacy: no training on your files (${engineInfo?.embeddings ? 'local embeddings' : 'embeddings local'})`}
+          </span>
           <button type="button" className="btn-soft text-xs py-1.5 px-3" onClick={() => setFocusMode(v => !v)}>
             {focusMode ? <><Minimize2 size={13} /> Exit focus</> : <><Maximize2 size={13} /> Focus mode</>}
           </button>
@@ -723,7 +748,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-500 text-white">
               <Loader2 size={16} className="animate-spin" />
             </div>
-            <p className="font-medium animate-pulse">Consulting Knowledge Base & AI modelsâ€¦</p>
+            <p className="font-medium animate-pulse">Consulting Knowledge Base & AI models…</p>
           </div>
         )}
         <div ref={chatEndRef} />
@@ -789,7 +814,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
         <input
           id="qa-question"
           className="input flex-1 py-2.5"
-          placeholder="Ask a question about your uploaded PDFs or any general topicâ€¦"
+          placeholder="Ask about your uploaded documents…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           disabled={loading}
@@ -804,7 +829,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
   )
 }
 
-// â”€â”€â”€ Main Dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function KnowledgeBaseDashboard() {
   const [sources, setSources]         = useState([])
   const [loading, setLoading]         = useState(true)
@@ -867,7 +892,11 @@ export default function KnowledgeBaseDashboard() {
       const data = await api('/rag/sources')
       setSources(Array.isArray(data) ? data : [])
     } catch (e) {
-      setError(e.message)
+      // Distinguish a network failure (api.js already names the real API base
+      // URL) from an HTTP error, and always show the real status + detail.
+      setError(e.status
+        ? `The Knowledge Base request failed with HTTP ${e.status}: ${e.message}`
+        : e.message)
       setSources([])
     } finally {
       setLoading(false)
@@ -897,7 +926,7 @@ export default function KnowledgeBaseDashboard() {
 
   return (
     <div className="flex flex-col h-full min-h-0 w-full overflow-hidden p-3 sm:p-4 gap-3">
-      {/* â”€â”€ Page Header â”€â”€ */}
+      {/* ── Page Header ── */}
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-1 flex items-center gap-2">
@@ -963,7 +992,7 @@ export default function KnowledgeBaseDashboard() {
         </div>
       )}
 
-      {/* â”€â”€ Tabs â”€â”€ */}
+      {/* ── Tabs ── */}
       <div className="shrink-0 flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-900/50 w-fit">
         {[['library', Database, 'Library'], ['qa', Sparkles, 'AI Chat Assistant']].map(([id, Icon, label]) => (
           <button key={id} type="button" id={`kb-tab-${id}`}
@@ -977,13 +1006,13 @@ export default function KnowledgeBaseDashboard() {
         ))}
       </div>
 
-      {/* â”€â”€ Library Tab â”€â”€ */}
+      {/* ── Library Tab ── */}
       {activeTab === 'library' && (
         <div className="flex flex-col flex-1 min-h-0 gap-3 overflow-hidden">
           {/* Filter bar */}
           <div className="panel shrink-0 flex flex-wrap items-center gap-3">
             <SearchInput id="kb-search" className="flex-1 min-w-48" value={searchQ}
-              onChange={(e) => setSearchQ(e.target.value)} placeholder="Search by filename or topicâ€¦" />
+              onChange={(e) => setSearchQ(e.target.value)} placeholder="Search by filename or topic…" />
             {searchQ && (
               <button type="button" className="btn-soft gap-1.5 text-sm"
                 onClick={() => setSearchQ('')}>
@@ -1041,7 +1070,7 @@ export default function KnowledgeBaseDashboard() {
               {filtered.map(src => (
                 deleting === src.source_file ? (
                   <div key={src.source_file} className="flex h-16 items-center justify-center rounded-2xl border border-red-200 bg-red-50 text-sm text-red-600 dark:border-red-900/40 dark:bg-red-950/20">
-                    <Loader2 size={16} className="animate-spin mr-2" />Deleting {src.source_file}â€¦
+                    <Loader2 size={16} className="animate-spin mr-2" />Deleting {src.source_file}…
                   </div>
                 ) : (
                   <SourceCard key={src.source_file} src={src}
@@ -1055,7 +1084,7 @@ export default function KnowledgeBaseDashboard() {
         </div>
       )}
 
-      {/* â”€â”€ Q&A Tab â”€â”€ */}
+      {/* ── Q&A Tab ── */}
       {activeTab === 'qa' && (
         <div className="flex-1 min-h-0 h-full overflow-hidden">
           <QAPanel
@@ -1066,7 +1095,7 @@ export default function KnowledgeBaseDashboard() {
         </div>
       )}
 
-      {/* â”€â”€ Modals â”€â”€ */}
+      {/* ── Modals ── */}
       {showUpload && (
         <UploadModal onClose={() => setShowUpload(false)} onSuccess={loadSources} />
       )}

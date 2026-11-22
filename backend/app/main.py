@@ -25,12 +25,12 @@ app = FastAPI(
     title="EduSense AI Education Platform",
     description="""
     **EduSense** is a multi-agent AI Education Platform for adaptive learning,
-    real-time webcam facial emotion recognition (PyTorch v7 EfficientNet-B0 â€” 90.9% Accuracy),
+    real-time webcam facial emotion recognition (PyTorch v7 EfficientNet-B0 — 90.9% Accuracy),
     and intelligent multi-tier AI model task routing (Gemini 2.0 Flash -> Specialized Local Ollama Models).
 
-    ðŸ‘¤ **Author:** Adel Mohamed Noufal
-    ðŸ”— **LinkedIn:** https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/
-    ðŸ“¦ **GitHub:** https://github.com/adel-noufal/Edusense
+    👤 **Author:** Adel Mohamed Noufal
+    🔗 **LinkedIn:** https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/
+    📦 **GitHub:** https://github.com/adel-noufal/Edusense
     """,
     version="2.0.0",
     openapi_tags=tags_metadata,
@@ -101,6 +101,11 @@ def startup():
             cleared = cleanup_stuck_jobs_on_startup(_db)
             if cleared:
                 print(f"Startup: cleared {cleared} stale pending/processing background jobs")
+            # Reversible migration: tag legacy chatbot conversations as web:
+            from app.api.ai import migrate_conversation_kinds
+            moved = migrate_conversation_kinds(_db)
+            if moved:
+                print(f"Startup: tagged {moved} legacy chatbot messages as web: conversations")
         finally:
             _db.close()
     except Exception as exc:
@@ -109,6 +114,14 @@ def startup():
 
     # C9 & P0-3: Warm up vector-store and emotion analysis agent in background threads
     def _warmup_services():
+        # Live 1-token probe of every configured cloud model, so routing and the
+        # model dropdown only offer models this account can actually use.
+        try:
+            from app.services import llm as _llm
+            _llm.router.probe_all_models()
+        except Exception as e:
+            print(f"LLM model probe skipped: {e}")
+
         try:
             from app.services.vector_store import init_collection
             init_collection()   # loads ChromaDB + embedding model once

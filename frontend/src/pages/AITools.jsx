@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
-import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff, Mic, MicOff, MessageCircle, Paperclip, RotateCcw, Square, Maximize2, Minimize2 } from 'lucide-react'
+import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2, Video, Volume2, ShieldCheck, AlertTriangle, Send, Bot, Loader2, Zap, Globe, Database, Shield, Lock, Camera, X, Edit3, Plus, Eye, EyeOff, Mic, MicOff, MessageCircle, Paperclip, RotateCcw, Square, Maximize2, Minimize2, Cpu } from 'lucide-react'
 import MarkdownText from '../utils/markdown'
 import { normalizeSource, normalizeSources } from '../utils/sources'
 import { api, downloadAuthenticatedRequest, staticUrl } from '../services/api'
@@ -96,7 +96,7 @@ function formatJobError(raw) {
       return `${parsed.message}${stage}`
     }
   } catch {
-    // not JSON â€” plain error string
+    // not JSON — plain error string
   }
   return raw
 }
@@ -105,7 +105,7 @@ function formatJobError(raw) {
 function useBackgroundGeneration(type) {
   const { startJob, job, removeJob } = useGenerationJobs(type)
   const [loading, setLoading] = useState(() => job?.status === 'pending')
-  // Don't pre-populate error from stale failed jobs â€” errors are only shown during active session
+  // Don't pre-populate error from stale failed jobs — errors are only shown during active session
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -115,7 +115,7 @@ function useBackgroundGeneration(type) {
     }
     if (job.status === 'pending') {
       setLoading(true)
-      setError('Generation running in background â€” you can navigate away and come back later.')
+      setError('Generation running in background — you can navigate away and come back later.')
       return
     }
     if (job.status === 'error') {
@@ -132,7 +132,7 @@ function useBackgroundGeneration(type) {
     setError('')
     try {
       await startJob({ type, endpoint, payload, label })
-      setError('Generation running in background â€” you can navigate away and come back later.')
+      setError('Generation running in background — you can navigate away and come back later.')
     } catch (err) {
       setLoading(false)
       setError(err.message || 'Could not start generation')
@@ -1068,7 +1068,7 @@ export function QuizGenerator() {
                       {h.session_title && (
                         <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                           Visible to {h.enrolled_student_count ?? 0} students in {h.session_title}
-                          {h.available_from ? ` Â· Available from ${new Date(h.available_from).toLocaleDateString()}` : ''}
+                          {h.available_from ? ` · Available from ${new Date(h.available_from).toLocaleDateString()}` : ''}
                           {h.due_date ? ` until ${new Date(h.due_date).toLocaleDateString()}` : ''}
                         </p>
                       )}
@@ -1221,7 +1221,7 @@ export function VideoLibrary() {
         {loading && (
           <div className="panel flex items-center gap-3 border border-teal-200 bg-teal-50/70 text-sm text-teal-900 dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100">
             <Clock3 className="animate-pulse shrink-0" size={18} />
-            Building your video in the background. You can browse other tabs â€” come back here when it finishes.
+            Building your video in the background. You can browse other tabs — come back here when it finishes.
           </div>
         )}
         {result && <VideoResult result={result} initialForm={form} onReplace={setResult} onHistoryRefresh={loadHistory} />}
@@ -1245,7 +1245,7 @@ export function VideoLibrary() {
                   <Trash2 size={16} />
                 </button>
               </div>
-              <p className="text-xs text-slate-500 mt-1">{new Date(h.created_at).toLocaleDateString()} Â· {h.status}</p>
+              <p className="text-xs text-slate-500 mt-1">{new Date(h.created_at).toLocaleDateString()} · {h.status}</p>
               {h.scenes?.length > 0 && <p className="text-xs text-slate-400 mt-1">{h.scenes.length} scenes</p>}
             </div>
           ))}
@@ -1283,7 +1283,7 @@ function ToolShell({ title, icon, onSubmit, loading, error, children, job }) {
             />
           </div>
           <p className="text-sm text-slate-500">
-            {job?.stage || t('ai.working')}{job?.progress ? ` â€” ${job.progress}%` : ''}
+            {job?.stage || t('ai.working')}{job?.progress ? ` — ${job.progress}%` : ''}
           </p>
         </div>
       )}
@@ -1323,13 +1323,13 @@ function LessonResult({ result, request }) {
   const language = lesson?.language || request?.language || ''
   const style = lesson?.style || request?.teaching_style || ''
   const isRtl = language === 'Arabic' || language === 'ar'
-  const subtitle = [language, style].filter(Boolean).join(' Â· ')
+  const subtitle = [language, style].filter(Boolean).join(' · ')
   const slug = (lesson?.topic || 'lesson').replace(/\s+/g, '-').toLowerCase()
   const [openSection, setOpenSection] = useState(null)
 
   return (
     <div className="space-y-6" dir={isRtl ? 'rtl' : 'ltr'}>
-      {/* â”€â”€ Hero Header â”€â”€ */}
+      {/* ── Hero Header ── */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-teal-600 via-teal-500 to-cyan-500 p-6 text-white shadow-lg">
         <div className="absolute inset-0 opacity-10" style={{backgroundImage:'radial-gradient(circle at 70% 50%, white 1px, transparent 1px)', backgroundSize:'24px 24px'}} />
         <div className="relative">
@@ -1337,7 +1337,7 @@ function LessonResult({ result, request }) {
             {request?.model && request.model !== 'auto' && (
               <span className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-semibold backdrop-blur-sm">{request.model}</span>
             )}
-            {subtitle && subtitle.split(' Â· ').map(s => (
+            {subtitle && subtitle.split(' · ').map(s => (
               <span key={s} className="rounded-full bg-white/15 px-2.5 py-0.5 text-xs">{s}</span>
             ))}
           </div>
@@ -1346,7 +1346,7 @@ function LessonResult({ result, request }) {
         </div>
       </div>
 
-      {/* â”€â”€ Download Bar â”€â”€ */}
+      {/* ── Download Bar ── */}
       <DownloadBar
         items={[
           { label: 'Word (.doc)', onClick: () => downloadLessonAsDoc(lesson, `${slug}.doc`) },
@@ -1357,11 +1357,11 @@ function LessonResult({ result, request }) {
         ]}
       />
 
-      {/* â”€â”€ Learning Objectives â”€â”€ */}
+      {/* ── Learning Objectives ── */}
       {lesson.learning_objectives?.length > 0 && (
         <div className="rounded-2xl border border-teal-200 bg-teal-50/60 p-5 dark:border-teal-900/40 dark:bg-teal-950/20">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-teal-700 dark:text-teal-300">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-600 text-xs text-white">âœ“</span>
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-600 text-xs text-white">✓</span>
             {t('ai.objectives')}
           </h2>
           <ul className="space-y-2">
@@ -1375,7 +1375,7 @@ function LessonResult({ result, request }) {
         </div>
       )}
 
-      {/* â”€â”€ Sections (accordion) â”€â”€ */}
+      {/* ── Sections (accordion) ── */}
       {lesson.sections?.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('ai.sections')}</h2>
@@ -1387,7 +1387,7 @@ function LessonResult({ result, request }) {
                 className="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
               >
                 <span className="font-semibold text-slate-800 dark:text-slate-100">{section.heading}</span>
-                <span className="shrink-0 text-slate-400">{openSection === i ? 'â–²' : 'â–¼'}</span>
+                <span className="shrink-0 text-slate-400">{openSection === i ? '▲' : '▼'}</span>
               </button>
               {openSection === i && (
                 <div className="border-t border-slate-200 bg-slate-50/50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800/30">
@@ -1405,7 +1405,7 @@ function LessonResult({ result, request }) {
         </div>
       )}
 
-      {/* â”€â”€ Slides grid â”€â”€ */}
+      {/* ── Slides grid ── */}
       {lesson.slides?.length > 0 && (
         <div>
           <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('ai.slides')}</h2>
@@ -1419,7 +1419,7 @@ function LessonResult({ result, request }) {
                 <p className="text-sm leading-6 text-slate-600 dark:text-slate-400">{slide.content}</p>
                 {slide.diagram && (
                   <p className="mt-2 rounded-md bg-violet-50 px-3 py-1.5 text-xs text-violet-700 dark:bg-violet-950/30 dark:text-violet-300">
-                    ðŸ“Š {slide.diagram}
+                    📊 {slide.diagram}
                   </p>
                 )}
               </div>
@@ -1428,7 +1428,7 @@ function LessonResult({ result, request }) {
         </div>
       )}
 
-      {/* â”€â”€ Key Terms â”€â”€ */}
+      {/* ── Key Terms ── */}
       {lesson.key_points?.length > 0 && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 dark:border-amber-900/40 dark:bg-amber-950/15">
           <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400">{t('ai.keyPoints')}</h2>
@@ -1442,7 +1442,7 @@ function LessonResult({ result, request }) {
         </div>
       )}
 
-      {/* â”€â”€ Summary â”€â”€ */}
+      {/* ── Summary ── */}
       {lesson.summary && (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-800/40">
           <h2 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{t('ai.summary')}</h2>
@@ -1450,7 +1450,7 @@ function LessonResult({ result, request }) {
         </div>
       )}
 
-      {/* â”€â”€ Sources â”€â”€ */}
+      {/* ── Sources ── */}
       {(lesson?.sources?.length > 0 || lesson?.unverified) && (
         <ResultHeader title="" subtitle="" model={undefined} sources={lesson?.sources} unverified={lesson?.unverified} />
       )}
@@ -1589,7 +1589,7 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Available From (optional â€” exam hidden before this time)</label>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Available From (optional — exam hidden before this time)</label>
             <input type="datetime-local" className="input mt-1 w-full" value={availableFrom} onChange={(e) => setAvailableFrom(e.target.value)} />
           </div>
 
@@ -1725,7 +1725,7 @@ function QuizResult({ result, answers, revealed, onAnswer, onReveal, onPublishEx
                 {show && (
                   <p className={`text-sm ${correct ? 'text-emerald-600' : 'text-red-600'}`}>
                     {correct ? t('ai.correct') : `${t('ai.answer')}: ${question.answer}`}
-                    {question.explanation ? ` â€” ${question.explanation}` : ''}
+                    {question.explanation ? ` — ${question.explanation}` : ''}
                   </p>
                 )}
               </div>
@@ -1960,7 +1960,7 @@ function FlashcardResult({ result, request, flipped, onFlip }) {
   const slug = (result.title || 'flashcards').replace(/\s+/g, '-').toLowerCase()
   return (
     <div className="space-y-4 rounded-md border border-slate-200 p-4 dark:border-slate-700">
-      <ResultHeader title={result.title} subtitle={`${result.cards?.length || 0} cards Â· ${result.language}`} model={request?.model} sources={result.sources} unverified={result.unverified} />
+      <ResultHeader title={result.title} subtitle={`${result.cards?.length || 0} cards · ${result.language}`} model={request?.model} sources={result.sources} unverified={result.unverified} />
       <DownloadBar
         items={[
           {
@@ -2019,7 +2019,7 @@ function ResultHeader({ title, subtitle, model, sources, unverified }) {
         <p className="text-sm text-slate-500">{subtitle}</p>
         {model && (
           <span className="mt-1 inline-block rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-ocean dark:bg-slate-800 dark:text-mint">
-            âš¡ {model}
+            ⚡ {model}
           </span>
         )}
         <div className="mt-2 flex items-center gap-2">
@@ -2051,7 +2051,6 @@ function Section({ title, children }) {
 
 export function ChatbotGenerator() {
   const { t } = useLanguage()
-  const location = useLocation()
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -2063,21 +2062,24 @@ export function ChatbotGenerator() {
   const [fileContext, setFileContext] = useState(null)
   const [fileUploading, setFileUploading] = useState(false)
   const [fileLabel, setFileLabel] = useState(null)
-  const [ragSources, setRagSources] = useState([])
-  const [selectedSourceId, setSelectedSourceId] = useState('')
   const [listening, setListening] = useState(false)
   const fileInputRef = useRef(null)
   const recognitionRef = useRef(null)
   const messagesEndRef = useRef(null)
   const abortRef = useRef(null)
   const pendingUserRef = useRef(null)
-  // B10: attach from KB files
-  const [attachKbOpen, setAttachKbOpen] = useState(false)
-  const [attachedKbIds, setAttachedKbIds] = useState([])
-  // C12: chatbot modes ('none' | 'selected' | 'all', OFF by default, saved per conversation)
-  const [fileMode, setFileMode] = useState('none')
   const [focusMode, setFocusMode] = useState(false)
+  const [stage, setStage] = useState('')
   const [howWorksOpen, setHowWorksOpen] = useState(typeof window !== 'undefined' ? window.innerWidth >= 1600 : false)
+
+  // Simple, honest progress labels while a web-backed answer is produced.
+  useEffect(() => {
+    if (!loading) { setStage(''); return }
+    setStage('Searching the web…')
+    const t1 = setTimeout(() => setStage('Reading the top pages…'), 1800)
+    const t2 = setTimeout(() => setStage('Writing the answer…'), 4500)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [loading])
 
   useEffect(() => {
     const onKey = (event) => {
@@ -2086,22 +2088,6 @@ export function ChatbotGenerator() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-
-  useEffect(() => {
-    if (conversationId) {
-      const saved = localStorage.getItem(`edusense_chat_mode_${conversationId}`)
-      setFileMode(saved === 'selected' || saved === 'all' ? saved : 'none')
-    } else {
-      setFileMode('none')
-    }
-  }, [conversationId])
-
-  function handleModeChange(newMode) {
-    setFileMode(newMode)
-    if (conversationId) {
-      localStorage.setItem(`edusense_chat_mode_${conversationId}`, newMode)
-    }
-  }
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -2117,20 +2103,7 @@ export function ChatbotGenerator() {
       if (r?.chatbot_name) setChatbotName(r.chatbot_name)
     }).catch(() => {})
     loadConversations()
-    api('/rag/sources')
-      .then(data => setRagSources(Array.isArray(data) ? data : []))
-      .catch(err => setError(err.message || 'Could not load indexed documents'))
   }, [])
-
-  // Handle navigation state from InstructorSources (ask about document)
-  useEffect(() => {
-    if (location.state?.sourceId) {
-      setSelectedSourceId(location.state.sourceId)
-      setFileLabel(`ðŸ“Ž ${location.state.sourceName || 'Selected document'}`)
-      // Clear the state to prevent re-triggering
-      window.history.replaceState({}, document.title)
-    }
-  }, [location.state])
 
   useEffect(() => () => recognitionRef.current?.stop(), [])
 
@@ -2169,7 +2142,6 @@ export function ChatbotGenerator() {
         setConversationId(id)
         setFileContext(null)
         setFileLabel(null)
-        setSelectedSourceId('')
       }
     } catch (err) {
       setError('Failed to load conversation')
@@ -2207,7 +2179,7 @@ export function ChatbotGenerator() {
         body: formData,
       })
       setFileContext(data.text)
-      setFileLabel(`ðŸ“Ž ${file.name}${data.truncated ? ' (truncated)' : ''} â€” ${data.char_count} chars`)
+      setFileLabel(`📎 ${file.name}${data.truncated ? ' (truncated)' : ''} — ${data.char_count} chars`)
     } catch (err) {
       setError(err.message || 'File upload failed')
     } finally {
@@ -2239,14 +2211,10 @@ export function ChatbotGenerator() {
           message: userMessage,
           conversation_id: conversationId || undefined,
           conversation_history: conversationId ? [] : messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
-          file_context: fileMode === 'none' ? undefined : (fileContext || undefined),
-          source_id: fileMode === 'selected' ? (selectedSourceId || undefined) : undefined,
-          // C12: multi-select KB source IDs based on mode
-          source_ids: fileMode === 'selected'
-            ? (attachedKbIds.length > 0 ? attachedKbIds : undefined)
-            : fileMode === 'all'
-              ? (ragSources.map(s => s.source_id || s.source_file).filter(Boolean))
-              : undefined,
+          // Only an ad-hoc file attached to THIS chat is used; the AI Chatbot
+          // never retrieves from the Knowledge Base.
+          file_context: fileContext || undefined,
+          kind: 'web',
         }
       })
 
@@ -2266,6 +2234,8 @@ export function ChatbotGenerator() {
           mode: response.mode,
           rag_chunks_used: response.rag_chunks_used,
           web_results_used: response.web_results_used,
+          provider: response.provider,
+          model: response.model,
         }
       }])
 
@@ -2318,7 +2288,6 @@ export function ChatbotGenerator() {
     setMessages([])
     setFileContext(null)
     setFileLabel(null)
-    setSelectedSourceId('')
     setError('')
   }
 
@@ -2395,7 +2364,7 @@ export function ChatbotGenerator() {
                 className="hidden flex-shrink-0 text-slate-400 hover:text-red-500 group-hover:block"
                 onClick={(e) => deleteConversation(conv.conversation_id, e)}
                 title="Delete conversation"
-              >Ã—</button>
+              >×</button>
             </div>
           ))}
         </div>
@@ -2410,36 +2379,9 @@ export function ChatbotGenerator() {
           </div>
           <div className="min-w-0">
             <h2 className="truncate text-base font-black">{chatbotName}</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">RAG + web search + uploaded file context</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Web search + general knowledge + a file you attach here</p>
           </div>
-          {/* C12: Chatbot file modes toggle (no files / selected files / all files, OFF by default) */}
-          <div className="ms-auto flex items-center gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800 text-xs font-semibold">
-            <button
-              type="button"
-              className={`rounded-lg px-2.5 py-1 transition ${fileMode === 'none' ? 'bg-white shadow text-slate-900 dark:bg-slate-700 dark:text-slate-100' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'}`}
-              onClick={() => handleModeChange('none')}
-              title="No file context â€” free general conversation"
-            >
-              No files
-            </button>
-            <button
-              type="button"
-              className={`rounded-lg px-2.5 py-1 transition ${fileMode === 'selected' ? 'bg-white shadow text-teal-700 dark:bg-slate-700 dark:text-teal-300' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'}`}
-              onClick={() => handleModeChange('selected')}
-              title="Ground chat in selected library files"
-            >
-              Selected files {attachedKbIds.length > 0 ? `(${attachedKbIds.length})` : ''}
-            </button>
-            <button
-              type="button"
-              className={`rounded-lg px-2.5 py-1 transition ${fileMode === 'all' ? 'bg-white shadow text-ocean dark:bg-slate-700 dark:text-mint' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'}`}
-              onClick={() => handleModeChange('all')}
-              title="Ground chat in all indexed files"
-            >
-              All files {ragSources.length > 0 ? `(${ragSources.length})` : ''}
-            </button>
-          </div>
-          <button type="button" className="btn-soft h-9 shrink-0 px-2.5 text-xs" onClick={() => setFocusMode(v => !v)}>
+          <button type="button" className="btn-soft ms-auto h-9 shrink-0 px-2.5 text-xs" onClick={() => setFocusMode(v => !v)}>
             {focusMode ? <><Minimize2 size={13} /> Exit</> : <><Maximize2 size={13} /> Focus</>}
           </button>
           {!howWorksOpen && !focusMode && (
@@ -2452,7 +2394,7 @@ export function ChatbotGenerator() {
           <p className="shrink-0 mx-4 mt-3 rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300" role="alert">{error}</p>
         )}
 
-        {/* Messages â€” fills remaining vertical space */}
+        {/* Messages — fills remaining vertical space */}
         <div className="flex-1 min-h-0 space-y-4 overflow-y-auto px-4 py-4">
           {messages.length === 0 ? (
             <div className="flex h-full min-h-[280px] flex-col items-center justify-center text-center px-4 py-6">
@@ -2501,7 +2443,7 @@ export function ChatbotGenerator() {
                     ? <MarkdownText text={msg.content} />
                     : msg.content}
                 </div>
-                {msg.metadata && (
+                {msg.metadata && Object.keys(msg.metadata).length > 0 && (
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${modeLabels[msg.metadata.mode]?.color || 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}>
                       {modeLabels[msg.metadata.mode]?.icon || <Bot size={10} />}
@@ -2515,6 +2457,11 @@ export function ChatbotGenerator() {
                     {msg.metadata.web_results_used > 0 && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
                         <Globe size={10} /> {msg.metadata.web_results_used} Web
+                      </span>
+                    )}
+                    {msg.metadata.provider && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-slate-600 dark:bg-slate-800 dark:text-slate-300" title="Model that answered">
+                        <Cpu size={10} /> {msg.metadata.provider}: {msg.metadata.model}
                       </span>
                     )}
                     {msg.metadata.rag_chunks_used === 0 && msg.metadata.web_results_used === 0 && (
@@ -2566,7 +2513,7 @@ export function ChatbotGenerator() {
             <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
               <span className="flex items-center gap-2">
                 <Loader2 size={14} className="animate-spin text-teal-600" />
-                <span className="animate-pulse">{chatbotName} is thinkingâ€¦</span>
+                <span className="animate-pulse">{stage || `${chatbotName} is thinking…`}</span>
               </span>
               <button
                 type="button"
@@ -2582,50 +2529,10 @@ export function ChatbotGenerator() {
 
         {/* Composer */}
         <div className="space-y-3 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
-          {fileMode === 'all' && (
-            <div className="flex items-center gap-1.5 rounded-lg bg-teal-50 px-3 py-1.5 text-xs text-teal-800 dark:bg-teal-950/40 dark:text-teal-200">
-              <Database size={13} />
-              <span>Grounded in all {ragSources.length} indexed library documents</span>
-            </div>
-          )}
-
-          {fileLabel && fileMode === 'selected' && (
+          {fileLabel && (
             <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">
               <span className="flex-1 truncate">{fileLabel}</span>
-              <button className="flex-shrink-0 text-blue-400 hover:text-blue-700" onClick={() => { setFileContext(null); setFileLabel(null) }}>âœ•</button>
-            </div>
-          )}
-          {/* B10: Attached KB source chips (only in selected mode) */}
-          {fileMode === 'selected' && attachedKbIds.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pb-1">
-              {attachedKbIds.map((sid) => {
-                const src = ragSources.find(x => (x.source_id || x.source_file) === sid)
-                return (
-                  <span key={sid} className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">
-                    <Database className="h-3 w-3" /> {src?.source_file || src?.filename || sid}
-                    <button type="button" onClick={() => setAttachedKbIds(prev => prev.filter(x => x !== sid))} className="hover:text-red-500"><X size={11} /></button>
-                  </span>
-                )
-              })}
-            </div>
-          )}
-
-          {/* B10: KB file attach picker */}
-          {fileMode === 'selected' && attachKbOpen && (
-            <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 p-2 dark:border-slate-700">
-              {ragSources.length === 0 && <p className="px-2 py-3 text-xs text-slate-400">No uploaded KB sources yet.</p>}
-              {ragSources.map((src) => {
-                const sid = src.source_id || src.source_file
-                const checked = attachedKbIds.includes(sid)
-                return (
-                  <label key={sid} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800">
-                    <input type="checkbox" className="rounded" checked={checked}
-                      onChange={() => setAttachedKbIds(prev => checked ? prev.filter(x => x !== sid) : [...prev, sid])} />
-                    <span className="truncate font-medium">{src.source_file || src.filename || sid}</span>
-                    <span className="text-slate-400">{src.chunk_count ? `${src.chunk_count} chunks` : ''}</span>
-                  </label>
-                )
-              })}
+              <button className="flex-shrink-0 text-blue-400 hover:text-blue-700" onClick={() => { setFileContext(null); setFileLabel(null) }}>✕</button>
             </div>
           )}
 
@@ -2655,27 +2562,11 @@ export function ChatbotGenerator() {
                 className="btn-soft h-10 w-10 justify-center p-0"
                 title="Upload file for context"
                 disabled={fileUploading}
-                onClick={() => {
-                  handleModeChange('selected')
-                  fileInputRef.current?.click()
-                }}
+                onClick={() => fileInputRef.current?.click()}
               >
                 {fileUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
               </button>
               <input ref={fileInputRef} type="file" className="hidden" accept=".txt,.md,.pdf,.docx,.csv" onChange={handleFileUpload} />
-              {/* B10: Attach from KB */}
-              <button
-                type="button"
-                className={`btn-soft h-10 w-10 justify-center p-0 ${attachKbOpen || attachedKbIds.length ? 'text-teal-600' : ''}`}
-                title="Attach from Knowledge Base"
-                disabled={loading}
-                onClick={() => {
-                  handleModeChange('selected')
-                  setAttachKbOpen(o => !o)
-                }}
-              >
-                <Database className="h-4 w-4" />
-              </button>
               <button
                 type="button"
                 className="btn-primary flex h-10 w-10 items-center justify-center p-0"
@@ -2698,7 +2589,7 @@ export function ChatbotGenerator() {
         <div className="space-y-2.5 text-sm text-slate-600 dark:text-slate-400">
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Zap className="h-3.5 w-3.5 text-amber-500" /> Online Mode</p>
-            <p className="mt-1 text-xs leading-relaxed">RAG + web search + LLM answers with citations.</p>
+            <p className="mt-1 text-xs leading-relaxed">Web search + general knowledge answers with numbered citations.</p>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Database className="h-3.5 w-3.5 text-teal-600" /> RAG Only</p>
@@ -2706,11 +2597,11 @@ export function ChatbotGenerator() {
           </div>
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Paperclip className="h-3.5 w-3.5 text-blue-600" /> File Upload</p>
-            <p className="mt-1 text-xs leading-relaxed">Attach .txt, .pdf, .docx, .md â€” text is injected as context.</p>
+            <p className="mt-1 text-xs leading-relaxed">Attach .txt, .pdf, .docx, .md — text is injected as context.</p>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500"><Clock3 className="h-3.5 w-3.5 text-violet-600" /> Persistent History</p>
-            <p className="mt-1 text-xs leading-relaxed">Conversations are saved â€” resume any past chat from the sidebar.</p>
+            <p className="mt-1 text-xs leading-relaxed">Conversations are saved — resume any past chat from the sidebar.</p>
           </div>
         </div>
       </aside>
