@@ -63,6 +63,21 @@ export async function api(path, options = {}) {
     if (!response.ok) {
       const error = new Error(formatApiError(data, response.statusText))
       error.status = response.status
+      // An expired/invalid session must land on /login with a clear message,
+      // never leave the user on a broken page. Auth calls themselves are
+      // excluded so wrong-password errors stay on the form.
+      if (
+        response.status === 401 &&
+        !path.startsWith('/auth/') &&
+        !window.location.pathname.startsWith('/login') &&
+        !window.location.pathname.startsWith('/register')
+      ) {
+        localStorage.removeItem('edusense_token')
+        localStorage.removeItem('edusense_user')
+        localStorage.removeItem('edusense_consents')
+        sessionStorage.setItem('edusense_auth_message', 'Your session expired. Please sign in again.')
+        window.location.assign('/login')
+      }
       throw error
     }
 

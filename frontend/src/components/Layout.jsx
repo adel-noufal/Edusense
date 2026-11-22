@@ -87,9 +87,9 @@ export default function Layout() {
         {/* Sidebar Footer Controls */}
         <div className="border-t border-slate-200/80 pt-4 dark:border-slate-800 space-y-2">
           <div className="flex items-center justify-between gap-2">
-            <button type="button" className="btn-soft flex-1 justify-center" onClick={toggleLang} title={lang === 'ar' ? 'English' : 'Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©'}>
+            <button type="button" className="btn-soft flex-1 justify-center" onClick={toggleLang} title={lang === 'ar' ? 'English' : 'العربية'}>
               <Globe size={18} />
-              <span className="ms-2 text-sm">{lang === 'ar' ? 'En' : 'Ø¹Ø±Ø¨ÙŠ'}</span>
+              <span className="ms-2 text-sm">{lang === 'ar' ? 'En' : 'عربي'}</span>
             </button>
             <button type="button" className="btn-soft p-2" onClick={() => setDark(!dark)}>
               {dark ? <Sun size={18} /> : <Moon size={18} />}
@@ -124,9 +124,9 @@ export default function Layout() {
             {/* Mobile Footer Controls */}
             <div className="border-t border-slate-200/80 pt-4 dark:border-slate-800 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <button type="button" className="btn-soft flex-1 justify-center" onClick={() => { toggleLang(); setMobileOpen(false) }} title={lang === 'ar' ? 'English' : 'Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©'}>
+                <button type="button" className="btn-soft flex-1 justify-center" onClick={() => { toggleLang(); setMobileOpen(false) }} title={lang === 'ar' ? 'English' : 'العربية'}>
                   <Globe size={18} />
-                  <span className="ms-2 text-sm">{lang === 'ar' ? 'English' : 'Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©'}</span>
+                  <span className="ms-2 text-sm">{lang === 'ar' ? 'English' : 'العربية'}</span>
                 </button>
                 <button type="button" className="btn-soft p-2" onClick={() => setDark(!dark)}>
                   {dark ? <Sun size={18} /> : <Moon size={18} />}
@@ -159,7 +159,7 @@ export default function Layout() {
                 {pendingCount} generating
               </span>
             )}
-            <button type="button" className="btn-soft" onClick={toggleLang} title={lang === 'ar' ? 'English' : 'Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©'}>
+            <button type="button" className="btn-soft" onClick={toggleLang} title={lang === 'ar' ? 'English' : 'العربية'}>
               <Globe size={18} /><span className="hidden sm:inline">{t('langToggle')}</span>
             </button>
             <button type="button" className="btn-soft" onClick={() => setDark(!dark)}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button>

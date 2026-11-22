@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, GraduationCap, Globe, ArrowLeft } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -11,7 +11,9 @@ function validateAuthForm(form, isRegister, t) {
   if (!form.email.trim()) return t('emailRequired')
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return t('emailInvalid')
   if (!form.password) return t('passwordRequired')
-  if (form.password.length < 6) return t('passwordMin')
+  // The 6-character minimum applies to registration only. Login must never
+  // reject an existing password (or show a hint the user cannot act on).
+  if (isRegister && form.password.length < 6) return t('passwordMin')
   return ''
 }
 
@@ -20,8 +22,13 @@ export function Login() {
   const { t, toggleLang } = useLanguage()
   const navigate = useNavigate()
   const [form, setForm] = useState({ email: '', password: '' })
-  const [error, setError] = useState('')
+  const [error, setError] = useState(() => sessionStorage.getItem('edusense_auth_message') || '')
   const [showPassword, setShowPassword] = useState(false)
+
+  // One-shot session-expired notice handed over by the API client.
+  useEffect(() => {
+    sessionStorage.removeItem('edusense_auth_message')
+  }, [])
 
   async function submit(e) {
     e.preventDefault()
@@ -41,7 +48,6 @@ export function Login() {
       <input className="input" placeholder={t('email')} value={form.email} autoComplete="email" onChange={(e) => setForm({ ...form, email: e.target.value })} />
       <div className="space-y-2">
         <PasswordField value={form.password} placeholder={t('password')} autoComplete="current-password" visible={showPassword} onToggle={() => setShowPassword((value) => !value)} onChange={(value) => setForm({ ...form, password: value })} />
-        <p className="text-xs text-slate-500">{t('passwordHint')}</p>
       </div>
       <button className="btn-primary w-full">{t('login')}</button>
       <div className="flex flex-col items-center gap-2 mt-4">
