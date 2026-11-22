@@ -170,7 +170,7 @@ def browse_sessions(request: Request, db: DbSession = Depends(get_db), user: Use
     for item in sessions:
         refresh_status(item, db)
     db.commit()
-    # Effective status decides visibility â€” a stale 'pending' row whose start
+    # Effective status decides visibility — a stale 'pending' row whose start
     # passed days ago must not appear in the browse catalog.
     eff_map = {item.id: effective_status(item) for item in sessions}
     statuses = Counter(eff_map.values())
@@ -552,7 +552,7 @@ def get_session_attendees(session_id: int, request: Request, db: DbSession = Dep
     return [{"id": s.id, "name": s.name, "email": s.email} for s in students]
 
 
-# â”€â”€â”€ Session Resource Upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Session Resource Upload ────────────────────────────────────────────────
 
 @router.post("/{session_id}/resources")
 async def upload_session_resource(
@@ -808,12 +808,12 @@ def delete_session_resource(resource_id: int, db: DbSession = Depends(get_db), u
     if not vs_cleanup_ok:
         return {
             "message": "Resource deleted",
-            "vector_store_cleanup": "failed â€” stale chunks may remain",
+            "vector_store_cleanup": "failed — stale chunks may remain",
         }
     return {"message": "Resource deleted"}
 
 
-# â”€â”€â”€ Session AI Generations (link an AI gen to a session) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Session AI Generations (link an AI gen to a session) ────────────────────
 
 @router.post("/{session_id}/link-generation/{gen_id}")
 def link_generation_to_session(
@@ -924,7 +924,7 @@ def list_session_generations(session_id: int, db: DbSession = Depends(get_db), u
     return result
 
 
-# â”€â”€â”€ Student: My Attended Sessions + their resources â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Student: My Attended Sessions + their resources ────────────────────────
 
 @router.get("/student/my-sessions")
 def student_my_sessions(request: Request, db: DbSession = Depends(get_db), user: User = Depends(require_role("student"))):

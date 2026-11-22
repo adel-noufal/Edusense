@@ -14,7 +14,7 @@ from app.services.email import send_reset_password_email
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 # Rate limiter for auth endpoints: 100 requests per minute per IP (allows test suites + retries)
-# In-memory only â€” correct for single-process deployment.
+# In-memory only — correct for single-process deployment.
 # For multi-worker deployments, replace with a shared store (e.g., Redis).
 class _AuthRateLimiter:
     def __init__(self, rate: int = 100, per: int = 60):
@@ -63,7 +63,7 @@ def register(payload: UserCreate, request: Request, db: Session = Depends(get_db
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(500, "Database error â€” please try again")
+        raise HTTPException(500, "Database error — please try again")
     db.refresh(user)
     db.add(Profile(user_id=user.id))
     db.commit()

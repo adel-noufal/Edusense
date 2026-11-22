@@ -82,6 +82,10 @@ def build_video_zip(project_id: int) -> BytesIO | None:
         for file_path in project_dir.rglob("*"):
             if file_path.is_file():
                 archive.write(file_path, arcname=file_path.relative_to(project_dir))
+        # The stitched MP4 lives next to the project folder, not inside it.
+        mp4_path = STATIC_DIR / f"video-{project_id}.mp4"
+        if mp4_path.exists() and mp4_path.is_file():
+            archive.write(mp4_path, arcname=mp4_path.name)
     buffer.seek(0)
     return buffer
 
@@ -120,7 +124,7 @@ def build_true_docx_bytes(title: str, content_dict: dict, content_type: str = "l
         return p
 
     if content_type == "lesson":
-        # â”€â”€ Cover block â”€â”€
+        # ── Cover block ──
         title_para = doc.add_heading(title, 0)
         title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         title_para.paragraph_format.space_after = Pt(4)
@@ -139,7 +143,7 @@ def build_true_docx_bytes(title: str, content_dict: dict, content_type: str = "l
         if content_dict.get("duration"):
             meta_lines.append(f"Duration: {content_dict['duration']} minutes")
         if meta_lines:
-            meta_p = doc.add_paragraph(" Â· ".join(meta_lines))
+            meta_p = doc.add_paragraph(" · ".join(meta_lines))
             meta_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             meta_p.paragraph_format.space_after = Pt(18)
             for run in meta_p.runs:
@@ -181,7 +185,7 @@ def build_true_docx_bytes(title: str, content_dict: dict, content_type: str = "l
                 example_p.paragraph_format.left_indent = Inches(0.4)
                 example_p.paragraph_format.space_before = Pt(4)
                 example_p.paragraph_format.space_after = Pt(12)
-                label_run = example_p.add_run("ðŸ’¡ Example: ")
+                label_run = example_p.add_run("💡 Example: ")
                 label_run.font.bold = True
                 label_run.font.color.rgb = RGBColor(15, 118, 110)
                 label_run.font.size = Pt(11)
@@ -495,7 +499,7 @@ def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
 
     # Slide 3: Learning Objectives
     if content_dict.get("learning_objectives"):
-        objs = [f"â€¢ {obj}" for obj in content_dict["learning_objectives"]]
+        objs = [f"• {obj}" for obj in content_dict["learning_objectives"]]
         add_standard_slide("Learning Objectives", objs)
 
     # Content sections with varied layouts
@@ -523,7 +527,7 @@ def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
 
     # Key points
     if content_dict.get("key_points"):
-        kp = [f"â€¢ {k}" for k in content_dict["key_points"]]
+        kp = [f"• {k}" for k in content_dict["key_points"]]
         add_standard_slide("Key Points", kp)
 
     # Automatic visual lint: catch markdown, excessive words/bullets, and title-style mistakes.
@@ -543,7 +547,7 @@ def build_pptx_bytes(title: str, content_dict: dict) -> BytesIO:
     return buffer
 
 
-# â”€â”€â”€ B8: real PDF / DOCX / CSV exports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── B8: real PDF / DOCX / CSV exports ────────────────────────────────────────
 
 def _pdf_doc(title: str, blocks: list[tuple[str, list[str]]]) -> BytesIO:
     """Minimal branded PDF via reportlab. blocks = [(heading, [lines])]."""
@@ -580,7 +584,7 @@ def build_lesson_pdf_bytes(lesson: dict) -> BytesIO:
     if lesson.get("overview"):
         blocks.append(("Overview", [lesson["overview"]]))
     for obj in lesson.get("learning_objectives") or []:
-        blocks.append(("", [f"â€¢ {obj}"]))
+        blocks.append(("", [f"• {obj}"]))
     for sec in lesson.get("sections") or []:
         lines = []
         if sec.get("content"):
@@ -598,7 +602,7 @@ def build_quiz_pdf_bytes(quiz: dict, include_answers: bool = True) -> BytesIO:
     for i, q in enumerate(quiz.get("questions") or [], start=1):
         lines = [str(q.get("question", ""))]
         for opt in q.get("options") or []:
-            lines.append(f"   â€¢ {opt}")
+            lines.append(f"   • {opt}")
         if include_answers:
             lines.append(f"Answer: {q.get('answer', '')}")
             if q.get("explanation"):
@@ -639,7 +643,8 @@ def build_flashcards_csv_bytes(data: dict) -> BytesIO:
     w.writerow(["Front", "Back", "Tags"])
     for card in data.get("cards") or []:
         w.writerow([card.get("front", ""), card.get("back", ""), data.get("title", "")])
-    out.write(sio.getvalue().encode("utf-8"))
+    # UTF-8 BOM so Excel opens Arabic/emoji correctly (utf-8-sig).
+    out.write(sio.getvalue().encode("utf-8-sig"))
     out.seek(0)
     return out
 

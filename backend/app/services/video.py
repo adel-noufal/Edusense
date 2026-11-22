@@ -1,12 +1,12 @@
 """
-video.py â€” Educational Video Generation Service
+video.py — Educational Video Generation Service
 
 Improvements (Task 7):
-- Per-scene TTS using gTTS (each scene narration â†’ individual MP3 segment)
+- Per-scene TTS using gTTS (each scene narration → individual MP3 segment)
 - Per-scene `duration_seconds` wired through ffmpeg: segment video matches actual audio length
 - ffmpeg concat now muxes per-scene audio into each video segment (audio+video)
 - Player slide durations driven by scene `duration_seconds` (ms), not a fixed 6500ms interval
-- `rebuild_player_from_scenes()` â€” idempotent re-render of player + optionally re-TTS + ffmpeg stitch
+- `rebuild_player_from_scenes()` — idempotent re-render of player + optionally re-TTS + ffmpeg stitch
   called by the new `PUT /api/videos/{id}/scenes` endpoint
 """
 from __future__ import annotations
@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.config import get_settings
+from app.services.binaries import find_ffmpeg, find_ffprobe
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static" / "videos"
 
@@ -115,7 +116,7 @@ def _llm_adjust_scenes(scenes: list[dict], duration_min: int, title: str,
         dup_idx = sorted({idx for pair in duplicates for idx in pair[:2]})
         dup_note = (
             f"\nSCENES {dup_idx} contain repeated/near-duplicate narration. Rewrite each of them "
-            "to cover a DIFFERENT aspect of the topic â€” do not restate earlier scenes.\n"
+            "to cover a DIFFERENT aspect of the topic — do not restate earlier scenes.\n"
         )
     direction = "expand" if total < target else "condense"
     prompt = f"""You are editing the narration script for an educational video titled "{title}".
@@ -156,7 +157,7 @@ Input scenes:
 
 def enforce_script_quality(scenes: list[dict], duration_min: int, title: str) -> tuple[list[dict], list[str]]:
     """
-    Verify narration word count is within Â±tolerance of the duration target and
+    Verify narration word count is within ±tolerance of the duration target and
     that no two scenes are near-duplicates. Runs up to MAX_SCRIPT_FIX_ATTEMPTS
     corrective LLM passes; duplicate scenes that survive are dropped (later
     copy removed). Raises VideoStageError(stage=script_generation) if the word
@@ -199,7 +200,7 @@ def enforce_script_quality(scenes: list[dict], duration_min: int, title: str) ->
         raise VideoStageError(
             "script_generation", "LENGTH_OUT_OF_TOLERANCE",
             f"Generated script is ~{total} words but a {duration_min}-minute video needs "
-            f"~{target} words (Â±{int(settings.video_script_tolerance * 100)}%). "
+            f"~{target} words (±{int(settings.video_script_tolerance * 100)}%). "
             "Please try again or choose a shorter duration.",
         )
     return scenes, warnings
@@ -237,7 +238,7 @@ Language: {language}
 Target runtime: ~{duration_min} minutes, ~{target} words of narration total.
 Notes: {notes or 'none'}
 
-Produce exactly {n_sections} sections. Each section MUST cover a DISTINCT aspect â€” no overlap, no repeated points.
+Produce exactly {n_sections} sections. Each section MUST cover a DISTINCT aspect — no overlap, no repeated points.
 Return ONLY valid JSON:
 {{"sections": [{{"title": "...", "goal": "one sentence on what this section teaches", "budget_words": {budget_each}}}, ...]}}
 Every budget_words must be between {int(budget_each*0.7)} and {int(budget_each*1.3)}.
@@ -270,14 +271,14 @@ Every budget_words must be between {int(budget_each*0.7)} and {int(budget_each*1
 def _gen_section_text(section: dict, outline: list[dict], index: int,
                       running_summary: str, title: str, language: str) -> str:
     """Step 2: generate one section's narration within its word budget.
-    One corrective expand/condense retry if outside Â±15%."""
+    One corrective expand/condense retry if outside ±15%."""
     target = section["budget_words"]
     outline_txt = "\n".join(f"- {s['title']}: {s['goal']}" for s in outline)
     prev = f"Already covered (do NOT repeat):\n{running_summary}\n\n" if running_summary else ""
     base_prompt = f"""Write the narration script for ONE section of an educational video titled "{title}".
 Language: {language}
-Section {index+1}/{len(outline)}: "{section['title']}" â€” goal: {section['goal'] or 'teach the key concept'}
-Full outline (context only â€” do NOT cover other sections' content):
+Section {index+1}/{len(outline)}: "{section['title']}" — goal: {section['goal'] or 'teach the key concept'}
+Full outline (context only — do NOT cover other sections' content):
 {outline_txt}
 {prev}Rules:
 - Write spoken-style narration of approximately {target} words (acceptable range {int(target*0.85)}-{int(target*1.15)}).
@@ -350,7 +351,7 @@ def generate_sectioned_scenes(title: str, prompt: str, duration_min: int,
             "duration_seconds": DEFAULT_SCENE_SECONDS,
         })
         # running summary = first ~25 words of each finished section
-        summary_parts.append(f"{section['title']}: {' '.join(text.split()[:25])}â€¦")
+        summary_parts.append(f"{section['title']}: {' '.join(text.split()[:25])}…")
 
     # Anti-repetition: drop near-duplicate sections deterministically
     dups = find_duplicate_scene_pairs(scenes)
@@ -358,13 +359,13 @@ def generate_sectioned_scenes(title: str, prompt: str, duration_min: int,
         drop = {j for _, j, _ in dups}
         scenes = [s for i, s in enumerate(scenes) if i not in drop]
 
-    # Final gate: total must be within Â±tolerance of target
+    # Final gate: total must be within ±tolerance of target
     total = _scenes_word_count(scenes)
     if not _within_tolerance(total, target):
         raise VideoStageError(
             "script_generation", "LENGTH_OUT_OF_TOLERANCE",
             f"Generated script is ~{total} words but a {duration_min}-minute video needs "
-            f"~{target} words (Â±{int(get_settings().video_script_tolerance * 100)}%). "
+            f"~{target} words (±{int(get_settings().video_script_tolerance * 100)}%). "
             "Please try again or choose a shorter duration.",
         )
     return scenes
@@ -384,7 +385,7 @@ def _bullet_html(items: list[str]) -> str:
 def _split_bullets(text: str) -> list[str]:
     if not text:
         return []
-    parts = re.split(r"[.\nâ€¢\-]+", text)
+    parts = re.split(r"[.\n•\-]+", text)
     return [part.strip() for part in parts if len(part.strip()) > 12][:4]
 
 
@@ -398,9 +399,9 @@ def _lang_code(language: str) -> str:
     lang = (language or "English").lower()
     if "arab" in lang:
         return "ar"
-    if "french" in lang or "franÃ§ais" in lang:
+    if "french" in lang or "français" in lang:
         return "fr"
-    if "spanish" in lang or "espaÃ±ol" in lang:
+    if "spanish" in lang or "español" in lang:
         return "es"
     if "german" in lang or "deutsch" in lang:
         return "de"
@@ -498,7 +499,8 @@ def _tts_all_scenes(
     if not audio_files:
         return False, None, errors or ["No narration audio was produced"]
 
-    if shutil.which("ffmpeg") and len(audio_files) > 1:
+    ffmpeg_bin = find_ffmpeg()
+    if ffmpeg_bin and len(audio_files) > 1:
         list_file = project_dir / "audio-list.txt"
         list_file.write_text(
             "".join(f"file '{f.as_posix()}'\n" for f in audio_files),
@@ -506,7 +508,7 @@ def _tts_all_scenes(
         )
         try:
             subprocess.run(
-                ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
+                [ffmpeg_bin, "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
                  "-acodec", "copy", str(combined_path)],
                 check=True, capture_output=True,
             )
@@ -514,7 +516,7 @@ def _tts_all_scenes(
             # Fallback: just copy first audio file as combined
             shutil.copy(str(audio_files[0]), str(combined_path))
     else:
-        # Single segment or no ffmpeg â€” use the single file / first file
+        # Single segment or no ffmpeg — use the single file / first file
         shutil.copy(str(audio_files[0]), str(combined_path))
 
     return True, "narration.mp3", errors
@@ -522,7 +524,7 @@ def _tts_all_scenes(
 
 def _probe_audio_duration(audio_path: Path) -> float | None:
     """Return encoded audio duration in seconds when ffprobe is available."""
-    ffprobe = shutil.which("ffprobe")
+    ffprobe = find_ffprobe()
     if not ffprobe:
         return None
     try:
@@ -699,8 +701,8 @@ def _write_player(
     }});
     document.querySelectorAll('.quiz-answer').forEach((item) => item.addEventListener('click', () => {{
       document.getElementById('quiz-result').textContent = item.dataset.correct === 'true'
-        ? 'Correct â€” the highlighted concept is the key takeaway.'
-        : 'Try again â€” choose the scene highlight.';
+        ? 'Correct — the highlighted concept is the key takeaway.'
+        : 'Try again — choose the scene highlight.';
     }}));
     document.getElementById('explain').addEventListener('click', async () => {{
       const sceneText = slides[current]?.querySelector('.body')?.innerText || '{html.escape(title)}';
@@ -764,7 +766,8 @@ def _try_ffmpeg(
     - If per-scene audio exists (segment-N-audio.mp3), mux it into the segment video
     - Otherwise produce a silent segment
     """
-    if not shutil.which("ffmpeg"):
+    ffmpeg_bin = find_ffmpeg()
+    if not ffmpeg_bin:
         return None
     output = STATIC_DIR / f"video-{project_id}.mp4"
     project_dir = STATIC_DIR / f"video-{project_id}"
@@ -797,7 +800,7 @@ def _try_ffmpeg(
             if has_audio:
                 # Build segment with per-scene audio: use audio duration to drive video length
                 cmd = [
-                    "ffmpeg", "-y",
+                    ffmpeg_bin, "-y",
                     "-i", str(audio_file),
                     "-f", "lavfi", "-i",
                     f"color=c=0x0f172a:s=1280x720:r=24",
@@ -809,7 +812,7 @@ def _try_ffmpeg(
             else:
                 # Build silent visual-only segment with fixed duration
                 cmd = [
-                    "ffmpeg", "-y",
+                    ffmpeg_bin, "-y",
                     "-f", "lavfi", "-i",
                     f"color=c=0x0f172a:s=1280x720:d={seg_dur}",
                     "-pix_fmt", "yuv420p",
@@ -821,13 +824,46 @@ def _try_ffmpeg(
         list_file = project_dir / "ffmpeg-list.txt"
         list_file.write_text("".join(concat_lines), encoding="utf-8")
         subprocess.run(
-            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
+            [ffmpeg_bin, "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
              "-c", "copy", str(output)],
             check=True, capture_output=True,
         )
         return str(output)
     except Exception:
         return None
+
+
+def validate_video_artifacts(project_id: int) -> tuple[bool, str]:
+    """A video may only be reported completed when its files really exist.
+
+    Verifies the stitched MP4 on disk and, when ffprobe is available, that it
+    has a real positive duration. Returns (ok, readable_reason).
+    """
+    project_dir = STATIC_DIR / f"video-{project_id}"
+    mp4_path = STATIC_DIR / f"video-{project_id}.mp4"
+    if not mp4_path.exists() or mp4_path.stat().st_size < 1024:
+        if not find_ffmpeg():
+            return False, (
+                "MP4 was not produced because ffmpeg was not found. Install it "
+                "(winget install Gyan.FFmpeg) or set EDUSENSE_FFMPEG_PATH."
+            )
+        return False, "MP4 was not produced by the encoder. Check the backend log for the ffmpeg error."
+    ffprobe = find_ffprobe()
+    if ffprobe:
+        try:
+            result = subprocess.run(
+                [ffprobe, "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", str(mp4_path)],
+                check=True, capture_output=True, text=True, timeout=30,
+            )
+            if not (result.stdout or "").strip() or float(result.stdout.strip()) <= 0:
+                return False, "MP4 exists but ffprobe reports no duration; the file is not playable."
+        except Exception as exc:  # noqa: BLE001
+            return False, f"MP4 exists but ffprobe could not read it: {exc}"
+    audio_path = project_dir / "narration.mp3"
+    if not audio_path.exists() or audio_path.stat().st_size < 100:
+        return False, "Narration audio (narration.mp3) is missing; the video has no voice track."
+    return True, "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -837,8 +873,8 @@ def _try_ffmpeg(
 def generate_educational_video(project_id: int, title: str, lesson: dict) -> dict:
     """
     Full video generation from a lesson dict (from LessonGenerationAgent).
-    1. Convert lesson slides â†’ scenes with duration_seconds wired
-    2. Per-scene TTS â†’ individual MP3 files
+    1. Convert lesson slides → scenes with duration_seconds wired
+    2. Per-scene TTS → individual MP3 files
     3. Combined narration.mp3 for player fallback
     4. Write interactive HTML player (slide durations from duration_seconds)
     5. ffmpeg MP4 stitching (per-scene audio + timed visuals)
@@ -872,11 +908,11 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
         from app.services.gemini import GeminiError
         if isinstance(exc, GeminiError):
             raise VideoStageError("script_generation", exc.code, exc.user_message) from exc
-        scenes = None  # unexpected â€” fall back to slide-derived script
+        scenes = None  # unexpected — fall back to slide-derived script
 
     if scenes is None:
         # Fallback path: derive scenes from lesson slides/script, then pad
-        # ONLY with distinct, not-yet-used script parts â€” never cycle back
+        # ONLY with distinct, not-yet-used script parts — never cycle back
         # to earlier content (that produced repeated paragraphs).
         scenes = []
         for index, slide in enumerate(slides):
@@ -946,7 +982,7 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
         encoding="utf-8",
     )
 
-    # Per-scene TTS â€” per-scene timeout; partial failures are reported,
+    # Per-scene TTS — per-scene timeout; partial failures are reported,
     # total failure raises a structured stage error.
     any_audio, audio_name, tts_errors = _tts_all_scenes(project_dir, scenes, lang_code)
     if not any_audio:
@@ -958,7 +994,7 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
     # Write interactive HTML player (uses per-scene duration_seconds for timed autoplay)
     _write_player(project_dir, title, scenes, audio_name)
 
-    # ffmpeg MP4 stitching (per-scene audio + timed visuals) â€” optional;
+    # ffmpeg MP4 stitching (per-scene audio + timed visuals) — optional;
     # the HTML player remains the playback path when ffmpeg is absent.
     mp4_path = _try_ffmpeg(project_id, title, scenes, duration_min)
 
@@ -983,7 +1019,7 @@ def rebuild_video_from_scenes(
 ) -> dict:
     """
     Re-render an existing video project from an updated scenes list.
-    Skips lesson generation â€” directly accepts the edited scenes array.
+    Skips lesson generation — directly accepts the edited scenes array.
     Used by PUT /api/videos/{id}/scenes.
     """
     STATIC_DIR.mkdir(parents=True, exist_ok=True)

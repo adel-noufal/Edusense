@@ -124,7 +124,7 @@ class Quiz(Base):
     available_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Instructor policy: whether students see correct answers/explanations after submit
     reveal_answers: Mapped[bool] = mapped_column(Boolean, default=True)
-    # Owning instructor â€” used for "all my students" visibility when the exam
+    # Owning instructor — used for "all my students" visibility when the exam
     # is not linked to a specific session.
     instructor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 

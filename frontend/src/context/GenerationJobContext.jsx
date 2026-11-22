@@ -87,7 +87,9 @@ export function GenerationJobProvider({ children }) {
           pollingRef.current.delete(jobId)
           return
         }
-        if (status.status === 'error') {
+        // Terminal failures include the server reaper's "failed" status;
+        // treating only "error" left the sidebar counting a dead job forever.
+        if (['error', 'failed', 'cancelled'].includes(status.status)) {
           updateJob(jobId, { status: 'error', error: status.error || 'Generation failed' })
           notifyComplete(jobId, label, 'error', status.error)
           pollingRef.current.delete(jobId)
@@ -135,10 +137,17 @@ export function GenerationJobProvider({ children }) {
     if (!user || user.role === 'student') return
     api('/ai/jobs/pending')
       .then((pending) => {
-        if (!Array.isArray(pending) || !pending.length) return
+        const alive = Array.isArray(pending) ? pending : []
+        const aliveIds = new Set(alive.map((item) => item.job_id))
+        // A stored "pending" job the server no longer knows about is dead:
+        // drop it instead of showing "1 AI job running" forever.
+        setJobs((current) => current.filter(
+          (job) => job.status !== 'pending' || aliveIds.has(job.jobId)
+        ))
+        if (!alive.length) return
         setJobs((current) => {
           const merged = [...current]
-          pending.forEach((item) => {
+          alive.forEach((item) => {
             if (!merged.some((j) => j.jobId === item.job_id)) {
               merged.push({
                 jobId: item.job_id,
@@ -154,7 +163,7 @@ export function GenerationJobProvider({ children }) {
           saveStoredJobs(merged.filter((j) => j.status === 'pending'))
           return merged
         })
-        pending.forEach((item) => pollJob(item.job_id, item.label))
+        alive.forEach((item) => pollJob(item.job_id, item.label))
       })
       .catch(() => {})
   }, [user, pollJob])

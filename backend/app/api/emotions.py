@@ -30,7 +30,7 @@ def _check_rate_limit(user_id: int):
     if now - _last_call[user_id] < _RATE_LIMIT_SECONDS:
         raise HTTPException(
             status_code=429,
-            detail=f"Emotion frame rate limited â€” wait {_RATE_LIMIT_SECONDS}s between frames."
+            detail=f"Emotion frame rate limited — wait {_RATE_LIMIT_SECONDS}s between frames."
         )
     _last_call[user_id] = now
 
@@ -53,7 +53,7 @@ def analyze_trial(
     """
     Stateless emotion-analysis trial for the student dashboard widget.
     Reuses the same detection pipeline (v7 PyTorch / DeepFace fallback) but does
-    NOT write EmotionLog rows or require a class session â€” trial frames are ephemeral.
+    NOT write EmotionLog rows or require a class session — trial frames are ephemeral.
     Hard 3-second timeout ensures the UI never hangs.
     """
     _check_rate_limit(user.id)
@@ -153,7 +153,7 @@ def distribution(session_id: int, db: Session = Depends(get_db), _: User = Depen
     return _get_agent().distributions(db, session_id).data
 
 
-# â”€â”€â”€ Consent Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Consent Endpoints ────────────────────────────────────────────────────────
 
 @router.post("/consent/give", response_model=ConsentRecordOut)
 def give_consent(

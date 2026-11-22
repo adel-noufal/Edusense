@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (tests + encoding)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest httpx
+
+      - name: Mojibake scan (UTF-8 integrity)
+        run: python scripts/mojibake_scan.py
+
+      - name: Import smoke test
+        working-directory: backend
+        env:
+          EDUSENSE_DATABASE_URL: sqlite:///./ci.db
+        run: python -c "import app.main; print('app.main imported')"
+
+      - name: Tests (no live provider calls)
+        working-directory: backend
+        env:
+          EDUSENSE_DATABASE_URL: sqlite:///./ci.db
+        run: python -m pytest -m "not live_provider"
+
+  frontend:
+    name: Frontend (build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build

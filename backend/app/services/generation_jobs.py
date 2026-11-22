@@ -55,7 +55,10 @@ def list_pending_jobs(db: DbSession, instructor_id: int) -> list[dict]:
     reap_stale_jobs(db, max_age_seconds=300)
     jobs = (
         db.query(GenerationJob)
-        .filter_by(instructor_id=instructor_id, status="pending")
+        .filter(
+            GenerationJob.instructor_id == instructor_id,
+            GenerationJob.status.in_(["pending", "processing"]),
+        )
         .order_by(GenerationJob.created_at.desc())
         .all()
     )
