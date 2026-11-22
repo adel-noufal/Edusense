@@ -26,7 +26,7 @@ def session_end(item) -> datetime | None:
 def effective_status(item, now: datetime | None = None) -> str:
     """
     Derive the *effective* status from the stored status plus the schedule.
-    Never rely on the stored status alone â€” a 'pending' session whose start
+    Never rely on the stored status alone — a 'pending' session whose start
     time passed days ago is 'missed', not 'upcoming'.
 
     Returns one of: cancelled, ended, live, upcoming, missed.
@@ -44,7 +44,7 @@ def effective_status(item, now: datetime | None = None) -> str:
     start = _session_start(item)
     end = session_end(item)
 
-    # 'preparing' is a pre-live instructor state â€” never "missed"; the
+    # 'preparing' is a pre-live instructor state — never "missed"; the
     # preparing -> ongoing transition is handled by refresh_status.
     if stored == "preparing":
         return "upcoming"
@@ -76,7 +76,7 @@ def effective_status(item, now: datetime | None = None) -> str:
 def session_status(date_value, start_time, duration: int | None) -> str:
     """
     Derive display status. `duration=None` means the session has no time
-    limit â€” it stays "ongoing" after start until the instructor ends it
+    limit — it stays "ongoing" after start until the instructor ends it
     manually (status is stored on the row, this is only a fallback).
     """
     start = datetime.combine(date_value, start_time)

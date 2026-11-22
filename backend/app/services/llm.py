@@ -1,5 +1,5 @@
 """
-llm.py â€” Open-ended Multi-Provider, Multi-Key LLM Layer for EduSense (Part A Revised).
+llm.py — Open-ended Multi-Provider, Multi-Key LLM Layer for EduSense (Part A Revised).
 
 Key architectural capabilities:
 1. Dynamic unlimited key discovery from .env and environment:
@@ -156,17 +156,25 @@ _TASK_ALIASES = {
 }
 
 # Default feature provider starting preference chains
+# Load-spread policy (addendum #11 §1.4): Gemini is primary ONLY for
+# long-context / long-output work (video scripts, long lessons, large reports).
+# Every short feature asks Groq -> NVIDIA -> OpenRouter -> Ollama first and
+# treats Gemini as the last cloud option, so a handful of Gemini keys never
+# carry the whole platform. Ollama is always appended as the guaranteed
+# offline last resort by LLMRouter.candidates().
+GEMINI_LAST = ("groq", "nvidia", "openrouter", "cerebras", "deepinfra", "gemini")
+
 DEFAULT_FEATURE_CHAINS: dict[str, tuple[str, ...]] = {
-    "prompt_enhance":  ("ollama", "groq", "cerebras", "gemini", "openrouter", "nvidia", "deepinfra"),
-    "video_script":    ("gemini", "openrouter", "nvidia", "groq", "deepinfra", "cerebras", "ollama"),
-    "kb_chat":         ("groq", "gemini", "openrouter", "nvidia", "deepinfra", "cerebras", "ollama"),
-    "quizzes":         ("nvidia", "openrouter", "deepinfra", "groq", "gemini", "cerebras", "ollama"),
-    "flashcards":      ("nvidia", "openrouter", "deepinfra", "groq", "gemini", "cerebras", "ollama"),
-    "exams":           ("nvidia", "openrouter", "deepinfra", "groq", "gemini", "cerebras", "ollama"),
-    "reports":         ("gemini", "groq", "nvidia", "openrouter", "deepinfra", "cerebras", "ollama"),
-    "recommendations": ("gemini", "groq", "nvidia", "openrouter", "deepinfra", "cerebras", "ollama"),
-    "question_bank":   ("groq", "cerebras", "gemini", "nvidia", "openrouter", "deepinfra", "ollama"),
-    "general":         ("gemini", "groq", "openrouter", "nvidia", "deepinfra", "cerebras", "ollama"),
+    "prompt_enhance":  ("groq", "nvidia", "openrouter", "cerebras", "deepinfra", "gemini"),
+    "video_script":    ("gemini", "nvidia", "openrouter", "groq", "deepinfra", "cerebras"),
+    "kb_chat":         GEMINI_LAST,
+    "quizzes":         ("nvidia", "groq", "openrouter", "cerebras", "deepinfra", "gemini"),
+    "flashcards":      ("groq", "nvidia", "openrouter", "cerebras", "deepinfra", "gemini"),
+    "exams":           ("nvidia", "groq", "openrouter", "cerebras", "deepinfra", "gemini"),
+    "reports":         ("gemini", "nvidia", "groq", "openrouter", "deepinfra", "cerebras"),
+    "recommendations": ("groq", "nvidia", "openrouter", "cerebras", "deepinfra", "gemini"),
+    "question_bank":   ("groq", "cerebras", "nvidia", "openrouter", "deepinfra", "gemini"),
+    "general":         GEMINI_LAST,
 }
 
 
@@ -226,7 +234,8 @@ class _CandState:
     failures: int = 0
     cooldown_until: float = 0.0
     last_error: str = ""
-    disabled: bool = False          # permanent (404 model gone)
+    disabled: bool = False          # temporarily disabled (404/410, re-verified later)
+    disabled_until: float = 0.0     # epoch when the disable expires
     requests: int = 0
     last_used: float = 0.0
 
@@ -292,6 +301,9 @@ _usage_tracker = UsageTracker(USAGE_FILE_PATH)
 class LLMRouter:
     BASE_BACKOFF = 30.0
     MAX_BACKOFF = 900.0
+    # A 404/410 disables a model for this long, then the live /models endpoint
+    # re-verifies it. It is never "permanent for the process".
+    MODEL_DISABLE_TTL = 6 * 3600.0
 
     def __init__(self):
         self._lock = threading.RLock()
@@ -299,9 +311,10 @@ class LLMRouter:
         self._keys_by_provider: dict[str, list[KeyEntry]] = {}
         self._group_cd: dict[tuple[str, str, str], float] = {}   # (provider, group, model) -> until
         self._states: dict[tuple[str, int, str], _CandState] = {}
-        self._model_disabled: dict[tuple[str, str], bool] = {}   # (provider, model) -> bool
+        self._model_disabled: dict[tuple[str, str], float] = {}  # (provider, model) -> disabled_until epoch
         self._discovered: dict[str, list[str] | None] = {}
         self._discovered_at: dict[str, float] = {}
+        self._probed: dict[str, dict[str, bool]] = {}   # provider -> model -> works
         self._rr: dict[str, int] = {}
         self.reload_keys()
 
@@ -452,7 +465,7 @@ class LLMRouter:
             for idx, k in enumerate(s.gemini_api_keys):
                 add_key("gemini", k, f"gemini_{idx+1}", env_var="Settings.gemini_api_keys")
 
-            # 6. Ollama â€” no API key needed; use a dummy sentinel so provider_keys returns non-empty.
+            # 6. Ollama — no API key needed; use a dummy sentinel so provider_keys returns non-empty.
             #    Check if Ollama is reachable before adding.
             raw_ollama = env_map.get("EDUSENSE_OLLAMA_URL", "http://localhost:11434")
             ollama_base = raw_ollama.split("/api")[0].rstrip("/")
@@ -460,7 +473,7 @@ class LLMRouter:
                 import urllib.request as _ur
                 _ur.urlopen(f"{ollama_base}/api/tags", timeout=2).read()
                 add_key("ollama", "ollama-local", "local", env_var="OLLAMA_SENTINEL")
-                logger.info("[LLM] Ollama reachable at %s â€” 4 local models registered", ollama_base)
+                logger.info("[LLM] Ollama reachable at %s — 4 local models registered", ollama_base)
             except Exception as _exc:
                 logger.info("[LLM] Ollama not reachable at %s: %s", ollama_base, _exc)
 
@@ -609,11 +622,19 @@ class LLMRouter:
                     continue
 
                 models = self._discovered.get(pname)
+                probed = self._probed.get(pname)
+                if models is None and probed:
+                    models = [m for m in self.provider_models(pname, task) if probed.get(m)]
+                if models is None and pname != "ollama":
+                    # Live catalog: intersect the configured chain with the
+                    # provider's /models answer (cached 10 min), so a model the
+                    # account cannot reach is never offered in the first place.
+                    models = self.discover_models(pname, task_type=task)
                 if models is None:
                     models = self.provider_models(pname, task)
 
                 for m in models:
-                    if self._model_disabled.get((pname, m)):
+                    if self._model_gone(pname, m):
                         continue
                     profile = self.get_model_profile(pname, m)
                     ctx = profile.get("context_window", 32768)
@@ -633,6 +654,16 @@ class LLMRouter:
                         if not is_free:
                             continue
                     triples.append((pname, m))
+
+        # Ollama is the guaranteed last resort for every text feature: if a
+        # local model can answer, a request must never fail with "all cooling
+        # down". Re-check reachability so a late-started Ollama still appears.
+        if not override:
+            triples = [(p, m) for p, m in triples if p != "ollama"]
+            self._ensure_ollama()
+            if self.provider_keys("ollama"):
+                for om in self._ollama_order(self.provider_models("ollama", task), task):
+                    triples.append(("ollama", om))
 
         out: list[tuple[str, int, str, str]] = []
         with self._lock:
@@ -656,10 +687,117 @@ class LLMRouter:
 
                 sorted_indices = sorted(rr_indices, key=key_sort_score, reverse=True)
 
+                profile = self.get_model_profile(pname, model)
+                rpd = profile.get("free_rpd")
                 for idx in sorted_indices:
                     kstr = keys[idx]
+                    ke = entry_map.get(kstr)
+                    # Per-key daily budget: stop routing to a key at ~80% of its
+                    # documented free requests-per-day allowance.
+                    if ke and rpd and ke.requests_today >= int(rpd * 0.8):
+                        continue
                     out.append((pname, idx, kstr, model))
         return out
+
+    # Fast-first local ordering: the 3B model answers short prompts in tens of
+    # seconds, while 70B-class models can exceed the request timeout on CPU.
+    OLLAMA_PREFERENCE = {
+        "kb_chat": ("llama3.2", "llama3.1", "qwen2.5", "mistral"),
+        "prompt_enhance": ("llama3.2", "llama3.1", "qwen2.5", "mistral"),
+        "flashcards": ("llama3.2", "llama3.1", "qwen2.5", "mistral"),
+        "quizzes": ("llama3.1", "llama3.2", "qwen2.5", "mistral"),
+        "exams": ("llama3.1", "llama3.2", "qwen2.5", "mistral"),
+        "video_script": ("mistral", "qwen2.5", "llama3.1", "llama3.2"),
+    }
+
+    def _ollama_order(self, models: list[str], task: str) -> list[str]:
+        pref = self.OLLAMA_PREFERENCE.get(task, ("llama3.2", "llama3.1", "qwen2.5", "mistral"))
+
+        def rank(model: str) -> int:
+            for idx, name in enumerate(pref):
+                if model.startswith(name):
+                    return idx
+            return len(pref)
+
+        return sorted(models, key=rank)
+
+    def probe_model(self, provider: str, model: str, timeout: float = 20.0) -> bool:
+        """One-token live probe: does this key actually get an answer from this model?"""
+        spec = PROVIDERS.get(provider)
+        keys = self.provider_keys(provider)
+        if not spec or not keys or provider == "ollama":
+            return False
+        try:
+            _call_provider(spec, keys[0], model, "Reply with OK", 0.0, 1, timeout)
+            return True
+        except urllib.error.HTTPError as exc:
+            if exc.code in (404, 410, 403):
+                self.mark_failure(provider, 0, model, None, f"HTTP {exc.code}", permanent=True)
+            return False
+        except Exception:
+            return False
+
+    def probe_all_models(self, timeout: float = 20.0) -> dict[str, dict[str, bool]]:
+        """Probe every configured cloud model once so routing/dropdowns only offer
+        models that actually answer. Cached until the next explicit probe."""
+        results: dict[str, dict[str, bool]] = {}
+        for provider in list(PROVIDERS):
+            if provider == "ollama":
+                continue
+            if not self.provider_keys(provider):
+                continue
+            results[provider] = {
+                model: self.probe_model(provider, model, timeout)
+                for model in self.provider_models(provider)
+            }
+        self._probed = results
+        logger.info("[LLM] live model probe: %s", {
+            p: [m for m, ok in models.items() if ok] for p, models in results.items()
+        })
+        return results
+
+    def _ensure_ollama(self) -> None:
+        """Register the local Ollama sentinel key lazily when the daemon is up."""
+        with self._lock:
+            if self._keys_by_provider.get("ollama"):
+                return
+        raw = os.environ.get("EDUSENSE_OLLAMA_URL", "http://localhost:11434")
+        base = raw.split("/api")[0].rstrip("/")
+        try:
+            urllib.request.urlopen(f"{base}/api/tags", timeout=2).read()
+        except Exception:
+            return
+        with self._lock:
+            if self._keys_by_provider.get("ollama"):
+                return
+            entry = KeyEntry(provider="ollama", key="ollama-local", label="local",
+                             quota_group="ollama:local", env_var="OLLAMA_SENTINEL")
+            self._keys.append(entry)
+            self._keys_by_provider.setdefault("ollama", []).append(entry)
+            logger.info("[LLM] Ollama became reachable — local models registered as last resort")
+
+    def _model_gone(self, provider: str, model: str) -> bool:
+        """True while a 404/410 disable is in force; expired disables re-verify."""
+        until = self._model_disabled.get((provider, model))
+        if not until:
+            return False
+        if time.time() >= until:
+            self._model_disabled.pop((provider, model), None)
+            self._discovered_at[provider] = 0.0
+            logger.info("[LLM] re-verifying %s:%s after 404/410 cooldown expired", provider, model)
+            return False
+        return True
+
+    @staticmethod
+    def _state_live(st: _CandState | None, now: float) -> bool:
+        if st is None:
+            return True
+        if st.disabled and st.disabled_until and now >= st.disabled_until:
+            st.disabled = False
+            st.disabled_until = 0.0
+            st.last_error = ""
+            return True
+        return not st.disabled
 
     # -- Model Discovery ---------------------------------------------------
 
@@ -730,20 +868,26 @@ class LLMRouter:
                 kentry.last_error = reason[:200]
                 kentry.last_used = time.time()
 
-            if permanent or "no longer available" in reason.lower() or ("not found" in reason.lower() and "model" in reason.lower()):
+            model_gone = (
+                permanent
+                or "no longer available" in reason.lower()
+                or ("not found" in reason.lower() and "model" in reason.lower())
+            )
+            if model_gone and provider != "ollama":
+                # 404/410 means "not offered to this key right now", NOT
+                # "gone forever": disable for MODEL_DISABLE_TTL and re-verify
+                # against the provider's live /models endpoint after that.
+                until = time.time() + self.MODEL_DISABLE_TTL
                 st.disabled = True
-                # Only disable model globally across provider if all keys have failed for it
-                all_disabled = True
-                for kidx in range(len(entries)):
-                    kst = self._state(provider, kidx, model)
-                    if not kst.disabled:
-                        all_disabled = False
-                        break
-                if all_disabled:
-                    self._model_disabled[(provider, model)] = True
-                    logger.warning("[LLM] %s model %s permanently disabled across all keys (%s)", provider, model, reason[:120])
-                else:
-                    logger.warning("[LLM] %s key #%d disabled for model %s (%s); other keys remain active", provider, key_index, model, reason[:120])
+                st.disabled_until = until
+                st.last_error = reason[:200]
+                self._model_disabled[(provider, model)] = until
+                self._discovered.pop(provider, None)
+                self._discovered_at[provider] = 0.0
+                keys = self.provider_keys(provider)
+                masked = self.mask_key(keys[key_index]) if key_index < len(keys) else "?"
+                logger.warning("[LLM] %s key#%d %s / %s disabled for %.0fh after 404/410 (%s); will re-verify via /models",
+                               provider, key_index, masked, model, self.MODEL_DISABLE_TTL / 3600.0, reason[:120])
                 return
 
             backoff = min(self.MAX_BACKOFF, self.BASE_BACKOFF * (2 ** (st.failures - 1)))
@@ -912,9 +1056,10 @@ class LLMRouter:
         """Comprehensive status for /api/admin/llm-status and diagnostics."""
         now = time.time()
         providers_out = []
+        self._ensure_ollama()
         for pname, spec in PROVIDERS.items():
             keys = self.provider_keys(pname)
-            if not keys and pname != "gemini":
+            if not keys and pname not in ("gemini", "ollama"):
                 continue
             models_cfg = self.provider_models(pname)
             models_state = []
@@ -937,7 +1082,9 @@ class LLMRouter:
                         "cooling_down": is_cooling,
                         "cooldown_remaining_s": round(max(gb, cd), 1),
                         "consecutive_failures": st.failures if st else 0,
-                        "disabled": bool((st and st.disabled) or (kentry and kentry.disabled) or self._model_disabled.get((pname, model))),
+                        "disabled": bool((st and st.disabled) or (kentry and kentry.disabled) or self._model_gone(pname, model)),
+                        "disabled_until": round(st.disabled_until, 1) if (st and st.disabled_until) else 0.0,
+                        "disable_reason": (st.last_error if (st and st.disabled) else ""),
                         "requests": st.requests if st else 0,
                         "dedicated_features": sorted(list(kentry.dedicated_features)) if kentry else [],
                         "status": kentry.status if kentry else "healthy",
@@ -948,6 +1095,7 @@ class LLMRouter:
                 "provider": pname,
                 "kind": spec.kind,
                 "base_url": spec.base_url,
+                "reachable": bool(keys) if pname == "ollama" else None,
                 "keys_total": len(keys),
                 "keys_healthy": sum(1 for idx in range(len(keys)) if not (entries[idx].disabled if idx < len(entries) else False)),
                 "quota_groups": sorted(list({self.key_group(pname, i) for i in range(len(keys))})),
@@ -955,7 +1103,8 @@ class LLMRouter:
             })
 
         chains = {}
-        for feature in ("video_script", "kb_chat", "quizzes", "flashcards", "exams", "reports", "question_bank", "general"):
+        for feature in ("video_script", "kb_chat", "prompt_enhance", "quizzes", "flashcards",
+                        "exams", "reports", "recommendations", "question_bank", "general"):
             cands = self.candidates(feature)
             seen, pairs = set(), []
             for p, _, _, m in cands:
@@ -1107,10 +1256,24 @@ def _repair_json_syntax(raw_text: str) -> dict | list | None:
 # Public Chat API
 # ---------------------------------------------------------------------------
 
+# Short-lived response cache: prompt-enhance results and RAG answers are
+# repeated constantly, and every cache hit is one less quota call.
+_CACHE: dict[str, tuple[float, str]] = {}
+_CACHE_LOCK = threading.Lock()
+_LAST_USED = threading.local()
+
+
+def last_used() -> dict[str, str] | None:
+    """Provider/model that answered the current thread's last chat() call."""
+    return getattr(_LAST_USED, "value", None)
+MAX_ATTEMPTS_PER_REQUEST = 4  # circuit breaker: never walk 6 cooled-down pairs
+
+
 def chat(prompt: str, task_type: str = "general", model: str | None = None,
          temperature: float | None = None, max_output_tokens: int | None = None,
          timeout: float = 60.0, exclude_provider: str | None = None,
-         touch_student_data: bool = False) -> str:
+         touch_student_data: bool = False, cache_key: str | None = None,
+         cache_ttl: float = 300.0, only_provider: str | None = None) -> str:
     """
     Generate text using best-fit routing across all configured providers & keys.
     """
@@ -1121,12 +1284,23 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
     elif max_output_tokens and max_output_tokens > 4000 and timeout < 240:
         timeout = 240.0
 
+    if cache_key:
+        with _CACHE_LOCK:
+            hit = _CACHE.get(cache_key)
+            if hit and hit[0] > time.time():
+                logger.info("[LLM] feature=%s cache=HIT", task_type)
+                return hit[1]
+            if hit:
+                _CACHE.pop(cache_key, None)
+
     cands = router.candidates(
         task_type=task_type,
         prompt_tokens=est_prompt_tokens,
         exclude_provider=exclude_provider,
         touch_student_data=touch_student_data
     )
+    if only_provider:
+        cands = [c for c in cands if c[0] == only_provider.lower()]
 
     if model:
         preferred = [(p, i, k, m) for p, i, k, m in cands if m == model]
@@ -1138,7 +1312,7 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
     with router._lock:
         for p, i, k, m in cands:
             st = router._states.get((p, i, m))
-            if st and st.disabled:
+            if not router._state_live(st, now):
                 continue
             if st and st.cooldown_until > now:
                 continue
@@ -1147,7 +1321,21 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
                 continue
             viable.append((p, i, k, m))
 
+    # Circuit breaker: a single request tries at most MAX_ATTEMPTS_PER_REQUEST
+    # cloud/local pairs (Ollama is always kept as the final guaranteed option),
+    # so a fully cooled-down stack fails fast instead of walking every pair.
+    if len(viable) > MAX_ATTEMPTS_PER_REQUEST:
+        kept = viable[:MAX_ATTEMPTS_PER_REQUEST]
+        kept += [c for c in viable[MAX_ATTEMPTS_PER_REQUEST:] if c[0] == "ollama"]
+        viable = kept
+
     if not viable:
+        if not router.provider_keys("ollama"):
+            raise GeminiError(
+                GeminiError.QUOTA_EXHAUSTED,
+                "No AI provider is available right now. Local Ollama is not running — "
+                "start it with `ollama serve`, or check the cloud keys in Settings.",
+            )
         raise GeminiError(GeminiError.QUOTA_EXHAUSTED,
                           "All configured LLM provider/key/model combinations are cooling down or disabled")
 
@@ -1165,8 +1353,15 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
             latency = time.time() - t0
             est_tokens = len(text) // 4
             router.mark_success(p, i, m, tokens=est_tokens)
+            _LAST_USED.value = {"provider": p, "model": m}
             logger.info("[LLM] feature=%s provider=%s model=%s key=%s latency=%.2fs outcome=SUCCESS",
                         task_type, p, m, masked, latency)
+            if cache_key:
+                with _CACHE_LOCK:
+                    _CACHE[cache_key] = (time.time() + cache_ttl, text)
+                    if len(_CACHE) > 512:
+                        for stale_key in [kk for kk, vv in _CACHE.items() if vv[0] <= time.time()][:128]:
+                            _CACHE.pop(stale_key, None)
             return text
         except urllib.error.HTTPError as exc:
             latency = time.time() - t0
@@ -1213,8 +1408,11 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
             continue
 
     if last_error:
+        # Do not leak raw provider JSON to the user; the API layer maps this to
+        # a short readable message.
         raise GeminiError(last_error.code,
-                          f"All LLM provider/key/model combinations exhausted. Last: {last_error}")
+                          "No AI provider could answer that request just now. "
+                          "Please try again in a minute.")
     raise GeminiError(GeminiError.QUOTA_EXHAUSTED, "No usable LLM provider/key/model combination available")
 
 

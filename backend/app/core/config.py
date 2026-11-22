@@ -4,7 +4,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    secret_key: str = "dev-only-change-me"
+    # Persistent JWT signing secret. Must accept the documented env names so a
+    # restart keeps existing sessions valid instead of silently falling back to
+    # the built-in default.
+    secret_key: str = Field(
+        default="dev-only-change-me",
+        validation_alias=AliasChoices(
+            "SECRET_KEY", "EDUSENSE_SECRET_KEY", "secret_key"
+        ),
+    )
     database_url: str = "postgresql://edusense:edusense@localhost:5432/edusense"
     access_token_minutes: int = 1440
     engagement_threshold: int = 62
@@ -39,7 +47,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GEMINI_KEY_GROUPS", "EDUSENSE_GEMINI_KEY_GROUPS", "gemini_key_groups")
     )
 
-    # â”€â”€ Additional LLM providers (comma-separated keys; OpenAI-compatible) â”€â”€
+    # ── Additional LLM providers (comma-separated keys; OpenAI-compatible) ──
     groq_api_keys: str = Field(default="", validation_alias=AliasChoices("GROQ_API_KEYS", "EDUSENSE_GROQ_API_KEYS", "groq_api_keys"))
     openrouter_api_keys: str = Field(default="", validation_alias=AliasChoices("OPENROUTER_API_KEYS", "EDUSENSE_OPENROUTER_API_KEYS", "openrouter_api_keys"))
     nvidia_api_keys: str = Field(default="", validation_alias=AliasChoices("NVIDIA_API_KEYS", "EDUSENSE_NVIDIA_API_KEYS", "nvidia_api_keys"))
@@ -51,13 +59,13 @@ class Settings(BaseSettings):
     deepinfra_models: str = Field(default="", validation_alias=AliasChoices("DEEPINFRA_MODELS", "EDUSENSE_DEEPINFRA_MODELS", "deepinfra_models"))
     cerebras_models: str = Field(default="", validation_alias=AliasChoices("CEREBRAS_MODELS", "EDUSENSE_CEREBRAS_MODELS", "cerebras_models"))
 
-    # â”€â”€ Video generation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Video generation ──────────────────────────────────────────────────────
     # Narration pace used to map requested duration -> target script word count
     video_narration_wpm: float = Field(
         default=140.0,
         validation_alias=AliasChoices("VIDEO_NARRATION_WPM", "EDUSENSE_VIDEO_NARRATION_WPM", "video_narration_wpm")
     )
-    # Allowed deviation from target word count (0.10 = Â±10%)
+    # Allowed deviation from target word count (0.10 = ±10%)
     video_script_tolerance: float = Field(
         default=0.10,
         validation_alias=AliasChoices("VIDEO_SCRIPT_TOLERANCE", "EDUSENSE_VIDEO_SCRIPT_TOLERANCE", "video_script_tolerance")
@@ -68,7 +76,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("VIDEO_TTS_TIMEOUT", "EDUSENSE_VIDEO_TTS_TIMEOUT", "video_tts_timeout")
     )
 
-    # â”€â”€ Reports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Reports ───────────────────────────────────────────────────────────────
     # Minimum data before AI insights/scores are generated
     report_min_emotion_samples: int = Field(
         default=10,
@@ -106,6 +114,14 @@ class Settings(BaseSettings):
         default=0.6,
         validation_alias=AliasChoices("RAG_MIN_SCORE", "EDUSENSE_RAG_MIN_SCORE", "rag_min_score")
     )
+    # Knowledge Base chat engine (addendum #11 §1.7):
+    #   auto    -> Groq -> NVIDIA -> OpenRouter -> Ollama -> Gemini (cloud last)
+    #   private -> local Ollama only (recommended for uploaded books)
+    #   cloud   -> cloud providers only, never local Ollama
+    kb_engine: str = Field(
+        default="auto",
+        validation_alias=AliasChoices("KB_ENGINE", "EDUSENSE_KB_ENGINE", "kb_engine")
+    )
 
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000"
     youtube_api_key: str = ""
@@ -129,7 +145,7 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from_email: str | None = None
 
-    # â”€â”€ Chatbot Identity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Chatbot Identity ───────────────────────────────────────────────────────
     chatbot_name: str = Field(
         default="EduSense AI",
         validation_alias=AliasChoices("CHATBOT_NAME", "EDUSENSE_CHATBOT_NAME", "chatbot_name")
@@ -144,7 +160,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CHATBOT_GEMINI_API_KEY", "EDUSENSE_CHATBOT_GEMINI_API_KEY", "chatbot_gemini_api_key")
     )
 
-    # â”€â”€ Vector Store â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Vector Store ──────────────────────────────────────────────────────────
     chroma_persist_dir: str = Field(
         default="data/chroma",
         validation_alias=AliasChoices("CHROMA_PERSIST_DIR", "EDUSENSE_CHROMA_PERSIST_DIR", "chroma_persist_dir")

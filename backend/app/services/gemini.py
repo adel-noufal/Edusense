@@ -1,8 +1,8 @@
 """
-gemini.py â€” Central Gemini client for EduSense.
+gemini.py — Central Gemini client for EduSense.
 
 Single entry point for ALL Gemini text/JSON generation. Every agent and
-service must call generate_content / generate_json / generate_json_any â€”
+service must call generate_content / generate_json / generate_json_any —
 no direct HTTP calls to the Gemini API elsewhere.
 
 Features:
@@ -72,7 +72,7 @@ class GeminiRotator:
 
     BASE_BACKOFF = 30.0      # seconds; doubles per consecutive failure
     MAX_BACKOFF = 900.0
-    COOLDOWN_JITTER = 0.25   # Â±25%
+    COOLDOWN_JITTER = 0.25   # ±25%
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -100,9 +100,9 @@ class GeminiRotator:
         """
         Ordered model fallback chain for a task type.
         Env overrides (comma-separated):
-          GEMINI_MODELS            â€” default chain for all tasks
-          GEMINI_MODELS_CHAT       â€” fast/cheap chain for chat
-          GEMINI_MODELS_SCRIPT     â€” stronger chain for lessons/scripts/reports
+          GEMINI_MODELS            — default chain for all tasks
+          GEMINI_MODELS_CHAT       — fast/cheap chain for chat
+          GEMINI_MODELS_SCRIPT     — stronger chain for lessons/scripts/reports
         Falls back to the configured GEMINI_MODEL first, then sane defaults.
         """
         settings = get_settings()
@@ -126,7 +126,7 @@ class GeminiRotator:
         primary = primary.strip()
         if primary and primary not in chain:
             chain.insert(0, primary)
-        # Sane defaults â€” current stable Gemini IDs; dedup, keep order
+        # Sane defaults — current stable Gemini IDs; dedup, keep order
         for m in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"):
             if m not in chain:
                 chain.append(m)
@@ -372,7 +372,7 @@ def _generate_content_gemini_only(prompt: str, task_type: str = "general", model
                 last_error = GeminiError(GeminiError.TIMEOUT, "Gemini request timed out")
                 continue
             except urllib.error.URLError as exc:
-                # network-level failure â€” treat as transient, rotate
+                # network-level failure — treat as transient, rotate
                 rotator.mark_failure(key_index, mdl, None, f"urlerror: {exc}")
                 last_error = GeminiError(GeminiError.MODEL_UNAVAILABLE, f"Gemini connection failed: {exc}")
                 continue
@@ -505,7 +505,7 @@ def generate_json_any(prompt: str, task_type: str = "general") -> dict | list:
     }
     target_ollama_model = model_map.get(task_type, settings.ollama_model)
 
-    # Step 1: Gemini (online) â€” central client handles keyÃ—model rotation
+    # Step 1: Gemini (online) — central client handles key×model rotation
     if settings.gemini_api_keys and settings.ai_provider in ("auto", "gemini"):
         try:
             return generate_json(prompt, task_type=task_type)

@@ -1,7 +1,7 @@
 """CLI diagnostic: python -m app.tools.llm_check [--probe]
 
 Prints every configured (provider, key, model) combination with masked key,
-quota group, cooldown state, and â€” with --probe â€” a live 1-token ping.
+quota group, cooldown state, and — with --probe — a live 1-token ping.
 """
 import sys
 import time

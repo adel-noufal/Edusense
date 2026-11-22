@@ -134,23 +134,20 @@ def run_doctor():
 
     # 6. ffmpeg
     try:
-        ffmpeg_exe = shutil.which("ffmpeg")
-        if not ffmpeg_exe:
-            candidates = [
-                Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links" / "ffmpeg.exe",
-                Path(r"C:\ffmpeg\bin\ffmpeg.exe"),
-            ]
-            ffmpeg_exe = next((str(p) for p in candidates if p.exists()), None)
+        from app.services.binaries import find_ffmpeg, find_ffprobe
+        ffmpeg_exe = find_ffmpeg()
         if not ffmpeg_exe:
             raise FileNotFoundError("ffmpeg")
         res = subprocess.run([ffmpeg_exe, "-version"], capture_output=True, text=True, timeout=5)
         if res.returncode == 0:
             first_line = res.stdout.splitlines()[0] if res.stdout else "available"
-            check("ffmpeg", True, f"ffmpeg installed ({first_line[:40]})")
+            ffprobe_exe = find_ffprobe() or "(missing)"
+            check("ffmpeg", True, f"ffmpeg at {ffmpeg_exe} | ffprobe: {ffprobe_exe} ({first_line[:32]})")
         else:
-            check("ffmpeg", False, "ffmpeg returned non-zero exit code", "winget install Gyan.FFmpeg")
+            check("ffmpeg", False, f"{ffmpeg_exe} returned non-zero exit code", "winget install Gyan.FFmpeg")
     except Exception:
-        check("ffmpeg", False, "ffmpeg not found in PATH", "winget install Gyan.FFmpeg")
+        check("ffmpeg", False, "ffmpeg not found in PATH or WinGet folders",
+              "winget install Gyan.FFmpeg (or set EDUSENSE_FFMPEG_PATH)")
 
     # 7. LibreOffice
     soffice_path = Path(r"C:\Program Files\LibreOffice\program\soffice.exe")
@@ -207,6 +204,33 @@ def run_doctor():
     except Exception as e:
         check("Ollama & Local Models", False, f"Cannot connect to Ollama at {ollama_base}: {e}",
               "Start Ollama from D:\\Ollama\\ollama.exe or ensure Ollama service is running")
+
+    # Print Report
+    # 10. Import smoke test (must stay green: a broken site-package such as a
+    # corrupted jinja2 used to crash charset_normalizer/transformers here).
+    try:
+        code = "import app.main; print('ok')"
+        res = subprocess.run([sys.executable, "-c", code], cwd=str(BACKEND_DIR),
+                             capture_output=True, text=True, timeout=120)
+        if res.returncode == 0 and "ok" in res.stdout:
+            check("Import app.main", True, "FastAPI application imports cleanly")
+        else:
+            detail = (res.stderr or res.stdout).strip().splitlines()[-1:] or ["unknown error"]
+            check("Import app.main", False, f"Import failed: {detail[0][:120]}",
+                  "pip install --force-reinstall -r requirements.txt")
+    except Exception as exc:
+        check("Import app.main", False, f"Import smoke test crashed: {exc}")
+
+    # 11. Knowledge Base embeddings (persisted sentence_transformer must load)
+    try:
+        from app.services.vector_store import get_embedding_function
+        fn = get_embedding_function()
+        vec = fn(["health check"])
+        check("KB Embeddings", True,
+              f"{fn.name() if hasattr(fn, 'name') else 'embedding'} ready ({len(vec[0])}-dim)")
+    except Exception as exc:
+        check("KB Embeddings", False, f"Embedding function failed: {str(exc)[:140]}",
+              "pip install --force-reinstall -r requirements.txt")
 
     # Print Report
     print("\n" + "-" * 70)

@@ -7,8 +7,6 @@
       "auth_style": "query_param",
       "default_models": [
         "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-flash-latest",
         "gemini-2.5-pro"
       ]
     },
@@ -164,9 +162,10 @@
         "free_rpm": 30,
         "free_rpd": 14400,
         "free_tpm": 6000,
-        "cost": "deprecated_or_unreachable",
+        "cost": "free_rate_limited",
         "may_train_on_data": false,
-        "free_tier": false
+        "free_tier": true,
+        "badge": "Free - rate limited"
       },
       "llama-3.1-8b-instant": {
         "context_window": 128000,
@@ -178,9 +177,10 @@
         "free_rpm": 30,
         "free_rpd": 14400,
         "free_tpm": 20000,
-        "cost": "deprecated_or_unreachable",
+        "cost": "free_rate_limited",
         "may_train_on_data": false,
-        "free_tier": false
+        "free_tier": true,
+        "badge": "Free - rate limited"
       },
       "openai/gpt-oss-120b": {
         "context_window": 8192,
@@ -194,7 +194,8 @@
         "free_tpm": 10000,
         "cost": "free",
         "may_train_on_data": false,
-        "free_tier": false
+        "free_tier": true,
+        "badge": "Free - rate limited"
       },
       "qwen/qwen3.8-27b": {
         "context_window": 32768,
@@ -208,7 +209,8 @@
         "free_tpm": 10000,
         "cost": "free",
         "may_train_on_data": false,
-        "free_tier": false
+        "free_tier": true,
+        "badge": "Free - rate limited"
       },
       "openai/gpt-oss-20b": {
         "context_window": 8192,
@@ -222,7 +224,8 @@
         "free_tpm": 10000,
         "cost": "free",
         "may_train_on_data": false,
-        "free_tier": false
+        "free_tier": true,
+        "badge": "Free - rate limited"
       }
     },
     "cerebras": {
@@ -266,9 +269,11 @@
         "free_rpm": 20,
         "free_rpd": 5000,
         "free_tpm": 20000,
-        "cost": "free",
+        "cost": "free_rate_limited",
+        "free_tier": true,
         "may_train_on_data": false,
-        "free_tier": true
+        "badge": "Free - rate limited",
+        "task": "quizzes/verification"
       },
       "deepseek-ai/deepseek-v3.1": {
         "context_window": 64000,
@@ -280,9 +285,11 @@
         "free_rpm": 20,
         "free_rpd": 5000,
         "free_tpm": 20000,
-        "cost": "free",
+        "cost": "free_rate_limited",
+        "free_tier": true,
         "may_train_on_data": false,
-        "free_tier": true
+        "badge": "Free - rate limited",
+        "task": "lessons/JSON"
       },
       "qwen/qwen2.5-72b-instruct": {
         "context_window": 32768,
@@ -294,9 +301,11 @@
         "free_rpm": 20,
         "free_rpd": 5000,
         "free_tpm": 20000,
-        "cost": "free",
+        "cost": "free_rate_limited",
+        "free_tier": true,
         "may_train_on_data": false,
-        "free_tier": true
+        "badge": "Free - rate limited",
+        "task": "Arabic/verification"
       },
       "deepseek-ai/deepseek-r1": {
         "context_window": 64000,
@@ -308,9 +317,11 @@
         "free_rpm": 20,
         "free_rpd": 5000,
         "free_tpm": 20000,
-        "cost": "free",
+        "cost": "free_rate_limited",
+        "free_tier": true,
         "may_train_on_data": false,
-        "free_tier": true
+        "badge": "Free - rate limited",
+        "task": "reasoning/verification"
       }
     },
     "openrouter": {
@@ -393,9 +404,10 @@
         "streaming": true,
         "free_rpm": 20,
         "free_rpd": 200,
-        "cost": "deprecated_or_unreachable",
-        "free_tier": false,
-        "may_train_on_data": false
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited"
       },
       "google/gemini-2.0-flash-exp:free": {
         "context_window": 64000,
@@ -406,9 +418,10 @@
         "streaming": true,
         "free_rpm": 20,
         "free_rpd": 200,
-        "cost": "deprecated_or_unreachable",
-        "free_tier": false,
-        "may_train_on_data": false
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited"
       },
       "deepseek/deepseek-r1:free": {
         "context_window": 64000,
@@ -419,9 +432,10 @@
         "streaming": true,
         "free_rpm": 20,
         "free_rpd": 200,
-        "cost": "deprecated_or_unreachable",
-        "free_tier": false,
-        "may_train_on_data": false
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited"
       },
       "qwen/qwen-2.5-72b-instruct:free": {
         "context_window": 64000,
@@ -432,9 +446,10 @@
         "streaming": true,
         "free_rpm": 20,
         "free_rpd": 200,
-        "cost": "deprecated_or_unreachable",
-        "free_tier": false,
-        "may_train_on_data": false
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited"
       }
     },
     "deepinfra": {
@@ -537,40 +552,6 @@
         "may_train_on_data": false,
         "free_tier": true,
         "task": "flashcards/general"
-      }
-    },
-    "nvidia": {
-      "meta/llama-3.3-70b-instruct": {
-        "context_window": 32768,
-        "max_output_tokens": 4096,
-        "speed": "high",
-        "cost": "free credits",
-        "free_tier": false,
-        "may_train_on_data": false
-      },
-      "deepseek-ai/deepseek-r1": {
-        "context_window": 32768,
-        "max_output_tokens": 4096,
-        "speed": "high",
-        "cost": "free credits",
-        "free_tier": false,
-        "may_train_on_data": false
-      },
-      "qwen/qwen2.5-72b-instruct": {
-        "context_window": 32768,
-        "max_output_tokens": 4096,
-        "speed": "high",
-        "cost": "free credits",
-        "free_tier": false,
-        "may_train_on_data": false
-      },
-      "deepseek-ai/deepseek-v3.1": {
-        "context_window": 32768,
-        "max_output_tokens": 4096,
-        "speed": "high",
-        "cost": "free credits",
-        "free_tier": false,
-        "may_train_on_data": false
       }
     }
   },

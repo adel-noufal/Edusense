@@ -27,17 +27,20 @@ class LocalLLM:
                  temperature: float | None = None,
                  max_output_tokens: int | None = None) -> str:
         settings = get_settings()
-        # 1. Try Gemini (Online) first
-        if settings.gemini_api_key and settings.ai_provider in ("auto", "gemini"):
-            try:
-                return generate_content(
-                    prompt, task_type=task_type,
-                    temperature=temperature, max_output_tokens=max_output_tokens,
-                )
-            except Exception as exc:
-                print(f"[AI Fallback] Gemini text generation unavailable ({exc}). Switching to Ollama...")
+        # 1. Multi-provider router: per-feature chain (Groq -> NVIDIA ->
+        #    OpenRouter -> Ollama -> Gemini for short work, Gemini first only
+        #    for long-context features) with per-key cooldowns and load spread.
+        #    Gemini is no longer hardcoded as the first stop for every feature.
+        try:
+            from app.services import llm as _llm
+            return _llm.chat(
+                prompt, task_type=task_type,
+                temperature=temperature, max_output_tokens=max_output_tokens,
+            )
+        except Exception as exc:
+            print(f"[AI Fallback] Routed providers unavailable ({exc}). Switching to Ollama...")
 
-        # 2. Try Ollama (Offline) next
+        # 2. Direct Ollama (last resort, guaranteed when the daemon is up)
         if settings.ai_provider in ("auto", "gemini", "ollama"):
             try:
                 return generate_via_ollama(prompt)
@@ -55,7 +58,7 @@ class LocalLLM:
         If query is off-topic for the declared subject/grade, return refusal message.
         """
         # Scope check for off-topic queries (no LLM required)
-        # Prefer an explicit `query` (the raw user question) when the caller has it â€”
+        # Prefer an explicit `query` (the raw user question) when the caller has it —
         # parsing it back out of a fully-built prompt is fragile and was the source
         # of prompt-text leaking into user-facing fallback answers.
         query_for_check = (query or "").strip() or prompt
@@ -89,7 +92,7 @@ class LocalLLM:
             return refusal
 
         tone = random.choice(["clear", "interactive", "visual", "practice-oriented"])
-        # Never echo raw prompt/instruction text back to the user â€” only the
+        # Never echo raw prompt/instruction text back to the user — only the
         # extracted question/topic may appear in the fallback answer.
         topic_text = query_for_check if query_for_check else "this topic"
         answer = (
