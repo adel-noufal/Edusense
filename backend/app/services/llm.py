@@ -315,6 +315,8 @@ class LLMRouter:
         self._discovered: dict[str, list[str] | None] = {}
         self._discovered_at: dict[str, float] = {}
         self._probed: dict[str, dict[str, bool]] = {}   # provider -> model -> works
+        self._working: dict[str, list[str]] = {}        # provider -> live working models
+        self._ollama_boot_tried = False
         self._rr: dict[str, int] = {}
         self.reload_keys()
 
@@ -600,7 +602,8 @@ class LLMRouter:
         return out or None
 
     def candidates(self, task_type: str = "general", prompt_tokens: int = 100,
-                   exclude_provider: str | None = None, touch_student_data: bool = False
+                   exclude_provider: str | None = None, touch_student_data: bool = False,
+                   language: str | None = None
                    ) -> list[tuple[str, int, str, str]]:
         """
         Build ordered best-fit candidates: (provider, key_index, key, model).
@@ -621,10 +624,22 @@ class LLMRouter:
                 if not keys:
                     continue
 
-                models = self._discovered.get(pname)
+                # Discovered live models win over configured names: routing must
+                # never offer a model the account cannot reach.
+                if pname in self._working:
+                    models = self._working[pname]
+                    if not models:
+                        continue  # probed: this provider has nothing usable
+                else:
+                    models = None
+                if models is None:
+                    models = self._discovered.get(pname)
                 probed = self._probed.get(pname)
                 if models is None and probed:
                     models = [m for m in self.provider_models(pname, task) if probed.get(m)]
+                if os.environ.get("EDUSENSE_DISABLE_CLOUD", "").lower() in ("1", "true", "yes"):
+                    if pname != "ollama":
+                        continue
                 if models is None and pname != "ollama":
                     # Live catalog: intersect the configured chain with the
                     # provider's /models answer (cached 10 min), so a model the
@@ -662,7 +677,7 @@ class LLMRouter:
             triples = [(p, m) for p, m in triples if p != "ollama"]
             self._ensure_ollama()
             if self.provider_keys("ollama"):
-                for om in self._ollama_order(self.provider_models("ollama", task), task):
+                for om in self._ollama_order(self.provider_models("ollama", task), task, language):
                     triples.append(("ollama", om))
 
         out: list[tuple[str, int, str, str]] = []
@@ -710,8 +725,13 @@ class LLMRouter:
         "video_script": ("mistral", "qwen2.5", "llama3.1", "llama3.2"),
     }
 
-    def _ollama_order(self, models: list[str], task: str) -> list[str]:
-        pref = self.OLLAMA_PREFERENCE.get(task, ("llama3.2", "llama3.1", "qwen2.5", "mistral"))
+    def _ollama_order(self, models: list[str], task: str, language: str | None = None) -> list[str]:
+        # Language-aware local routing: llama3.2 writes poor Arabic, qwen2.5 does
+        # not; JSON-heavy tasks prefer llama3.1; long scripts prefer mistral.
+        if language == "ar":
+            pref = ("qwen2.5", "llama3.1", "llama3.2", "mistral")
+        else:
+            pref = self.OLLAMA_PREFERENCE.get(task, ("llama3.2", "llama3.1", "qwen2.5", "mistral"))
 
         def rank(model: str) -> int:
             for idx, name in enumerate(pref):
@@ -720,6 +740,19 @@ class LLMRouter:
             return len(pref)
 
         return sorted(models, key=rank)
+
+    def set_working_models(self, working: dict[str, list[str]]) -> None:
+        """Routing uses the discovered live model list, not configured names.
+
+        A provider that was probed and produced zero working models stays in the
+        map with an empty list so candidates() skips it entirely instead of
+        falling back to the dead configured names.
+        """
+        with self._lock:
+            self._working = {p: list(models) for p, models in (working or {}).items() if p != "ollama"}
+            ollama = (working or {}).get("ollama")
+            if ollama:
+                self._working["ollama"] = list(ollama)
 
     def probe_model(self, provider: str, model: str, timeout: float = 20.0) -> bool:
         """One-token live probe: does this key actually get an answer from this model?"""
@@ -757,7 +790,7 @@ class LLMRouter:
         return results
 
     def _ensure_ollama(self) -> None:
-        """Register the local Ollama sentinel key lazily when the daemon is up."""
+        """Register the local Ollama sentinel key lazily; start the daemon once if down."""
         with self._lock:
             if self._keys_by_provider.get("ollama"):
                 return
@@ -766,7 +799,16 @@ class LLMRouter:
         try:
             urllib.request.urlopen(f"{base}/api/tags", timeout=2).read()
         except Exception:
-            return
+            if self._ollama_boot_tried:
+                return
+            self._ollama_boot_tried = True
+            try:
+                from app.tools.ollama_boot import ensure_ollama
+                result = ensure_ollama(log=lambda m: print(m, flush=True))
+                if not result["running"]:
+                    return
+            except Exception:
+                return
         with self._lock:
             if self._keys_by_provider.get("ollama"):
                 return
@@ -1212,11 +1254,42 @@ def _call_gemini_once(key: str, model: str, prompt: str,
     return text
 
 
+def _call_ollama_native(model: str, prompt: str, temperature: float | None,
+                        max_output_tokens: int | None, timeout: float) -> str:
+    """Ollama native /api/chat: gives us num_ctx, num_predict and keep_alive."""
+    base = os.environ.get("EDUSENSE_OLLAMA_URL", "http://localhost:11434")
+    base = base.split("/api")[0].rstrip("/")
+    body = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+        "keep_alive": "30m",
+        "options": {
+            "temperature": 0.3 if temperature is None else temperature,
+            "num_predict": int(max_output_tokens or 700),
+            "num_ctx": 16384 if (max_output_tokens or 0) > 1500 else 8192,
+        },
+    }
+    req = urllib.request.Request(
+        f"{base}/api/chat",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    text = ((payload.get("message") or {}).get("content") or "").strip()
+    if not text:
+        raise GeminiError(GeminiError.INVALID_RESPONSE, "ollama returned an empty response")
+    return text
+
+
 def _call_provider(spec: ProviderSpec, key: str, model: str, prompt: str,
                    temperature: float | None, max_output_tokens: int | None,
                    timeout: float) -> str:
     if spec.kind == "gemini":
         return _call_gemini_once(key, model, prompt, temperature, max_output_tokens, timeout)
+    if spec.name == "ollama":
+        return _call_ollama_native(model, prompt, temperature, max_output_tokens, timeout)
     return _call_openai_compat(spec, key, model, prompt, temperature, max_output_tokens, timeout)
 
 
@@ -1293,11 +1366,13 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
             if hit:
                 _CACHE.pop(cache_key, None)
 
+    arabic_prompt = bool(re.search(r"[\u0600-\u06FF]", prompt or ""))
     cands = router.candidates(
         task_type=task_type,
         prompt_tokens=est_prompt_tokens,
         exclude_provider=exclude_provider,
-        touch_student_data=touch_student_data
+        touch_student_data=touch_student_data,
+        language="ar" if arabic_prompt else None,
     )
     if only_provider:
         cands = [c for c in cands if c[0] == only_provider.lower()]
@@ -1348,8 +1423,11 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
         masked = router.mask_key(k)
         grp = router.key_group(p, i)
         t0 = time.time()
+        # Local CPU inference is far slower than a cloud API: 60 s killed long
+        # lesson scripts mid-generation, so give Ollama its own floor.
+        call_timeout = max(timeout, 300.0) if p == "ollama" else timeout
         try:
-            text = _call_provider(spec, k, m, prompt, temperature, max_output_tokens, timeout)
+            text = _call_provider(spec, k, m, prompt, temperature, max_output_tokens, call_timeout)
             latency = time.time() - t0
             est_tokens = len(text) // 4
             router.mark_success(p, i, m, tokens=est_tokens)

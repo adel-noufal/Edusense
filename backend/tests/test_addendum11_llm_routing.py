@@ -108,6 +108,46 @@ def test_chat_cache_avoids_a_second_provider_call(monkeypatch):
     assert len(calls) == 1
 
 
+def test_key_budget_stops_at_80_percent_of_free_rpd(monkeypatch):
+    router = llm.router
+    key = "budget-test-key"
+    entry = llm.KeyEntry(provider="groq", key=key, label="budget", quota_group="g")
+    entry.requests_today = 80
+    monkeypatch.setattr(router, "_working", {"groq": ["allam-2-7b"]}, raising=False)
+    monkeypatch.setattr(router, "_keys_by_provider", {"groq": [entry]}, raising=False)
+    monkeypatch.setattr(router, "provider_keys", lambda p: [key] if p == "groq" else [])
+    monkeypatch.setattr(
+        router, "get_model_profile",
+        lambda p, m: {"free_rpd": 100, "context_window": 128000,
+                      "max_output_tokens": 4096, "free_tier": True},
+    )
+    assert router.candidates("prompt_enhance") == [], "80% of RPD must stop routing"
+
+
+def test_retry_after_sets_cooldown():
+    router = llm.router
+    router.mark_failure("groq", 0, "retry-after-model", 12.0,
+                        "HTTP 429: rate limited")
+    state = router._states[("groq", 0, "retry-after-model")]
+    assert state.cooldown_until - time.time() >= 8, "Retry-After must bound the cooldown"
+
+
+def test_arabic_prompts_prefer_qwen2_locally(monkeypatch):
+    router = llm.router
+    monkeypatch.setattr(router, "_working", {}, raising=False)
+    monkeypatch.setattr(router, "_ensure_ollama", lambda: None)
+    monkeypatch.setattr(router, "provider_keys", lambda p: ["x"] if p == "ollama" else [])
+    monkeypatch.setattr(
+        router, "provider_models",
+        lambda p, t="general": (
+            ["llama3.2:latest", "qwen2.5:latest", "llama3.1:latest", "mistral:latest"]
+            if p == "ollama" else []
+        ),
+    )
+    cands = router.candidates("kb_chat", language="ar")
+    assert cands and cands[0][3].startswith("qwen2.5"), cands
+
+
 def test_kb_engine_private_never_uses_cloud(monkeypatch):
     from app.services import rag_qa
 
