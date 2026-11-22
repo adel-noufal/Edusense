@@ -169,11 +169,49 @@ def _get_source_context(
     return build_session_source_context(resources)
 
 
+PREP_MARKER = "Uploaded preparation materials:"
+
+
 def _append_source(notes: str | None, context: str) -> str:
+    """Retrieval context for the prompt only — never the visible Notes field."""
     if not context.strip():
         return notes or ""
-    block = f"\n\nUploaded preparation materials:\n{context.strip()}"
+    block = f"\n\n{PREP_MARKER}\n{context.strip()}"
     return f"{notes or ''}{block}".strip()[:16000]
+
+
+def _strip_legacy_prep_block(text: str | None) -> str:
+    """Remove machine-generated retrieval dumps that older code stored in Notes."""
+    if not text:
+        return ""
+    marker = text.find(PREP_MARKER)
+    if marker == -1:
+        return text.strip()
+    return text[:marker].strip()
+
+
+def reconcile_video_records(db) -> dict:
+    """Clean legacy Notes text and fix records marked completed without files.
+
+    Nothing is deleted: notes lose only the generated prep block, and a project
+    whose artifacts are missing is marked failed instead of claiming success.
+    """
+    cleaned = 0
+    fixed = 0
+    for project in db.query(VideoProject).all():
+        new_notes = _strip_legacy_prep_block(project.notes)
+        if new_notes != (project.notes or ""):
+            project.notes = new_notes
+            cleaned += 1
+        if project.status == "completed":
+            ok, _reason = validate_video_artifacts(project.id)
+            if not ok:
+                project.status = "failed"
+                project.video_path = None
+                fixed += 1
+    if cleaned or fixed:
+        db.commit()
+    return {"notes_cleaned": cleaned, "videos_marked_failed": fixed}
 
 
 def _run_lesson_bg(job_id: str, payload: LessonRequest, instructor_id: int):
@@ -205,9 +243,22 @@ def _run_lesson_bg(job_id: str, payload: LessonRequest, instructor_id: int):
             result["id"] = gen.id
         finally:
             db.close()
+
+        result["generated_with"] = _generated_with(
+            payload.language, payload.teaching_style, payload.detail_level)
         _finish_job(job_id, "done", result)
     except Exception as exc:
         _finish_job(job_id, "error", error=str(exc))
+
+
+def _generated_with(language: str | None, style: str | None, level: str | None) -> str:
+    """Contract stamp stored with every result and shown in the UI."""
+    from app.services.llm import last_used
+    used = last_used() or {}
+    provider = used.get("provider") or "unknown"
+    model = used.get("model") or "unknown"
+    return (f"Generated with: {language or 'English'} / {style or 'Friendly'} / "
+            f"{level or 'Standard'} / {provider}:{model}")
 
 
 def _run_flashcard_bg(job_id: str, payload: FlashcardRequest, instructor_id: int):
@@ -240,6 +291,8 @@ def _run_flashcard_bg(job_id: str, payload: FlashcardRequest, instructor_id: int
             result["id"] = gen.id
         finally:
             db.close()
+        result["generated_with"] = _generated_with(
+            payload.language, getattr(payload, "teaching_style", None), "Standard")
         _finish_job(job_id, "done", result)
     except Exception as exc:
         _finish_job(job_id, "error", error=str(exc))
@@ -298,6 +351,8 @@ def _run_quiz_bg(job_id: str, payload: QuizRequest, instructor_id: int):
             result["camera_monitoring"] = config_camera_monitoring
         finally:
             db.close()
+        result["generated_with"] = _generated_with(
+            payload.language, payload.teaching_style, payload.difficulty)
         _finish_job(job_id, "done", result)
     except Exception as exc:
         _finish_job(job_id, "error", error=str(exc))
@@ -325,7 +380,9 @@ def _serialize_video_project(project: VideoProject) -> dict:
         "notes": project.notes,
         "status": project.status,
         "created_at": project.created_at.isoformat() if project.created_at else None,
-        "video_url": project.video_path or f"/static/videos/video-{project.id}/player.html",
+        "video_url": (f"/static/videos/video-{project.id}/player.html"
+                      if (VIDEO_STATIC_DIR / f"video-{project.id}" / "player.html").exists()
+                      else None),
         "audio_url": f"/static/videos/video-{project.id}/narration.mp3" if audio_path.exists() else None,
         "mp4_url": f"/static/videos/video-{project.id}.mp4" if mp4_path.exists() else None,
         "scenes": scenes,
@@ -453,7 +510,7 @@ def _run_video_edit_bg(job_id: str, video_id: int, payload: VideoRequest, instru
         project.language = payload.language
         project.style = payload.style
         project.duration = payload.duration
-        project.notes = notes
+        project.notes = payload.notes or ""
         project.status = "processing"
         db.commit()
         _update_job_progress(job_id, progress=10, message="Generating lesson script...")
@@ -1439,7 +1496,7 @@ def create_video(payload: VideoRequest, db: Session = Depends(get_db), user: Use
         getattr(payload, "source_resource_ids", None)
     )
     notes = _append_source(payload.notes, source)
-    project = VideoProject(instructor_id=user.id, title=payload.title, prompt=payload.prompt, language=payload.language, style=payload.style, duration=payload.duration, notes=notes, status="processing")
+    project = VideoProject(instructor_id=user.id, title=payload.title, prompt=payload.prompt, language=payload.language, style=payload.style, duration=payload.duration, notes=(payload.notes or ""), status="processing")
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -1482,7 +1539,7 @@ def edit_video(
     project.language = payload.language
     project.style = payload.style
     project.duration = payload.duration
-    project.notes = notes
+    project.notes = payload.notes or ""
     project.status = "processing"
     db.commit()
 

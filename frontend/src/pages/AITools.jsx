@@ -1340,6 +1340,9 @@ function LessonResult({ result, request }) {
             {subtitle && subtitle.split(' · ').map(s => (
               <span key={s} className="rounded-full bg-white/15 px-2.5 py-0.5 text-xs">{s}</span>
             ))}
+            {lesson?.generated_with && (
+              <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-mono text-[11px]">{lesson.generated_with}</span>
+            )}
           </div>
           <h1 className="text-2xl font-black leading-tight tracking-tight">{lesson?.topic || 'AI Lesson'}</h1>
           {lesson.overview && <p className="mt-2 text-sm leading-relaxed text-teal-50/90 line-clamp-3">{lesson.overview}</p>}
@@ -1650,7 +1653,7 @@ function QuizResult({ result, answers, revealed, onAnswer, onReveal, onPublishEx
 
   return (
     <div className="space-y-4 rounded-md border border-slate-200 p-4 dark:border-slate-700">
-      <ResultHeader title={result.title} subtitle={result.difficulty} sources={result.sources} unverified={result.unverified} />
+      <ResultHeader title={result.title} subtitle={result.difficulty} sources={result.sources} unverified={result.unverified} generatedWith={result.generated_with} />
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
         <div className="flex flex-wrap items-center gap-2">
           <DownloadBar
@@ -1960,7 +1963,7 @@ function FlashcardResult({ result, request, flipped, onFlip }) {
   const slug = (result.title || 'flashcards').replace(/\s+/g, '-').toLowerCase()
   return (
     <div className="space-y-4 rounded-md border border-slate-200 p-4 dark:border-slate-700">
-      <ResultHeader title={result.title} subtitle={`${result.cards?.length || 0} cards · ${result.language}`} model={request?.model} sources={result.sources} unverified={result.unverified} />
+      <ResultHeader title={result.title} subtitle={`${result.cards?.length || 0} cards · ${result.language}`} model={request?.model} sources={result.sources} unverified={result.unverified} generatedWith={result.generated_with} />
       <DownloadBar
         items={[
           {
@@ -2008,7 +2011,7 @@ function DownloadBar({ items }) {
   )
 }
 
-function ResultHeader({ title, subtitle, model, sources, unverified }) {
+function ResultHeader({ title, subtitle, model, sources, unverified, generatedWith }) {
   const hasSources = Array.isArray(sources) && sources.length > 0
   const isUnverified = unverified === true
 
@@ -2017,6 +2020,9 @@ function ResultHeader({ title, subtitle, model, sources, unverified }) {
       <div>
         <p className="text-lg font-bold">{title}</p>
         <p className="text-sm text-slate-500">{subtitle}</p>
+        {generatedWith && (
+          <p className="mt-1 font-mono text-[11px] text-slate-400">{generatedWith}</p>
+        )}
         {model && (
           <span className="mt-1 inline-block rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-ocean dark:bg-slate-800 dark:text-mint">
             ⚡ {model}
@@ -2473,19 +2479,26 @@ export function ChatbotGenerator() {
                 )}
                 {msg.metadata && (msg.metadata.sources?.length > 0 || msg.metadata.web_sources?.length > 0) && (
                   <details className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                    <summary className="cursor-pointer select-none">Sources</summary>
+                    <summary className="cursor-pointer select-none">
+                      Sources ({(msg.metadata.sources?.length || 0) + (msg.metadata.web_sources?.length || 0)})
+                    </summary>
                     <div className="mt-1 space-y-1">
+                      {normalizeSources(msg.metadata.web_sources).map((w, i) => (
+                        <div key={`web-${i}`} className="font-mono break-all">
+                          [{i + 1}]{' '}
+                          <a href={w.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-ocean">
+                            {w.label || w.url}
+                          </a>
+                          <span className="ms-1 opacity-60">{w.url}</span>
+                        </div>
+                      ))}
                       {normalizeSources(msg.metadata.sources).map((s, i) => (
-                        <div key={i} className="font-mono">
+                        <div key={`doc-${i}`} className="font-mono">
+                          [{i + 1}]{' '}
                           {s.url
                             ? <a href={s.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-ocean">{s.label}</a>
                             : s.label}
                           {s.page != null ? ` (p.${s.page})` : ''}
-                        </div>
-                      ))}
-                      {msg.metadata.web_sources?.map((w, i) => (
-                        <div key={i} className="font-mono">
-                          <a href={w.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-ocean">{w.title}</a>
                         </div>
                       ))}
                     </div>

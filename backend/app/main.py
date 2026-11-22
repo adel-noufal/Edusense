@@ -102,10 +102,13 @@ def startup():
             if cleared:
                 print(f"Startup: cleared {cleared} stale pending/processing background jobs")
             # Reversible migration: tag legacy chatbot conversations as web:
-            from app.api.ai import migrate_conversation_kinds
+            from app.api.ai import migrate_conversation_kinds, reconcile_video_records
             moved = migrate_conversation_kinds(_db)
             if moved:
                 print(f"Startup: tagged {moved} legacy chatbot messages as web: conversations")
+            video_fix = reconcile_video_records(_db)
+            if video_fix["notes_cleaned"] or video_fix["videos_marked_failed"]:
+                print(f"Startup: video records reconciled {video_fix}")
         finally:
             _db.close()
     except Exception as exc:
@@ -114,13 +117,18 @@ def startup():
 
     # C9 & P0-3: Warm up vector-store and emotion analysis agent in background threads
     def _warmup_services():
-        # Live 1-token probe of every configured cloud model, so routing and the
-        # model dropdown only offer models this account can actually use.
+        # Live catalog discovery (per provider and key) + 1-token probes, so
+        # routing and the dropdown only offer models this account can use.
         try:
-            from app.services import llm as _llm
-            _llm.router.probe_all_models()
+            from app.services import model_discovery
+            cached = model_discovery.load_cache()
+            age = model_discovery.cache_age_seconds(cached)
+            if age > model_discovery.REFRESH_AFTER_SECONDS:
+                model_discovery.discover()
+            else:
+                print(f"LLM model discovery cache is fresh ({age/60:.0f} min old)")
         except Exception as e:
-            print(f"LLM model probe skipped: {e}")
+            print(f"LLM model discovery skipped: {e}")
 
         try:
             from app.services.vector_store import init_collection

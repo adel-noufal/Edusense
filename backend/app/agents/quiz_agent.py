@@ -399,14 +399,16 @@ Return ONLY valid JSON:
                 "difficulty": difficulty,
             })
         questions = format_strict_text(normalize_questions(questions, count, topic, difficulty))
-        return AgentResult(self.name, {
+        from app.services.contract import stamp_quiz
+        result = {
             "title": f"{topic} Master Assessment",
             "difficulty": normalize_difficulty(difficulty),
             "questions": questions,
             "sources": rag_sources + web_sources,
             "unverified": len(rag_sources + web_sources) == 0,
             "web_sources": web_results,
-        })
+        }
+        return AgentResult(self.name, stamp_quiz(result, difficulty))
 
     @staticmethod
     def dumps(data: dict) -> str:
