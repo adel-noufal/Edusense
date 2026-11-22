@@ -39,5 +39,9 @@ if errorlevel 1 (
 )
 cd ..
 
+echo [8/8] Starting servers and checking logs, KB, ffprobe and the model dropdown...
+backend\.venv\Scripts\python.exe scripts\verify_extras.py
+if errorlevel 1 exit /b 1
+
 echo.
 echo VERIFY PASSED

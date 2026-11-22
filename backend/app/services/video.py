@@ -79,6 +79,32 @@ def find_duplicate_scene_pairs(scenes: list[dict]) -> list[tuple[int, int, float
     return pairs
 
 
+LATEX_SUBS = {
+    r"\rightarrow": "→", r"\leftarrow": "←", r"\to": "→", r"\Rightarrow": "⇒",
+    r"\times": "×", r"\le": "≤", r"\ge": "≥", r"\pm": "±", r"\dots": "…",
+}
+
+
+def strip_latex(text: str) -> str:
+    """Remove inline LaTeX so learners never see \\rightarrow in a slide."""
+    if not text:
+        return text
+    out = str(text)
+    for src, dst in LATEX_SUBS.items():
+        out = out.replace(src, dst)
+    return out.replace("$", "").replace("\\", "")
+
+
+def _sanitize_scene(scene: dict) -> dict:
+    cleaned = dict(scene)
+    for key in ("title", "narration", "content", "diagram", "highlight"):
+        if isinstance(cleaned.get(key), str):
+            cleaned[key] = strip_latex(cleaned[key])
+    if isinstance(cleaned.get("bullets"), list):
+        cleaned["bullets"] = [strip_latex(b) for b in cleaned["bullets"]]
+    return cleaned
+
+
 def _scenes_word_count(scenes: list[dict]) -> int:
     return sum(_count_words(s.get("narration") or s.get("content") or "") for s in scenes)
 
@@ -88,8 +114,12 @@ def _target_words(duration_min: int) -> int:
     return int(max(1, duration_min) * max(1.0, settings.video_narration_wpm))
 
 
-def _within_tolerance(actual: int, target: int) -> bool:
+def _within_tolerance(actual: int, target: int, duration_min: int | None = None) -> bool:
+    # Short videos cannot hit a ±10% band: one sentence is several percent of
+    # 140 words, and slower TTS still fills the runtime from scene durations.
     tol = get_settings().video_script_tolerance
+    if duration_min is not None and duration_min <= 2:
+        tol = max(tol, 0.35)
     return abs(actual - target) <= target * tol
 
 
@@ -175,7 +205,7 @@ def enforce_script_quality(scenes: list[dict], duration_min: int, title: str) ->
     for attempt in range(MAX_SCRIPT_FIX_ATTEMPTS + 1):
         total = _scenes_word_count(scenes)
         dups = find_duplicate_scene_pairs(scenes)
-        length_ok = _within_tolerance(total, target)
+        length_ok = _within_tolerance(total, target, duration_min)
         if length_ok and not dups:
             return scenes, warnings
         if attempt >= MAX_SCRIPT_FIX_ATTEMPTS:
@@ -196,7 +226,7 @@ def enforce_script_quality(scenes: list[dict], duration_min: int, title: str) ->
         warnings.append(f"Removed {len(drop)} repeated scene(s) from the script.")
         total = _scenes_word_count(scenes)
 
-    if not _within_tolerance(total, target):
+    if not _within_tolerance(total, target, duration_min):
         raise VideoStageError(
             "script_generation", "LENGTH_OUT_OF_TOLERANCE",
             f"Generated script is ~{total} words but a {duration_min}-minute video needs "
@@ -361,7 +391,7 @@ def generate_sectioned_scenes(title: str, prompt: str, duration_min: int,
 
     # Final gate: total must be within ±tolerance of target
     total = _scenes_word_count(scenes)
-    if not _within_tolerance(total, target):
+    if not _within_tolerance(total, target, duration_min):
         raise VideoStageError(
             "script_generation", "LENGTH_OUT_OF_TOLERANCE",
             f"Generated script is ~{total} words but a {duration_min}-minute video needs "
@@ -975,6 +1005,8 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
     for scene in scenes:
         if not scene.get("duration_seconds") or scene["duration_seconds"] == DEFAULT_SCENE_SECONDS:
             scene["duration_seconds"] = secs_per_scene
+
+    scenes = [_sanitize_scene(s) for s in scenes]
 
     # Persist scenes.json
     (project_dir / "scenes.json").write_text(

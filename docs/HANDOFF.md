@@ -91,3 +91,78 @@ Live LLM diagnostics: `GET /api/admin/llm-status`, `POST /api/admin/llm-test`.
   seconds; 70B-class models exceed the request timeout.
 - `k`-sized context: Gemini free tier is the only reliable cloud path here, so Gemini share
   is above the design target until working Groq/NVIDIA/OpenRouter keys are available.
+
+## 7. Addendum #12 state (discovery, Ollama boot, contract, video)
+
+### Discovered live models (probe time 2026-11-22 17:37, cache `backend/data/llm_models.json`)
+
+| provider | key | working models (probe latency) | free limits | notes |
+|---|---|---|---|---|
+| groq | gsk_…Il4D | `allam-2-7b` 334 ms, `qwen/qwen3.8-27b` 264 ms | https://console.groq.com/docs/rate-limits | the former llama-3.x models are refused (404 no access); TTS models need terms acceptance |
+| nvidia | nvap…sHS5 | `nvidia/nemotron-3.5-bolt-e4b` 271 ms, `nvidia/riva-translate-4b-instruct-v2` 411 ms | https://build.nvidia.com/ | retired llama-3.3 → 410, cosmos/gemma-3 → 404 function not found |
+| nvidia | nvap…vuF9 | same two + `nvidia/ising-calibration-1.5-31b` 436 ms | https://build.nvidia.com/ | second key, same catalogue |
+| openrouter | sk-o…1eb2 | `baidu/ernie-5.5-flash-preview:free` | https://openrouter.ai/docs/api-reference/limits | most `:free` slugs answer 429 upstream or empty |
+| gemini | AQ.A…SjNg | `gemini-2.5-flash-lite` 641 ms (+ 3.x previews on a 16-token probe) | https://ai.google.dev/gemini-api/docs/rate-limits | key 1 + key 2 share the same free quota group |
+| gemini | AQ.A…rahA | `gemini-2.5-flash-lite` 585 ms | same | |
+| gemini | AQ.A…drHA | none | same | 2.5-flash and 2.5-flash-lite are 404 "no longer available to new users" |
+| deepinfra | sk-d…G9Gy | none | https://deepinfra.com/pricing | every model answers 402: balance required |
+| ollama | local | llama3.1, llama3.2, qwen2.5, mistral | https://github.com/ollama/ollama/blob/main/docs/faq.md | CPU-only host |
+
+### Routing rules now in force
+
+- Short features (`prompt_enhance`, `kb_chat`, `flashcards`, `quizzes`, `exams`,
+  `recommendations`, `general`, `question_bank`): Groq → NVIDIA → OpenRouter → Gemini → Ollama.
+- Long features (`video_script`, `reports`): Gemini first, then the free clouds, Ollama last.
+- Empty probe result removes the provider from the chain instead of re-offering configured names.
+- Root `EMERGENCY` chain is gone from routing; a provider with zero working models is skipped.
+- Local order is language-aware: Arabic → qwen2.5, English short → llama3.2, JSON/quizzes →
+  llama3.1, long lessons → mistral.
+- `EDUSENSE_DISABLE_CLOUD=1` forces Ollama only; `EDUSENSE_DISABLE_PROVIDERS=gemini` blocks
+  one provider (used for the Gemini-off video proof).
+- Budget: stop at 80 % of a key's free daily requests, cooldown follows `Retry-After`.
+
+### Ollama boot
+
+`app/tools/ollama_boot.py` checks PATH, `D:\Ollama\ollama.exe`,
+`%LOCALAPPDATA%\Programs\Ollama\ollama.exe`, starts `ollama serve` once (no pulls), waits for
+`/api/tags`. Called from `launcher.py` before uvicorn, from `doctor.py`, and lazily from the
+router. Local calls use the native `/api/chat` with `keep_alive=30m`, `num_ctx` 8192/16384 and
+`num_predict` per request; Ollama requests get a 300 s floor instead of 60 s.
+
+### Output contract
+
+`app/services/contract.py` checks lesson detail ranges (Brief 3-4 / Standard 4-6 / Detailed
+6-8 sections), language purity, quiz count + 4 options + A-D answer + explanation + Bloom tag
++ answer key, flashcard count/uniqueness/format. `stamp_quiz` adds `bloom` per question and
+`answer_key`; every lesson/quiz/flashcard result carries `generated_with`
+(language / style / level / provider:model) and the UI renders it.
+
+### Video fixes
+
+- Notes are never pre-filled: retrieval context stays in the prompt; startup reconciliation
+  stripped the generated block from 3 legacy projects.
+- 4 projects marked `completed` without artifacts were moved to `failed` (no data deleted).
+- `video_url` is only returned when `player.html` exists, so no phantom 404 player link.
+- `LessonRequest` gained `duration`, so the script word gate uses the requested runtime; short
+  videos (±2 min) use a 35 % tolerance instead of 10 %.
+- Inline LaTeX is converted to arrows before the player is written.
+
+### verify.bat
+
+New step 8 runs `scripts/verify_extras.py`: starts the backend if it is down, scans recent API
+logs for `Traceback`, counts KB documents, ffprobes the newest MP4 (duration > 1 s) and checks
+the model dropdown for dead names.
+
+## 8. Still not proven
+
+- Video V2 M1-M4 (feasibility, TTS word timestamps, scene library, motion lint, contact sheet,
+  Arabic version, style pacing, render-time report): not started in this addendum.
+- CI (GitHub Actions) result: no push happened, so no Actions run exists yet.
+- Pre-push hook blocking proof: hook exists; the blocking run was not executed in this session.
+- 30-request-per-feature-class burst at full scale: 50 live requests ran (30 enhance, 10 KB,
+  5 quiz, 5 flashcards), not 30 per class for every class.
+- Ollama timing targets: quiz 108.5 s (target < 45 s), flashcards 37.1 s (target < 30 s), chat
+  first token measured only through the streaming path; the CPU host is the limit.
+- Second-model answer-key verification: not implemented; the answer key is computed from the
+  generated `answer` fields.
+- No screenshot of the Arabic submission flow in this addendum.

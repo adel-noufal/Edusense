@@ -101,6 +101,8 @@ class LessonRequest(BaseModel):
     # RAG context filters (optional; when provided, RAG chunks are retrieved)
     subject: str | None = None
     grade_level: str | None = None
+    # Requested runtime in minutes; the video pipeline uses it for its word gate.
+    duration: int | None = None
 
 
 class QuizRequest(BaseModel):

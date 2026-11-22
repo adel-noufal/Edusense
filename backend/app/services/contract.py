@@ -123,10 +123,13 @@ def check_flashcards(result: dict, expected_count: int, language: str = "English
     return problems
 
 
-def run_suite() -> int:
-    """Generate with Ollama only and print a PASS/FAIL table."""
+def run_suite(local_only: bool = True) -> int:
+    """Generate and print a PASS/FAIL table; local_only defaults to Ollama."""
     import os
-    os.environ["EDUSENSE_DISABLE_CLOUD"] = "1"
+    if local_only:
+        os.environ["EDUSENSE_DISABLE_CLOUD"] = "1"
+    else:
+        os.environ.pop("EDUSENSE_DISABLE_CLOUD", None)
     from app.agents.quiz_agent import QuizGenerationAgent
     from app.agents.flashcard_agent import FlashcardGenerationAgent
     from app.agents.lesson_agent import LessonGenerationAgent
@@ -170,4 +173,4 @@ def run_suite() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(run_suite())
+    sys.exit(run_suite(local_only="--cloud" not in sys.argv))

@@ -640,6 +640,10 @@ class LLMRouter:
                 if os.environ.get("EDUSENSE_DISABLE_CLOUD", "").lower() in ("1", "true", "yes"):
                     if pname != "ollama":
                         continue
+                blocked = {x.strip().lower() for x in
+                           os.environ.get("EDUSENSE_DISABLE_PROVIDERS", "").split(",") if x.strip()}
+                if pname.lower() in blocked:
+                    continue
                 if models is None and pname != "ollama":
                     # Live catalog: intersect the configured chain with the
                     # provider's /models answer (cached 10 min), so a model the
