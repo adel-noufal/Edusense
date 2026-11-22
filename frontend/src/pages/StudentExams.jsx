@@ -1,5 +1,5 @@
 /**
- * StudentExams â€” Section 3
+ * StudentExams — Section 3
  * Lists published exams (is_exam=true) for sessions the student is enrolled in.
  * "Take Exam" navigates to /student/quizzes/:quizId (existing Quiz.jsx with
  * fullscreen_lock / camera_monitoring / anti-cheat already wired in).
@@ -171,11 +171,11 @@ export default function StudentExams() {
                     <ExamStatusBadge isPast={isPast} dueDate={exam.due_date} />
                   </div>
                   <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                    {exam.session_title ? <span className="font-medium text-slate-700 dark:text-slate-300">{exam.session_title} Â· </span> : null}
-                    {exam.questions.length} question{exam.questions.length !== 1 ? 's' : ''} Â·{' '}
+                    {exam.session_title ? <span className="font-medium text-slate-700 dark:text-slate-300">{exam.session_title} · </span> : null}
+                    {exam.questions.length} question{exam.questions.length !== 1 ? 's' : ''} ·{' '}
                     {exam.difficulty} difficulty
-                    {exam.due_date ? ` Â· Due ${formatDate(exam.due_date)}` : ''}
-                    {exam.available_from ? ` Â· Opens ${formatDate(exam.available_from)}` : ''}
+                    {exam.due_date ? ` · Due ${formatDate(exam.due_date)}` : ''}
+                    {exam.available_from ? ` · Opens ${formatDate(exam.available_from)}` : ''}
                   </p>
                 </div>
 
@@ -247,7 +247,7 @@ export default function StudentExams() {
                 <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                   Your score: {lastAttempt.score} / {lastAttempt.max_score}{' '}
                   ({Math.round((lastAttempt.score / lastAttempt.max_score) * 100)}%)
-                  {' '}Â· Submitted {formatDate(lastAttempt.submitted_at)}
+                  {' '}· Submitted {formatDate(lastAttempt.submitted_at)}
                 </div>
               )}
             </div>

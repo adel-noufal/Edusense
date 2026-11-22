@@ -15,7 +15,7 @@ from app.services.content_pipeline import format_strict_text, validate_quality, 
 
 ADK_AGENT = adk_agent("quiz_generation_agent", "Generate MCQ, true/false, and short-answer quizzes.")
 
-# Canonical difficulty enum â€” anything else maps to the nearest level so the
+# Canonical difficulty enum — anything else maps to the nearest level so the
 # UI never shows mixed labels like "Medium" vs "intermediate".
 _DIFFICULTY_MAP = {
     "easy": "Easy", "beginner": "Easy", "foundation": "Easy",
@@ -226,10 +226,10 @@ class QuizGenerationAgent:
         instructor_notes = f'\nInstructor guidance: "{config_prompt}"' if config_prompt.strip() else ""
         instructor_notes += f'\nTeaching style: {teaching_style}'
 
-        # â”€â”€ RAG retrieval (curriculum first) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── RAG retrieval (curriculum first) ────────────────────────────────
         rag_context, rag_sources = _build_rag_context(topic, subject, grade_level)
 
-        # â”€â”€ Web retrieval (if curriculum is insufficient) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Web retrieval (if curriculum is insufficient) ─────────────────
         web_context = ""
         web_results = []
         web_sources = []

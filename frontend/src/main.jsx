@@ -7,7 +7,7 @@ import { LanguageProvider } from './context/LanguageContext'
 import { GenerationJobProvider } from './context/GenerationJobContext'
 import { ToastProvider } from './context/ToastContext'
 
-// â”€â”€ Lazy-load every page chunk (each becomes a separate JS file on build) â”€â”€â”€â”€
+// ── Lazy-load every page chunk (each becomes a separate JS file on build) ────
 const Layout          = lazy(() => import('./components/Layout'))
 const ErrorBoundary   = lazy(() => import('./components/ErrorBoundary'))
 const Landing         = lazy(() => import('./pages/Landing'))
@@ -39,7 +39,7 @@ const StudentQuiz         = lazy(() => import('./pages/Quiz'))
 const StudentExams        = lazy(() => import('./pages/StudentExams'))
 const StudentAssignments  = lazy(() => import('./pages/StudentAssignments'))
 
-// â”€â”€ Branded page loader with smooth entrance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Branded page loader with smooth entrance ─────────────────────────────────
 function PageLoader() {
   return (
     <div className="loader-screen">
@@ -55,7 +55,7 @@ function PageLoader() {
   )
 }
 
-// â”€â”€ Short helper so each route doesn't repeat Suspense boilerplate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Short helper so each route doesn't repeat Suspense boilerplate ───────────
 const S = ({ children }) => <Suspense fallback={<PageLoader />}>{children}</Suspense>
 
 function RouteEnter({ children }) {

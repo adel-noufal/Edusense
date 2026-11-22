@@ -255,7 +255,7 @@ export default function Sessions() {
     try {
       const query = type ? `?type=${type}` : ''
       await api(`/sessions/${linkPanel.session.id}/link-generation/${genId}${query}`, { method: 'POST' })
-      toast.success('Content linked to session â€” students can access it after enrolling.')
+      toast.success('Content linked to session — students can access it after enrolling.')
       setLinkPanel((prev) => ({
         ...prev,
         generations: prev.generations.map((g) => (g.id === genId ? { ...g, session_id: prev.session.id } : g)),
@@ -325,7 +325,7 @@ export default function Sessions() {
           <select className="input" value={selectedGenerationId} onChange={(e) => setSelectedGenerationId(e.target.value)}>
             <option value="">None</option>
             {availableGenerations.map((gen) => (
-              <option key={gen.id} value={gen.id}>{gen.topic} Â· {gen.type}</option>
+              <option key={gen.id} value={gen.id}>{gen.topic} · {gen.type}</option>
             ))}
           </select>
           <p className="text-xs text-slate-500">Pick an existing lesson, quiz, flashcard deck, or video to open to enrolled students.</p>
@@ -390,7 +390,7 @@ export default function Sessions() {
                   <div>
                     <p className="text-lg font-bold">{session.title}</p>
                     <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
-                      <span>{session.date}{session.start_time ? ` Â· ${String(session.start_time).slice(0, 5)}` : ''}</span>
+                      <span>{session.date}{session.start_time ? ` · ${String(session.start_time).slice(0, 5)}` : ''}</span>
                       {isMissed ? (
                         <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">Missed</span>
                       ) : isEnded ? (
@@ -520,7 +520,7 @@ export default function Sessions() {
               <select className="input dark:bg-slate-800 dark:border-slate-700" value={selectedGenerationId} onChange={(e) => setSelectedGenerationId(e.target.value)}>
                 <option value="">None</option>
                 {availableGenerations.map((gen) => (
-                  <option key={gen.id} value={gen.id}>{gen.topic} Â· {gen.type}</option>
+                  <option key={gen.id} value={gen.id}>{gen.topic} · {gen.type}</option>
                 ))}
               </select>
             </label>
@@ -615,7 +615,7 @@ export default function Sessions() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-sm truncate">{r.name}</p>
-                        <p className="text-xs text-slate-500">{formatBytes(r.file_size)} Â· {new Date(r.uploaded_at).toLocaleDateString()}</p>
+                        <p className="text-xs text-slate-500">{formatBytes(r.file_size)} · {new Date(r.uploaded_at).toLocaleDateString()}</p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {r.available ? (
@@ -690,7 +690,7 @@ export default function Sessions() {
                             {gen.created_at ? new Date(gen.created_at).toLocaleDateString() : 'Ready'}
                             {isLinkedHere && (
                               <span className="ms-2 font-bold text-emerald-600 dark:text-emerald-400">
-                                â€¢ Currently attached to this session
+                                • Currently attached to this session
                               </span>
                             )}
                           </p>

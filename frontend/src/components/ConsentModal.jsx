@@ -12,7 +12,7 @@ const CONSENT_INFO = {
           <li><strong>Purpose:</strong> Emotion classification (happy, neutral, sad, angry, surprise, fear, disgust) for engagement analytics</li>
           <li><strong>Retention:</strong> Frames are automatically deleted <strong>24 hours after the session ends</strong></li>
           <li><strong>Access:</strong> Only the session instructor and platform administrators</li>
-          <li><strong>AI Processing:</strong> Runs locally on our servers â€” frames are NOT sent to third-party AI providers</li>
+          <li><strong>AI Processing:</strong> Runs locally on our servers — frames are NOT sent to third-party AI providers</li>
         </ul>
       </>
     ),
@@ -93,7 +93,7 @@ export function ConsentModal({
 
           <div className="consent-policy-link">
             <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
-              ðŸ“„ Read our full Privacy Policy
+              📄 Read our full Privacy Policy
             </a>
             <p className="consent-note">
               This consent is <strong>specific to {info.title.toLowerCase()}</strong>.
@@ -121,7 +121,7 @@ export function ConsentModal({
             onClick={handleDecline}
             disabled={loading}
           >
-            Decline â€” Continue Without Camera
+            Decline — Continue Without Camera
           </button>
           <button
             className="btn btn-primary"
@@ -135,7 +135,7 @@ export function ConsentModal({
         <p className="consent-footer-note">
           Declining does <strong>not</strong> block access to the rest of EduSense.
           You can still attend sessions, take quizzes (without camera), use chat, and access all materials.
-          Consent can be granted later in Settings â†’ Privacy.
+          Consent can be granted later in Settings → Privacy.
         </p>
       </div>
     </div>

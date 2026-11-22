@@ -1,5 +1,5 @@
 """
-B2 tests â€” Run Feedback Loop silent failure:
+B2 tests — Run Feedback Loop silent failure:
 - selected session_ids are honored (not silently widened to 'all')
 - per-session data sufficiency is reported in the job result
 - insufficient sessions produce an explicit message, never a blank panel

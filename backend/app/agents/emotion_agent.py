@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.models.models import EmotionLog
 
 
-# Lightweight inline result type â€” avoids importing the full LLM-laden base module
+# Lightweight inline result type — avoids importing the full LLM-laden base module
 from dataclasses import dataclass
 
 @dataclass
@@ -45,7 +45,7 @@ _face_cascade = None
 _mtcnn_detector = None
 
 # v7 EfficientNet-B0 label ordering (standard AffectNet/FER+ alphabetical order)
-# Confirmed from training: no class_to_idx stored in checkpoint â†’ use standard ordering
+# Confirmed from training: no class_to_idx stored in checkpoint → use standard ordering
 V7_IDX_TO_CLASS = {
     0: "angry",
     1: "disgust",
@@ -64,7 +64,7 @@ ADK_AGENT = adk_agent(
 
 class EmotionAnalysisAgent:
     """
-    Emotion Analysis Agent â€” EduSense v7.
+    Emotion Analysis Agent — EduSense v7.
 
     Primary backend: custom-trained EfficientNet-B0 PyTorch model (v7, 90.9% overall accuracy).
       - angry:   88.6%  (n=1210)
@@ -107,7 +107,7 @@ class EmotionAnalysisAgent:
         emotion = detail.get("emotion") or "unknown"
         confidence = float(detail.get("confidence") or 0.0)
 
-        # Only persist frames where a usable face was actually classified â€”
+        # Only persist frames where a usable face was actually classified —
         # "no face" / low-quality frames must not pollute session distributions.
         log = None
         if detail.get("face_detected"):
@@ -167,7 +167,7 @@ class EmotionAnalysisAgent:
     # ---------- internal detection ----------
 
     def _detect(self, image: str) -> tuple[str, float]:
-        """Legacy tuple API â€” kept for callers that only need (emotion, conf)."""
+        """Legacy tuple API — kept for callers that only need (emotion, conf)."""
         detail = self._detect_detailed(image)
         if not detail.get("face_detected"):
             return "unknown", 0.0
@@ -191,7 +191,7 @@ class EmotionAnalysisAgent:
             if crop is None or crop.size == 0 or crop.shape[0] < 20 or crop.shape[1] < 20:
                 return {**base, "hint": hint or "no_face"}
 
-            # Face found â€” classify the cropped face only.
+            # Face found — classify the cropped face only.
             result = self._detect_pytorch_full(crop)
             if result is not None:
                 emotion, confidence, probs = result
@@ -220,7 +220,7 @@ class EmotionAnalysisAgent:
     def _find_face(self, frame: np.ndarray):
         """
         Detect the largest frontal face, crop with padding.
-        Returns (crop_bgr, quality_hint) â€” crop is None when no usable face.
+        Returns (crop_bgr, quality_hint) — crop is None when no usable face.
         Detectors tried in order: MTCNN (accurate, bundled), OpenCV Haar
         (when the cv2 build ships cascades), else full-frame fallback.
         """

@@ -316,7 +316,7 @@ export default function LiveSessionRoom() {
               <div className="space-y-1 text-center sm:text-start">
                 <p className="text-xs uppercase font-extrabold tracking-wider text-emerald-700 dark:text-emerald-300">Instructor is preparing the room</p>
                 <h2 className="text-xl font-black">Session starts in {formatTimer(prepSeconds)}</h2>
-                <p className="text-xs text-emerald-700 dark:text-emerald-300">The instructor is setting up cameras, slides, and microphones. Stay on this page â€” the meeting will open automatically!</p>
+                <p className="text-xs text-emerald-700 dark:text-emerald-300">The instructor is setting up cameras, slides, and microphones. Stay on this page — the meeting will open automatically!</p>
               </div>
               <div className="rounded-2xl bg-emerald-600 px-6 py-4 text-center font-mono text-3xl font-black text-white shadow-inner shrink-0">
                 {formatTimer(prepSeconds)}
@@ -540,7 +540,7 @@ export default function LiveSessionRoom() {
                   {emotions.slice(-12).reverse().map((log) => (
                     <div key={log.id} className="rounded-md border border-slate-200 p-2 text-sm dark:border-slate-700">
                       <span className="font-semibold capitalize">{log.emotion}</span>
-                      <span className="text-slate-500"> Â· {(log.confidence * 100).toFixed(0)}%</span>
+                      <span className="text-slate-500"> · {(log.confidence * 100).toFixed(0)}%</span>
                       <span className="block text-xs text-slate-400">{new Date(log.timestamp).toLocaleTimeString()}</span>
                     </div>
                   ))}

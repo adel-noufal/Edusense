@@ -1,7 +1,7 @@
 """
 Task 4 Verification: AI Lessons Tab failure
 Root cause: LessonGenerator JSX referenced `publishModalQuiz` / `setPublishModalQuiz`
-            without declaring them as state â€” causing ReferenceError on mount.
+            without declaring them as state — causing ReferenceError on mount.
 Verification:
   1. Backend /ai/generations?type=lesson returns 200 with proper shape
   2. Backend /ai/jobs/pending returns 200
@@ -50,7 +50,7 @@ def test_lessons_api_endpoints():
         item = data[0]
         for key in ("id", "type", "topic", "prompt", "created_at"):
             assert key in item, f"Missing key '{key}' in generation item"
-    print(f"âœ“ /ai/generations?type=lesson returned {len(data)} items with correct shape")
+    print(f"✓ /ai/generations?type=lesson returned {len(data)} items with correct shape")
 
 
 def test_jobs_pending_endpoint():
@@ -60,7 +60,7 @@ def test_jobs_pending_endpoint():
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text[:200]}"
     data = resp.json()
     assert isinstance(data, list), f"Expected list, got {type(data).__name__}"
-    print(f"âœ“ /ai/jobs/pending returned {len(data)} pending jobs")
+    print(f"✓ /ai/jobs/pending returned {len(data)} pending jobs")
 
 
 def test_job_poll_unknown_id():
@@ -68,7 +68,7 @@ def test_job_poll_unknown_id():
     headers = get_auth_headers()
     resp = client.get("/api/ai/job/unknown-job-id-task4-test", headers=headers)
     assert resp.status_code == 404, f"Expected 404, got {resp.status_code}: {resp.text[:200]}"
-    print(f"âœ“ /ai/job/unknown returns 404 as expected: {resp.json().get('detail')}")
+    print(f"✓ /ai/job/unknown returns 404 as expected: {resp.json().get('detail')}")
 
 
 def test_lesson_generator_no_publish_modal_reference():
@@ -91,7 +91,7 @@ def test_lesson_generator_no_publish_modal_reference():
             f"publishModalQuiz still referenced in LessonGenerator ({len(bad)} occurrences):\n"
             + "\n".join(bad)
         )
-    print("âœ“ LessonGenerator contains no publishModalQuiz references (ReferenceError is gone)")
+    print("✓ LessonGenerator contains no publishModalQuiz references (ReferenceError is gone)")
 
 
 def test_quiz_generator_has_publish_modal():
@@ -109,7 +109,7 @@ def test_quiz_generator_has_publish_modal():
     assert "publishModalQuiz" in quiz_text, "publishModalQuiz state missing from QuizGenerator"
     assert "setPublishModalQuiz" in quiz_text, "setPublishModalQuiz missing from QuizGenerator"
     assert "PublishExamModal" in quiz_text, "PublishExamModal JSX block missing from QuizGenerator"
-    print("âœ“ QuizGenerator correctly declares publishModalQuiz state and renders PublishExamModal")
+    print("✓ QuizGenerator correctly declares publishModalQuiz state and renders PublishExamModal")
 
 
 if __name__ == "__main__":

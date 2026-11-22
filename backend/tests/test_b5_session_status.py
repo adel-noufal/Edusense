@@ -1,5 +1,5 @@
 """
-B5 tests â€” effective session status:
+B5 tests — effective session status:
 - past scheduled session is 'missed', never 'upcoming'
 - live session past its duration becomes 'ended'
 - no-limit live session stays 'live' until manually ended

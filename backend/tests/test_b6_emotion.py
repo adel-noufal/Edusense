@@ -1,5 +1,5 @@
 """
-B6 tests â€” emotion recognition honesty:
+B6 tests — emotion recognition honesty:
 - no fabricated 'neutral 0.64' on failure/blank frames
 - face detection gate: no face -> face_detected False + hint
 - cropped face is what gets classified (mock classifier sees crop, not frame)

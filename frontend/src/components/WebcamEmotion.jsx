@@ -62,7 +62,7 @@ export default function WebcamEmotion({ sessionId, title = 'Live Emotion Analysi
 
   const handleConsentDecline = () => {
     setConsentModalOpen(false)
-    setInfoMessage('Camera access declined. You can grant consent later in Settings â†’ Privacy.')
+    setInfoMessage('Camera access declined. You can grant consent later in Settings → Privacy.')
   }
 
   function stopCamera() {

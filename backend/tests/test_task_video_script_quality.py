@@ -1,6 +1,6 @@
 """
 Video script quality gate tests:
-- word-count target from duration x WPM, Â±tolerance enforcement
+- word-count target from duration x WPM, ±tolerance enforcement
 - corrective LLM pass invoked when out of tolerance
 - duplicate-scene detection and removal
 - VideoStageError raised (never silent wrong-length script)

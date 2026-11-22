@@ -1,12 +1,12 @@
 """
-Section 3 â€” Exam & Assignment verification test
+Section 3 — Exam & Assignment verification test
 Tests:
   1. Instructor can create a quiz and mark it is_exam=True
   2. Student enrolled in that session sees it in GET /quizzes/student/exams
   3. Student NOT enrolled does NOT see it
   4. Instructor can create an assignment for a session
   5. Student can list assignments for enrolled sessions
-  6. Student can submit a file â†’ AssignmentSubmission created
+  6. Student can submit a file → AssignmentSubmission created
   7. Submission status shows file_name + submitted_at
   8. Non-enrolled student cannot list or submit assignments
 """

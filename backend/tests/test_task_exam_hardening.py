@@ -1,5 +1,5 @@
 """
-Item 6 tests â€” exam/quiz hardening:
+Item 6 tests — exam/quiz hardening:
 - normalize_difficulty / normalize_questions (count honored, enum labels)
 - exam one-attempt enforcement (409 on second start after submit)
 - unpublished exam blocked (403)
@@ -60,7 +60,7 @@ def main():
         inst_h = login(instructor.email)
         stu_h = login(student.email)
 
-        # â”€â”€ Unit: normalization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Unit: normalization ──────────────────────────────────────────
         check("difficulty intermediate->Medium", normalize_difficulty("intermediate") == "Medium")
         check("difficulty advanced->Hard", normalize_difficulty("Advanced") == "Hard")
         check("difficulty bogus->Medium", normalize_difficulty("xyz") == "Medium")
@@ -69,7 +69,7 @@ def main():
         qs2 = normalize_questions([{"question": f"Q{i}?"} for i in range(10)], 3, "Topic", "Easy")
         check("questions truncated to count", len(qs2) == 3)
 
-        # â”€â”€ Fixture: session + enrollment + exam quiz â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Fixture: session + enrollment + exam quiz ───────────────────
         sess = ClassSession(
             instructor_id=instructor.id, title="Exam Hardening Test",
             description="t", date=date.today(), start_time=time(9, 0),
@@ -95,7 +95,7 @@ def main():
         db.add(quiz); db.commit(); db.refresh(quiz)
         created["quizzes"].append(quiz.id)
 
-        # â”€â”€ API: exam flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── API: exam flow ──────────────────────────────────────────────
         r = client.get(f"/api/quizzes/{quiz.id}", headers=stu_h)
         check("student GET quiz 200", r.status_code == 200)
         body = r.json()
@@ -132,7 +132,7 @@ def main():
         r5 = client.post(f"/api/quizzes/{quiz.id}/start", headers=stu_h)
         check("exam one-attempt 409", r5.status_code == 409, f"{r5.status_code} {r5.text[:120]}")
 
-        # â”€â”€ unpublished exam blocked â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── unpublished exam blocked ────────────────────────────────────
         quiz2 = Quiz(
             session_id=sess.id, title="Unpublished Exam", difficulty="Easy",
             questions_json=json.dumps(questions), is_exam=True, is_published=False,
@@ -142,7 +142,7 @@ def main():
         r6 = client.post(f"/api/quizzes/{quiz2.id}/start", headers=stu_h)
         check("unpublished exam 403", r6.status_code == 403, str(r6.status_code))
 
-        # â”€â”€ past-due exam blocked â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── past-due exam blocked ───────────────────────────────────────
         quiz3 = Quiz(
             session_id=sess.id, title="Expired Exam", difficulty="Easy",
             questions_json=json.dumps(questions), is_exam=True, is_published=True,

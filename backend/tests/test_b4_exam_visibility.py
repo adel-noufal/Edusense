@@ -1,5 +1,5 @@
 """
-B4 tests â€” published exam visibility for students:
+B4 tests — published exam visibility for students:
 - exam linked to enrolled session -> visible
 - exam linked to a session student is NOT enrolled in -> hidden
 - session-less exam owned by an instructor the student has sessions with -> visible

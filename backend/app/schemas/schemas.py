@@ -391,7 +391,7 @@ class ConsentCheckResponse(BaseModel):
     timestamp: datetime | None = None
 
 
-# â”€â”€â”€ Section 3: Assignment schemas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Section 3: Assignment schemas ───────────────────────────────────────────
 
 class AssignmentIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)

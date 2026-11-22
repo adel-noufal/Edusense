@@ -237,11 +237,11 @@ EDUSENSE_CHROMA_PERSIST_DIR="/opt/edusense/data/chroma"
 
 ## TLS Configuration Best Practices
 
-1. **Use TLS 1.2+ only** â€” Disable TLS 1.0, 1.1
-2. **Prefer ECDHE cipher suites** â€” Forward secrecy
-3. **Enable OCSP Stapling** â€” Faster certificate validation
+1. **Use TLS 1.2+ only** — Disable TLS 1.0, 1.1
+2. **Prefer ECDHE cipher suites** — Forward secrecy
+3. **Enable OCSP Stapling** — Faster certificate validation
 4. **Use strong DH parameters** (nginx: `ssl_dhparam /etc/ssl/certs/dhparam.pem;`)
-5. **Monitor certificate expiry** â€” Set up alerts for 30/14/7 days before expiry
+5. **Monitor certificate expiry** — Set up alerts for 30/14/7 days before expiry
 
 ## Testing Your Configuration
 

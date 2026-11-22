@@ -1,6 +1,6 @@
 """
 test_task7_video_generation.py
-Task 7 â€” Video Tab: Editing Controls & Generation Overhaul
+Task 7 — Video Tab: Editing Controls & Generation Overhaul
 Tests:
   1. generate_educational_video() returns correct keys
   2. Each scene has duration_seconds > 0
@@ -23,7 +23,7 @@ results = []
 
 def check(label, condition, detail=""):
     status = PASS if condition else FAIL
-    print(f"  [{status}] {label}" + (f" â€” {detail}" if detail else ""))
+    print(f"  [{status}] {label}" + (f" — {detail}" if detail else ""))
     results.append((label, condition))
 
 
@@ -120,7 +120,7 @@ def test_task7_video_generation():
     }
 
     try:
-        # Pin the corrective LLM pass off so the test is deterministic â€” the
+        # Pin the corrective LLM pass off so the test is deterministic — the
         # fixture script is sized to the duration target on purpose.
         with patch("app.services.video._gtts_scene", side_effect=_mock_gtts_scene), \
              patch("app.services.video._llm_adjust_scenes", return_value=None), \

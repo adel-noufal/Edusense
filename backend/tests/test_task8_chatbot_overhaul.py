@@ -1,6 +1,6 @@
 """
 test_task8_chatbot_overhaul.py
-Task 8 â€” AI Chatbot Overhaul: Separate Identity, Third API Key, Uploads & History
+Task 8 — AI Chatbot Overhaul: Separate Identity, Third API Key, Uploads & History
 Tests:
   1. Config: chatbot_name, chatbot_persona, chatbot_gemini_api_key exist and third key support works
   2. GET /api/ai/chat/settings returns chatbot identity
@@ -36,7 +36,7 @@ results = []
 
 def check(label, condition, detail=""):
     status = PASS if condition else FAIL
-    print(f"  [{status}] {label}" + (f" â€” {detail}" if detail else ""))
+    print(f"  [{status}] {label}" + (f" — {detail}" if detail else ""))
     results.append((label, condition))
 
 def get_auth_headers(email: str, role: str):

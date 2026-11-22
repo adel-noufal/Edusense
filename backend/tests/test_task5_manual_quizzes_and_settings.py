@@ -99,7 +99,7 @@ def test_task5_full_flow():
         assert quiz_data["title"] == "Manual Vector Spaces Quiz"
         assert len(quiz_data["questions"]) == 3
         assert quiz_data["is_exam"] is False
-        print(f"âœ“ Manual quiz created successfully with id={quiz_id}, questions count={len(quiz_data['questions'])}")
+        print(f"✓ Manual quiz created successfully with id={quiz_id}, questions count={len(quiz_data['questions'])}")
 
         print("\n--- 1a. Testing Direct Manual Exam Default Fullscreen Lock ---")
         direct_exam_title = "Manual Exam Default Fullscreen Test"
@@ -125,7 +125,7 @@ def test_task5_full_flow():
         direct_exam_data = direct_exam_resp.json()
         direct_exam_id = direct_exam_data["id"]
         assert direct_exam_data["fullscreen_lock"] is True
-        print(f"âœ“ Directly authored exam defaults fullscreen_lock=True (quiz id={direct_exam_id})")
+        print(f"✓ Directly authored exam defaults fullscreen_lock=True (quiz id={direct_exam_id})")
 
         # 3. Test Instructor vs Student view of the quiz
         print("\n--- 2. Testing Answer Visibility: Instructor sees answers, Student view strips answers ---")
@@ -133,13 +133,13 @@ def test_task5_full_flow():
         assert inst_view.status_code == 200
         inst_quiz = inst_view.json()
         assert inst_quiz["questions"][0].get("answer") == "3", "Instructor must be able to view correct answers"
-        print(f"âœ“ Instructor view retains answers: question 1 answer = '{inst_quiz['questions'][0]['answer']}'")
+        print(f"✓ Instructor view retains answers: question 1 answer = '{inst_quiz['questions'][0]['answer']}'")
 
         stu_view = client.get(f"/api/quizzes/{quiz_id}", headers=stu_headers)
         assert stu_view.status_code == 200
         stu_quiz = stu_view.json()
         assert "answer" not in stu_quiz["questions"][0], "Student view must strip answers for exam integrity"
-        print("âœ“ Student view successfully strips correct answers for examination integrity")
+        print("✓ Student view successfully strips correct answers for examination integrity")
 
         # 4. Test Publishing Manual Quiz as Exam via POST /api/quizzes/{id}/publish-as-exam
         print("\n--- 3. Testing Publishing Manual Quiz as Exam ---")
@@ -160,7 +160,7 @@ def test_task5_full_flow():
         assert pub_data["fullscreen_lock"] is True
         assert pub_data["lock_back_navigation"] is True
         assert pub_data["camera_monitoring"] is True
-        print(f"âœ“ Quiz {quiz_id} successfully published as Exam with time_limit=2700s, fullscreen=True, lock_back=True")
+        print(f"✓ Quiz {quiz_id} successfully published as Exam with time_limit=2700s, fullscreen=True, lock_back=True")
 
         # 5. Test Updating Existing Exam Settings via PATCH /api/quizzes/{id}
         print("\n--- 4. Testing 'Update Exam Settings' (PATCH /api/quizzes/{quiz_id}) ---")
@@ -177,7 +177,7 @@ def test_task5_full_flow():
         assert patch_data["time_limit_seconds"] == 3600
         assert patch_data["time_limit_per_question_seconds"] == 120
         assert patch_data["lock_back_navigation"] is False
-        print(f"âœ“ Exam settings successfully updated: time_limit={patch_data['time_limit_seconds']}s, lock_back_navigation={patch_data['lock_back_navigation']}")
+        print(f"✓ Exam settings successfully updated: time_limit={patch_data['time_limit_seconds']}s, lock_back_navigation={patch_data['lock_back_navigation']}")
 
         # 6. Test Updating Exam Settings via POST /api/quizzes/{quiz_id}/publish-as-exam (UI reuse path)
         print("\n--- 5. Testing 'Update Exam Settings' via Publish-As-Exam endpoint ---")
@@ -194,7 +194,7 @@ def test_task5_full_flow():
         assert repub_data["time_limit_seconds"] == 1800
         assert repub_data["camera_monitoring"] is False
         assert repub_data["lock_back_navigation"] is True
-        print(f"âœ“ Settings update via publish-as-exam confirmed: time_limit={repub_data['time_limit_seconds']}s, camera={repub_data['camera_monitoring']}")
+        print(f"✓ Settings update via publish-as-exam confirmed: time_limit={repub_data['time_limit_seconds']}s, camera={repub_data['camera_monitoring']}")
 
         # 7. Check student sees updated exam in /quizzes/student/exams
         stu_exams_resp = client.get("/api/quizzes/student/exams", headers=stu_headers)
@@ -204,7 +204,7 @@ def test_task5_full_flow():
         assert matching is not None, "Exam must be visible to enrolled student"
         assert matching["time_limit_seconds"] == 1800
         assert matching["camera_monitoring"] is False
-        print(f"âœ“ Enrolled student immediately sees the updated exam settings in their Exams tab!")
+        print(f"✓ Enrolled student immediately sees the updated exam settings in their Exams tab!")
 
         # Clean up test session and quiz
         db.delete(reg)

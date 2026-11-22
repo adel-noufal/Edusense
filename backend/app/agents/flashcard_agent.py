@@ -19,7 +19,7 @@ ADK_AGENT = adk_agent("flashcard_generation_agent", "Generate study flashcards f
 PEDAGOGICAL_DIMENSIONS = [
     {
         "front": "What is the foundational definition and primary operational paradigm of {topic}?",
-        "back": "â€¢ Core Definition: Foundational paradigm engineered for modularity, systematic data flow, and predictable state transitions in {topic}.\nâ€¢ Primary Value: Solves architectural scaling bottlenecks, minimizes side-effects, and streamlines system execution.\nâ€¢ Memory Anchor: In {topic}, clean separation of concerns is the baseline prerequisite for reliability.",
+        "back": "• Core Definition: Foundational paradigm engineered for modularity, systematic data flow, and predictable state transitions in {topic}.\n• Primary Value: Solves architectural scaling bottlenecks, minimizes side-effects, and streamlines system execution.\n• Memory Anchor: In {topic}, clean separation of concerns is the baseline prerequisite for reliability.",
     },
     {
         "front": "How is the execution pipeline and internal data flow structured in {topic}?",
@@ -27,75 +27,75 @@ PEDAGOGICAL_DIMENSIONS = [
     },
     {
         "front": "Which performance metrics and bottleneck indicators are critical when evaluating {topic}?",
-        "back": "â€¢ Core Metrics: Latency (p95/p99), system throughput (ops/sec), CPU/memory utilization footprint, and I/O wait times.\nâ€¢ Common Bottlenecks: Unindexed lookups, lock contention, excessive serialization overhead, and thread saturation.\nâ€¢ Mitigation Strategy: Profile hot paths, apply asynchronous non-blocking I/O, and introduce caching at volatile boundaries.",
+        "back": "• Core Metrics: Latency (p95/p99), system throughput (ops/sec), CPU/memory utilization footprint, and I/O wait times.\n• Common Bottlenecks: Unindexed lookups, lock contention, excessive serialization overhead, and thread saturation.\n• Mitigation Strategy: Profile hot paths, apply asynchronous non-blocking I/O, and introduce caching at volatile boundaries.",
     },
     {
         "front": "In what real-world enterprise scenarios is {topic} most effectively applied?",
-        "back": "â€¢ High-Concurrency Environments: Distributed data processing and mission-critical transaction coordination.\nâ€¢ Analytics & Machine Intelligence: Structured feature transformation and resilient pipeline orchestration.\nâ€¢ Operational Impact: Typically delivers 3x-5x efficiency and throughput gains over uncoordinated legacy implementations.",
+        "back": "• High-Concurrency Environments: Distributed data processing and mission-critical transaction coordination.\n• Analytics & Machine Intelligence: Structured feature transformation and resilient pipeline orchestration.\n• Operational Impact: Typically delivers 3x-5x efficiency and throughput gains over uncoordinated legacy implementations.",
     },
     {
         "front": "What are the primary failure modes and fault-tolerance mechanisms in {topic}?",
-        "back": "â€¢ Failure Vectors: Network partitions, downstream timeout cascades, malformed payloads, and process crashes.\nâ€¢ Resilience Mechanisms: Circuit breakers, exponential backoff with jitter, idempotent retry semantics, and dead-letter queues.\nâ€¢ Key Principle: Systems fail predictably; gracefulness requires bounded retries and blast-radius containment.",
+        "back": "• Failure Vectors: Network partitions, downstream timeout cascades, malformed payloads, and process crashes.\n• Resilience Mechanisms: Circuit breakers, exponential backoff with jitter, idempotent retry semantics, and dead-letter queues.\n• Key Principle: Systems fail predictably; gracefulness requires bounded retries and blast-radius containment.",
     },
     {
         "front": "What security vectors, authorization controls, and data protection policies apply to {topic}?",
-        "back": "â€¢ Threat Vectors: Injection attacks, unauthorized privilege escalation, replay exploits, and plaintext data leakage.\nâ€¢ Protective Measures: Least-privilege role-based access control (RBAC), end-to-end TLS encryption, input sanitization, and cryptographically signed tokens.\nâ€¢ Auditability: Comprehensive append-only audit logging for all mutating operations.",
+        "back": "• Threat Vectors: Injection attacks, unauthorized privilege escalation, replay exploits, and plaintext data leakage.\n• Protective Measures: Least-privilege role-based access control (RBAC), end-to-end TLS encryption, input sanitization, and cryptographically signed tokens.\n• Auditability: Comprehensive append-only audit logging for all mutating operations.",
     },
     {
         "front": "What are the fundamental architectural trade-offs and antipatterns to avoid in {topic}?",
-        "back": "â€¢ Key Trade-offs: Strict consistency vs. high availability (CAP theorem), compute latency vs. memory storage overhead.\nâ€¢ Common Antipatterns: Premature micro-optimization, tight coupling across service domains, and ignoring backpressure.\nâ€¢ Best Practice: Maintain loose coupling with explicit boundary contracts and measure before optimizing.",
+        "back": "• Key Trade-offs: Strict consistency vs. high availability (CAP theorem), compute latency vs. memory storage overhead.\n• Common Antipatterns: Premature micro-optimization, tight coupling across service domains, and ignoring backpressure.\n• Best Practice: Maintain loose coupling with explicit boundary contracts and measure before optimizing.",
     },
     {
         "front": "How does {topic} manage state transitions, synchronization, and distributed consistency?",
-        "back": "â€¢ Concurrency Strategies: Optimistic concurrency control (OCC), distributed locking primitives, and atomic compare-and-swap operations.\nâ€¢ Consistency Guarantees: Distinguishing between strong linearizability and eventual consistency based on SLA requirements.\nâ€¢ Synchronization: Event-driven pub/sub models and state machines to prevent split-brain states.",
+        "back": "• Concurrency Strategies: Optimistic concurrency control (OCC), distributed locking primitives, and atomic compare-and-swap operations.\n• Consistency Guarantees: Distinguishing between strong linearizability and eventual consistency based on SLA requirements.\n• Synchronization: Event-driven pub/sub models and state machines to prevent split-brain states.",
     },
     {
         "front": "How should verification and automated test suites be structured for {topic}?",
-        "back": "â€¢ Testing Pyramid: Comprehensive unit tests for core logic, contract integration tests across boundaries, and end-to-end user journeys.\nâ€¢ Specialized Strategies: Property-based testing, chaos injection (simulating network latency/drops), and regression benchmarking.\nâ€¢ Acceptance Criteria: 100% verification of critical state invariants and zero unhandled exceptions.",
+        "back": "• Testing Pyramid: Comprehensive unit tests for core logic, contract integration tests across boundaries, and end-to-end user journeys.\n• Specialized Strategies: Property-based testing, chaos injection (simulating network latency/drops), and regression benchmarking.\n• Acceptance Criteria: 100% verification of critical state invariants and zero unhandled exceptions.",
     },
     {
         "front": "What architectural strategies govern horizontal scaling and elasticity in {topic}?",
-        "back": "â€¢ Partitioning / Sharding: Consistent hashing to distribute load evenly across worker nodes.\nâ€¢ Stateless Workers: Decouple compute from persistent storage to enable rapid auto-scaling based on telemetry.\nâ€¢ Load Balancing: Dynamic weighted round-robin and connection pooling to prevent hot-spotting.",
+        "back": "• Partitioning / Sharding: Consistent hashing to distribute load evenly across worker nodes.\n• Stateless Workers: Decouple compute from persistent storage to enable rapid auto-scaling based on telemetry.\n• Load Balancing: Dynamic weighted round-robin and connection pooling to prevent hot-spotting.",
     },
     {
         "front": "What telemetry signals and diagnostics are essential for monitoring {topic} in production?",
-        "back": "â€¢ The 3 Pillars: Structured logs (with correlation IDs), real-time metrics (counter, gauge, histogram), and distributed trace spans.\nâ€¢ Golden Signals: Latency, Traffic, Error rate, and Resource Saturation.\nâ€¢ Diagnostic Tools: Distributed tracing across service boundaries and automated anomaly alerting.",
+        "back": "• The 3 Pillars: Structured logs (with correlation IDs), real-time metrics (counter, gauge, histogram), and distributed trace spans.\n• Golden Signals: Latency, Traffic, Error rate, and Resource Saturation.\n• Diagnostic Tools: Distributed tracing across service boundaries and automated anomaly alerting.",
     },
     {
         "front": "How are compute footprints, heap allocations, and garbage collection optimized in {topic}?",
-        "back": "â€¢ Memory Management: Reusable object pools, zero-copy buffer allocations, and efficient off-heap caching.\nâ€¢ Lifecycle Control: Strict RAII/context management to eliminate socket, handle, and memory leaks.\nâ€¢ Profiling: Regular heap dumps and flame graph analysis under simulated peak workloads.",
+        "back": "• Memory Management: Reusable object pools, zero-copy buffer allocations, and efficient off-heap caching.\n• Lifecycle Control: Strict RAII/context management to eliminate socket, handle, and memory leaks.\n• Profiling: Regular heap dumps and flame graph analysis under simulated peak workloads.",
     },
     {
         "front": "What principles govern schema validation, API contracts, and backwards compatibility in {topic}?",
-        "back": "â€¢ Schema Governance: Strongly-typed data schemas (JSON Schema, Protobuf, OpenAPI) enforced at API ingress.\nâ€¢ Compatibility Rules: Additive-only changes for non-breaking updates; strict semantic versioning (MAJOR.MINOR.PATCH).\nâ€¢ Contract Testing: Consumer-driven contract tests to verify partner service compatibility before deployment.",
+        "back": "• Schema Governance: Strongly-typed data schemas (JSON Schema, Protobuf, OpenAPI) enforced at API ingress.\n• Compatibility Rules: Additive-only changes for non-breaking updates; strict semantic versioning (MAJOR.MINOR.PATCH).\n• Contract Testing: Consumer-driven contract tests to verify partner service compatibility before deployment.",
     },
     {
         "front": "How does {topic} resolve race conditions, clock skew, and boundary-value anomalies?",
-        "back": "â€¢ Race Condition Mitigation: Mutexes, atomic memory primitives, and sequence numbering.\nâ€¢ Temporal Invariants: Relying on logical clocks (Lamport/Vector clocks) rather than uncalibrated system wall clocks.\nâ€¢ Boundary Defenses: Explicit boundary clamping, null/empty checks, and comprehensive overflow handling.",
+        "back": "• Race Condition Mitigation: Mutexes, atomic memory primitives, and sequence numbering.\n• Temporal Invariants: Relying on logical clocks (Lamport/Vector clocks) rather than uncalibrated system wall clocks.\n• Boundary Defenses: Explicit boundary clamping, null/empty checks, and comprehensive overflow handling.",
     },
     {
         "front": "What evolutionary patterns and migration strategies prevent technical debt in {topic}?",
-        "back": "â€¢ Evolutionary Architecture: Strangler Fig pattern for incremental modernization of legacy modules without downtime.\nâ€¢ Deprecation Protocol: Multi-stage deprecation (Warning -> Soft-fail -> Hard-removal) with automated migration tooling.\nâ€¢ Modular Cleanliness: Adherence to SOLID principles and hexagonal/onion architecture boundaries.",
+        "back": "• Evolutionary Architecture: Strangler Fig pattern for incremental modernization of legacy modules without downtime.\n• Deprecation Protocol: Multi-stage deprecation (Warning -> Soft-fail -> Hard-removal) with automated migration tooling.\n• Modular Cleanliness: Adherence to SOLID principles and hexagonal/onion architecture boundaries.",
     },
     {
         "front": "How do underlying persistence mechanisms and storage engine designs influence {topic}?",
-        "back": "â€¢ Storage Paradigms: Append-only write-ahead logs (WAL) for durability vs. LSM-trees and B+ trees for query indexing.\nâ€¢ Durability Guarantees: Synchronous fsync vs. group commits depending on write throughput requirements.\nâ€¢ Read/Write Optimization: Read replicas, write buffers, and intelligent cache eviction (LRU/LFU).",
+        "back": "• Storage Paradigms: Append-only write-ahead logs (WAL) for durability vs. LSM-trees and B+ trees for query indexing.\n• Durability Guarantees: Synchronous fsync vs. group commits depending on write throughput requirements.\n• Read/Write Optimization: Read replicas, write buffers, and intelligent cache eviction (LRU/LFU).",
     },
     {
         "front": "What network protocols and transport optimizations are most appropriate for {topic}?",
-        "back": "â€¢ Protocol Comparison: HTTP/2 (multiplexing) and HTTP/3 (QUIC/UDP) vs. gRPC/Protobuf for low-overhead RPC.\nâ€¢ Network Optimization: TCP keep-alive, connection multiplexing, payload compression (Brotli/zstd), and head-of-line blocking reduction.\nâ€¢ Transport Security: TLS 1.3 with session resumption and zero round-trip time (0-RTT) handshakes.",
+        "back": "• Protocol Comparison: HTTP/2 (multiplexing) and HTTP/3 (QUIC/UDP) vs. gRPC/Protobuf for low-overhead RPC.\n• Network Optimization: TCP keep-alive, connection multiplexing, payload compression (Brotli/zstd), and head-of-line blocking reduction.\n• Transport Security: TLS 1.3 with session resumption and zero round-trip time (0-RTT) handshakes.",
     },
     {
         "front": "What developer workflows, debugging utilities, and local environments enhance velocity in {topic}?",
-        "back": "â€¢ Tooling Stack: Containerized local development environments, hermetic build tools, and live hot-reloading.\nâ€¢ Debugging Utilities: Interactive REPLs, memory profilers, visual dependency graphs, and synthetic request injectors.\nâ€¢ Automation: Pre-commit git hooks, automated formatters, and static security analysis (SAST) in CI.",
+        "back": "• Tooling Stack: Containerized local development environments, hermetic build tools, and live hot-reloading.\n• Debugging Utilities: Interactive REPLs, memory profilers, visual dependency graphs, and synthetic request injectors.\n• Automation: Pre-commit git hooks, automated formatters, and static security analysis (SAST) in CI.",
     },
     {
         "front": "How do regulatory frameworks and privacy mandates constrain {topic} implementations?",
-        "back": "â€¢ Compliance Standards: GDPR, HIPAA, FERPA, and SOC 2 requirements for sensitive data handling.\nâ€¢ Privacy Controls: Pseudonymization, differential privacy, field-level encryption, and verifiable data purging (right-to-be-forgotten).\nâ€¢ Governance Audits: Continuous automated compliance checks and cryptographic proofs of audit records.",
+        "back": "• Compliance Standards: GDPR, HIPAA, FERPA, and SOC 2 requirements for sensitive data handling.\n• Privacy Controls: Pseudonymization, differential privacy, field-level encryption, and verifiable data purging (right-to-be-forgotten).\n• Governance Audits: Continuous automated compliance checks and cryptographic proofs of audit records.",
     },
     {
         "front": "What emerging technologies and paradigm shifts are shaping the future of {topic}?",
-        "back": "â€¢ Modern Trends: Integration of edge compute nodes, hardware-accelerated kernels, and neurosymbolic AI reasoning.\nâ€¢ Autonomous Optimization: Self-tuning system parameters and automated anomaly remediation via ML agents.\nâ€¢ Paradigm Shift: Transition from batch, centralized architectures to real-time, event-sourced, and federated networks.",
+        "back": "• Modern Trends: Integration of edge compute nodes, hardware-accelerated kernels, and neurosymbolic AI reasoning.\n• Autonomous Optimization: Self-tuning system parameters and automated anomaly remediation via ML agents.\n• Paradigm Shift: Transition from batch, centralized architectures to real-time, event-sourced, and federated networks.",
     },
 ]
 
@@ -103,27 +103,27 @@ EXTENDED_ASPECTS = [
     (
         "Disaster Recovery & Replication",
         "How does a multi-region failover scenario execute in {topic} without losing inflight state?",
-        "â€¢ Split-Brain Prevention: Quorum-based consensus protocol.\nâ€¢ Data Synchronization: Asynchronous cross-region replication with bounded lag tracking.\nâ€¢ RTO/RPO Targets: Minimizes recovery time objective (RTO < 60s) and near-zero recovery point objective (RPO â‰ˆ 0)."
+        "• Split-Brain Prevention: Quorum-based consensus protocol.\n• Data Synchronization: Asynchronous cross-region replication with bounded lag tracking.\n• RTO/RPO Targets: Minimizes recovery time objective (RTO < 60s) and near-zero recovery point objective (RPO ≈ 0)."
     ),
     (
         "Chaos Engineering & Self-Healing",
         "How do chaos experiments validate the self-healing boundaries of {topic} under sudden worker termination?",
-        "â€¢ Injected Faults: Induced network latency, killed process workers, and corrupted disk writes.\nâ€¢ Observable Behavior: Health checks re-route traffic; container orchestrator respawns failed pods.\nâ€¢ Metric Verification: Error budgets remain within SLA without manual operator intervention."
+        "• Injected Faults: Induced network latency, killed process workers, and corrupted disk writes.\n• Observable Behavior: Health checks re-route traffic; container orchestrator respawns failed pods.\n• Metric Verification: Error budgets remain within SLA without manual operator intervention."
     ),
     (
         "Zero-Trust Security & Identity",
         "How are zero-trust network principles enforced across inter-service communication in {topic}?",
-        "â€¢ Mutual TLS (mTLS): Cryptographic identity verification for every service-to-service hop.\nâ€¢ Ephemeral Tokens: Short-lived OAuth2/JWT bearer tokens with strict audience verification.\nâ€¢ Perimeter Elimination: Never trust internal network boundaries; inspect every request packet."
+        "• Mutual TLS (mTLS): Cryptographic identity verification for every service-to-service hop.\n• Ephemeral Tokens: Short-lived OAuth2/JWT bearer tokens with strict audience verification.\n• Perimeter Elimination: Never trust internal network boundaries; inspect every request packet."
     ),
     (
         "Cache Coherence & Stampede Prevention",
         "How does {topic} solve cache coherence and stampede effects during high-frequency writes?",
-        "â€¢ Invalidation Patterns: Write-through vs. write-behind caching with probabilistic early expiration (XFetch).\nâ€¢ Lock Coordination: Mutex locks around cache misses to prevent thundering herd on downstream databases.\nâ€¢ Coherence Protocol: Versioned cache tags and pub/sub cache purge notifications."
+        "• Invalidation Patterns: Write-through vs. write-behind caching with probabilistic early expiration (XFetch).\n• Lock Coordination: Mutex locks around cache misses to prevent thundering herd on downstream databases.\n• Coherence Protocol: Versioned cache tags and pub/sub cache purge notifications."
     ),
     (
         "Dynamic Backpressure Regulation",
         "How does {topic} signal and enforce dynamic backpressure across producer-consumer queues?",
-        "â€¢ Queue Watermarking: High/low watermarks pause upstream producers when buffer limits are exceeded.\nâ€¢ Reactive Streams: Demand-driven pull protocols (e.g. reactive pull) regulate ingestion rates.\nâ€¢ Degradation Modes: Graceful client rate-limiting (HTTP 429) before server saturation occurs."
+        "• Queue Watermarking: High/low watermarks pause upstream producers when buffer limits are exceeded.\n• Reactive Streams: Demand-driven pull protocols (e.g. reactive pull) regulate ingestion rates.\n• Degradation Modes: Graceful client rate-limiting (HTTP 429) before server saturation occurs."
     ),
 ]
 
@@ -159,7 +159,7 @@ def _generate_distinct_fallback_cards(
                 continue
             first_sentence = raw_text.split(". ")[0].replace("\n", " ").strip()[:140]
             front = f"According to course material on {topic} ({src_label}), how is the following concept evaluated: \"{first_sentence}\"?"
-            back = f"â€¢ Source Citation: [Source: {src_label}]\nâ€¢ Curriculum Anchor: {raw_text[:280]}...\nâ€¢ Key Takeaway: Essential course concept for mastering {topic}."
+            back = f"• Source Citation: [Source: {src_label}]\n• Curriculum Anchor: {raw_text[:280]}...\n• Key Takeaway: Essential course concept for mastering {topic}."
             _add_card(front, back)
 
     # 2. Synthesize from Web results if available and still need cards
@@ -172,7 +172,7 @@ def _generate_distinct_fallback_cards(
             if not snippet:
                 continue
             front = f"Based on recent documentation for {topic} (Web: {title}), what is the primary architectural finding?"
-            back = f"â€¢ Source Reference: [Web {i}: {title}]\nâ€¢ Modern Context: {snippet[:260]}...\nâ€¢ Practical Implication: Refined design principle in current {topic} implementations."
+            back = f"• Source Reference: [Web {i}: {title}]\n• Modern Context: {snippet[:260]}...\n• Practical Implication: Refined design principle in current {topic} implementations."
             _add_card(front, back)
 
     # 3. Pull from diverse pedagogical dimensions
@@ -195,7 +195,7 @@ def _generate_distinct_fallback_cards(
     overflow_idx = 1
     while len(cards) < count:
         front = f"Advanced Invariant #{overflow_idx}: What contract guarantees govern {topic} under high-load condition {overflow_idx}?"
-        back = f"â€¢ Invariant #{overflow_idx}: Enforces strict schema assertions, bounded latency SLAs, and non-blocking recovery.\nâ€¢ Practical Impact: Guarantees zero silent data corruption and maintains deterministic behavior under anomalous traffic.\nâ€¢ Key Rule: Never compromise isolation guarantees for transient throughput spikes."
+        back = f"• Invariant #{overflow_idx}: Enforces strict schema assertions, bounded latency SLAs, and non-blocking recovery.\n• Practical Impact: Guarantees zero silent data corruption and maintains deterministic behavior under anomalous traffic.\n• Key Rule: Never compromise isolation guarantees for transient throughput spikes."
         _add_card(front, back)
         overflow_idx += 1
 
@@ -301,12 +301,12 @@ class FlashcardGenerationAgent:
         instructor_notes = f'\nInstructor guidance: "{prompt}"' if prompt.strip() else ""
         instructor_notes += f'\nTeaching style: {teaching_style}'
 
-        # â”€â”€ RAG retrieval (curriculum first) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── RAG retrieval (curriculum first) ────────────────────────────────
         rag_context, rag_sources, rag_chunks = _build_rag_context_with_chunks(
             topic, subject, grade_level, top_k=max(5, min(count, 12))
         )
 
-        # â”€â”€ Web retrieval (if curriculum is insufficient) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Web retrieval (if curriculum is insufficient) ─────────────────
         web_context = ""
         web_results = []
         web_sources = []
@@ -370,7 +370,7 @@ Return ONLY valid JSON:
   "cards": [
     {{
       "front": "Detailed conceptual question or scenario on {topic}?",
-      "back": "Key Concept: ...\\nâ€¢ Core Principle: ...\\nâ€¢ Real-World Example: ...\\nâ€¢ Memory Anchor: ..."
+      "back": "Key Concept: ...\\n• Core Principle: ...\\n• Real-World Example: ...\\n• Memory Anchor: ..."
     }}
   ]
 }}

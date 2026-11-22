@@ -1,5 +1,5 @@
 """
-B3 tests â€” KB follow-up rewrite + overview strategy + legacy source shapes:
+B3 tests — KB follow-up rewrite + overview strategy + legacy source shapes:
 - follow-up questions trigger a standalone-query rewrite via the LLM router
 - retrieval uses the rewritten query, not the raw pronoun-laden question
 - empty retrieval retries scoped to previously-used source files

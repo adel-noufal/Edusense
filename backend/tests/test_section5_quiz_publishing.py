@@ -1,5 +1,5 @@
 """
-Section 5 Verification Test â€” Quiz Publishing & Exam Deployment
+Section 5 Verification Test — Quiz Publishing & Exam Deployment
 Tests:
 1. Instructor creates/generates a quiz.
 2. Instructor publishes quiz as exam via POST /api/quizzes/{id}/publish-as-exam with all options:

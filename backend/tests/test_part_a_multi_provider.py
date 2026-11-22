@@ -1,5 +1,5 @@
 """
-test_part_a_multi_provider.py â€” Comprehensive Verification Suite for Part A (Revised).
+test_part_a_multi_provider.py — Comprehensive Verification Suite for Part A (Revised).
 
 Tests:
 1. Key Auto-Discovery & Registry:
@@ -55,7 +55,7 @@ def test_all():
             print(f"  PASS: {name}")
         else:
             FAILED.append(name)
-            print(f"  FAIL: {name}{' â€” ' + detail if detail else ''}")
+            print(f"  FAIL: {name}{' — ' + detail if detail else ''}")
 
     print("\n=== Part A (Revised) LLM Architecture Verification ===\n")
 

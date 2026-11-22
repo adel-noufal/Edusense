@@ -1,6 +1,6 @@
 """
 test_task9_exams_and_assignments.py
-Task 9 â€” Exam Tab Infinite Load & Assignments Visibility
+Task 9 — Exam Tab Infinite Load & Assignments Visibility
 Tests:
   1. AuthContext exports token so useAuth().token is defined
   2. StudentExams.jsx & StudentAssignments.jsx use api() and don't stall with infinite loader
@@ -39,7 +39,7 @@ results = []
 
 def check(label, condition, detail=""):
     status = PASS if condition else FAIL
-    print(f"  [{status}] {label}" + (f" â€” {detail}" if detail else ""))
+    print(f"  [{status}] {label}" + (f" — {detail}" if detail else ""))
     results.append((label, condition))
 
 def get_auth_headers(email: str, role: str):

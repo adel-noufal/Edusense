@@ -6,7 +6,7 @@ import { api } from '../services/api'
  * "Enhance prompt" control for generation forms.
  * Sends the current prompt + form context to /api/ai/enhance-prompt and
  * shows an editable preview with Accept / Edit / Revert / Regenerate.
- * Never auto-submits â€” the parent decides when to use the result.
+ * Never auto-submits — the parent decides when to use the result.
  */
 export default function PromptEnhancer({ value, context = {}, onAccept, label = 'Enhance prompt' }) {
   const [state, setState] = useState('idle') // idle | loading | preview | error
@@ -44,7 +44,7 @@ export default function PromptEnhancer({ value, context = {}, onAccept, label = 
         className="inline-flex items-center gap-1.5 rounded-md border border-teal-200 px-2.5 py-1 text-xs font-semibold text-teal-700 hover:bg-teal-50 disabled:opacity-50 dark:border-teal-800 dark:text-teal-300 dark:hover:bg-teal-950"
       >
         {state === 'loading' ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-        {state === 'loading' ? 'Enhancingâ€¦' : label}
+        {state === 'loading' ? 'Enhancing…' : label}
       </button>
 
       {state === 'error' && (

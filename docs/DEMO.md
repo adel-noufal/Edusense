@@ -1,10 +1,10 @@
-# EduSense â€” Live Demo Guide
+# EduSense — Live Demo Guide
 
 > A walkthrough of every major feature in the EduSense AI Education Platform.
 
 ---
 
-## ðŸš€ Quick Start (30 seconds)
+## 🚀 Quick Start (30 seconds)
 
 ```bash
 # 1. Clone & install
@@ -30,25 +30,25 @@ start http://localhost:5173
 
 ---
 
-## ðŸŽ¥ Feature Walkthrough
+## 🎥 Feature Walkthrough
 
 ### 1. Instructor Dashboard
 
-Log in as instructor â†’ you'll see your live stats: sessions created, students enrolled, engagement score, and videos generated.
+Log in as instructor → you'll see your live stats: sessions created, students enrolled, engagement score, and videos generated.
 
 **What to try:**
-- Click **"Run Feedback Loop"** â†’ watch the AI agent analyze emotion data and generate adaptive teaching recommendations
+- Click **"Run Feedback Loop"** → watch the AI agent analyze emotion data and generate adaptive teaching recommendations
 - Check the **Attention Timeline** chart showing focus trends over time
 
 ---
 
 ### 2. AI Lesson Generator
 
-`Instructor â†’ AI Lessons`
+`Instructor → AI Lessons`
 
 - Enter any topic (e.g., *"Quantum Computing for Beginners"*)
 - Choose language, teaching style, and difficulty
-- Hit **Generate** â†’ Gemini 2.0 Flash builds:
+- Hit **Generate** → Gemini 2.0 Flash builds:
   - Learning objectives
   - Structured sections with key points
   - Slide-by-slide content
@@ -59,9 +59,9 @@ Log in as instructor â†’ you'll see your live stats: sessions created, stud
 
 ### 3. Quiz Generator
 
-`Instructor â†’ Quizzes`
+`Instructor → Quizzes`
 
-- Enter a topic and difficulty â†’ get 5â€“20 MCQs with explanations
+- Enter a topic and difficulty → get 5–20 MCQs with explanations
 - Quizzes are **saved to the database** and linked to sessions
 - Students can take quizzes live during sessions
 
@@ -69,17 +69,17 @@ Log in as instructor â†’ you'll see your live stats: sessions created, stud
 
 ### 4. Flashcard Generator
 
-`Instructor â†’ Flashcards`
+`Instructor → Flashcards`
 
 - Generate study cards from any topic instantly
-- **Flip animation** on each card (front â†’ back reveal)
+- **Flip animation** on each card (front → back reveal)
 - Export as **JSON** or printable **HTML**
 
 ---
 
 ### 5. AI Video Generator
 
-`Instructor â†’ Videos`
+`Instructor → Videos`
 
 - Describe a lesson topic and duration
 - The backend generates:
@@ -92,17 +92,17 @@ Log in as instructor â†’ you'll see your live stats: sessions created, stud
 
 ### 6. Live Classroom
 
-`Instructor â†’ Sessions â†’ Create â†’ Start`
+`Instructor → Sessions → Create → Start`
 
 **Instructor flow:**
 1. Create a session with title, date, and max students
-2. Click **Start** â†’ enter the Live Room
-3. Click **Share Screen** â†’ students see your screen in real time (WebRTC)
+2. Click **Start** → enter the Live Room
+3. Click **Share Screen** → students see your screen in real time (WebRTC)
 4. Monitor the **Student Emotion Panel** on the right: angry, happy, focused, confused, etc.
 
 **Student flow:**
 1. Browse and join the session
-2. Enable webcam â†’ emotions are analyzed every 1.5s using the PyTorch v7 EfficientNet-B0 model
+2. Enable webcam → emotions are analyzed every 1.5s using the PyTorch v7 EfficientNet-B0 model
 3. Data is sent to the backend and stored as `emotion_logs`
 
 ---
@@ -120,11 +120,11 @@ The webcam feed is processed locally via the FastAPI backend:
 
 ### 8. Analytics & Reports
 
-`Instructor â†’ Reports`
+`Instructor → Reports`
 
 - Per-session emotion distribution (pie / bar charts)
 - Engagement score calculation
-- **Export PDF** â€” ReportLab-generated executive report with:
+- **Export PDF** — ReportLab-generated executive report with:
   - Session summary
   - Emotion breakdown table
   - Engagement trend graph
@@ -133,7 +133,7 @@ The webcam feed is processed locally via the FastAPI backend:
 
 ### 9. Database Preview
 
-`Instructor â†’ Database`
+`Instructor → Database`
 
 Live read-only view of all tables:
 - `users`, `sessions`, `emotion_logs`, `quizzes`, `reports`, `video_projects`, etc.
@@ -144,12 +144,12 @@ Live read-only view of all tables:
 
 ### 10. Language Toggle (Arabic / English)
 
-- Click **Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©** in the top-right corner â†’ entire UI switches to RTL Arabic
+- Click **العربية** in the top-right corner → entire UI switches to RTL Arabic
 - All pages, forms, and labels are fully translated
 
 ---
 
-## ðŸ§ª API Playground
+## 🧪 API Playground
 
 Once the backend is running, visit:
 
@@ -157,14 +157,14 @@ Once the backend is running, visit:
 http://localhost:8000/docs
 ```
 
-This is the interactive **Swagger UI** â€” you can test every endpoint:
+This is the interactive **Swagger UI** — you can test every endpoint:
 - Authenticate with the demo credentials
 - Call `/api/emotions/analyze` with a base64 image
 - Generate lessons, quizzes, and reports directly
 
 ---
 
-## ðŸ³ Docker Dev Setup
+## 🐳 Docker Dev Setup
 
 ```bash
 docker-compose -f docker-compose.dev.yml up --build
@@ -177,25 +177,25 @@ This starts:
 
 ---
 
-## ðŸ“Š Architecture at a Glance
+## 📊 Architecture at a Glance
 
 ```
 Browser (React + Vite)
-    â”‚
-    â–¼
+    │
+    ▼
 FastAPI Backend (Python 3.13)
-    â”œâ”€â”€ Auth: JWT + bcrypt
-    â”œâ”€â”€ Emotions: PyTorch EfficientNet-B0 v7
-    â”œâ”€â”€ AI: Google Gemini 2.0 Flash / Ollama fallback
-    â”œâ”€â”€ Reports: ReportLab PDF generation
-    â””â”€â”€ Scheduler: APScheduler (session reminders)
-    â”‚
-    â–¼
+    ├── Auth: JWT + bcrypt
+    ├── Emotions: PyTorch EfficientNet-B0 v7
+    ├── AI: Google Gemini 2.0 Flash / Ollama fallback
+    ├── Reports: ReportLab PDF generation
+    └── Scheduler: APScheduler (session reminders)
+    │
+    ▼
 PostgreSQL / SQLite (SQLAlchemy + Alembic migrations)
 ```
 
 ---
 
-## ðŸ¤ Contributing
+## 🤝 Contributing
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for how to run tests, submit PRs, and report bugs.

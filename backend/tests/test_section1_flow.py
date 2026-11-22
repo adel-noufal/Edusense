@@ -1,8 +1,8 @@
 """
-test_section1_flow.py â€” Verification suite for Section 1 (Session Registration & Live Flow Redesign).
+test_section1_flow.py — Verification suite for Section 1 (Session Registration & Live Flow Redesign).
 
 Verifies all 6 requirements of Section 1:
-1. Instructor schedules a session â€” status is 'pending', not ongoing.
+1. Instructor schedules a session — status is 'pending', not ongoing.
 2. Student sees it under Browse with is_registered=False.
 3. Student does NOT have it in their Upcoming/Registered list before enrolling.
 4. Student must explicitly enroll via POST /api/sessions/{id}/join.
@@ -180,7 +180,7 @@ def test_08_no_auto_transition_to_ongoing_from_clock():
         sessions = res.json()
         target = next((s for s in sessions if s["id"] == _session_id), None)
         assert target is not None
-        assert target["status"] == "pending", f"Expected 'pending', but got '{target['status']}' â€” auto-move bug detected!"
+        assert target["status"] == "pending", f"Expected 'pending', but got '{target['status']}' — auto-move bug detected!"
         ok(f"Session status is '{target['status']}', confirming clock-based auto-start is disabled")
     except Exception as exc:
         fail("No auto-transition check failed", exc)
@@ -213,7 +213,7 @@ def test_10_student_now_can_join_live():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("  EduSense Section 1 â€” Session Registration & Live Flow Tests")
+    print("  EduSense Section 1 — Session Registration & Live Flow Tests")
     print("=" * 60)
 
     setup_users()

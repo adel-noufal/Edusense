@@ -190,13 +190,13 @@ function InfoCard({ label, value }) {
 }
 
 function formatCell(value) {
-  if (value == null) return 'â€”'
+  if (value == null) return '—'
   if (typeof value === 'object') return Array.isArray(value) ? `${value.length} items` : 'Structured data'
   return String(value)
 }
 
 function formatCellFull(value) {
-  if (value == null) return 'â€”'
+  if (value == null) return '—'
   if (Array.isArray(value)) return value.map((item) => formatCellFull(item)).join('\n')
   if (typeof value === 'object') {
     return Object.entries(value).map(([key, entry]) => `${key}: ${formatCellFull(entry)}`).join('\n')

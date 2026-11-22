@@ -2,7 +2,7 @@
 Items 7+8 tests:
 - Item 7: session duration optional (None = no limit); SessionIn validation;
   session_status treats None as unbounded "ongoing".
-- Item 8: KB chat history â€” persistence, list/search, rename, delete,
+- Item 8: KB chat history — persistence, list/search, rename, delete,
   user-scoped isolation (another instructor gets 404).
 """
 import os
@@ -49,8 +49,8 @@ def _mk_instructor(db, suffix):
 
 
 def main():
-    # â”€â”€ Item 7: optional session duration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    print("Item 7 â€” optional session duration")
+    # ── Item 7: optional session duration ──────────────────────────────
+    print("Item 7 — optional session duration")
     s = SessionIn(title="No Limit", date=date.today(), start_time=time(10, 0))
     check("SessionIn duration omitted -> None", s.duration is None)
     s2 = SessionIn(title="Limited", date=date.today(), start_time=time(10, 0), duration=90)
@@ -97,8 +97,8 @@ def main():
         if r2.status_code == 200:
             created_sessions.append(r2.json().get("id"))
 
-        # â”€â”€ Item 8: KB conversation persistence + isolation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        print("Item 8 â€” KB chat history")
+        # ── Item 8: KB conversation persistence + isolation ────────────
+        print("Item 8 — KB chat history")
         inst2 = _mk_instructor(db, suffix + "b")
         h1, h2 = inst_h, login(inst2.email)
 

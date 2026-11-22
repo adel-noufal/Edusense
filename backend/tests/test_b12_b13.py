@@ -2,7 +2,7 @@
 B12 + B13 tests:
 - B12: linked_content lists a quiz once (not gen-mirror + quiz row),
        idempotent manual quiz create, idempotent session create.
-- B13: exam availability window â€” start blocked before available_from,
+- B13: exam availability window — start blocked before available_from,
        allowed inside window, blocked after due_date.
 """
 import json

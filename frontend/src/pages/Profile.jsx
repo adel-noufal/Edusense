@@ -142,7 +142,7 @@ export default function Profile() {
           <div className="grid gap-4 md:grid-cols-2 pt-2">
             <label className="space-y-2">
               <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Current Password (to change password)</span>
-              <PasswordInput placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" value={accountForm.current_password} onChange={(e) => setAccountForm({ ...accountForm, current_password: e.target.value })} />
+              <PasswordInput placeholder="••••••••" value={accountForm.current_password} onChange={(e) => setAccountForm({ ...accountForm, current_password: e.target.value })} />
             </label>
             <label className="space-y-2">
               <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">New Password</span>
@@ -182,7 +182,7 @@ export default function Profile() {
               <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">{t('settingsPage.language')}</span>
               <select className="input" value={lang} onChange={(e) => setLang(e.target.value)}>
                 <option value="en">English</option>
-                <option value="ar">Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©</option>
+                <option value="ar">العربية</option>
               </select>
             </label>
           </div>

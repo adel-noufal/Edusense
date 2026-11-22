@@ -106,7 +106,7 @@ def _gen_flashcard():
     return FlashcardGenerationAgent().generate(
         topic=TOPIC, subject=SUBJECT, grade_level=GRADE, count=5)
 
-# Patch helpers â€” target the stub module attributes since agents use lazy imports
+# Patch helpers — target the stub module attributes since agents use lazy imports
 _TOOLS = "app.agents.tools"
 _RAG   = f"{_TOOLS}.RAG_Search_Tool"
 _WEB   = f"{_TOOLS}.Web_Search_Tool"
@@ -133,7 +133,7 @@ class TestLessonAgentWebGrounding(unittest.TestCase):
                 web_m.assert_called_once()
 
     def test_rag_miss_web_hit_unverified_false(self):
-        """RAG=0, web=3 â†’ unverified=False, sources have web labels, web_sources populated."""
+        """RAG=0, web=3 → unverified=False, sources have web labels, web_sources populated."""
         with patch(_RAG, return_value=[]):
             with patch(_WEB, return_value=WEB_RESULTS):
                 res = _gen_lesson()
@@ -145,14 +145,14 @@ class TestLessonAgentWebGrounding(unittest.TestCase):
                 self.assertEqual(len(res.data.get("web_sources", [])), len(WEB_RESULTS))
 
     def test_rag_hit_unverified_false(self):
-        """RAG=1, web not needed â†’ unverified=False."""
+        """RAG=1, web not needed → unverified=False."""
         with patch(_RAG, return_value=RAG_CHUNKS):
             with patch(_WEB, return_value=[]):
                 res = _gen_lesson()
                 self.assertFalse(res.data["unverified"])
 
     def test_both_miss_unverified_true(self):
-        """RAG=0, web=0 â†’ unverified=True (graceful degradation, no crash)."""
+        """RAG=0, web=0 → unverified=True (graceful degradation, no crash)."""
         with patch(_RAG, return_value=[]):
             with patch(_WEB, return_value=[]):
                 res = _gen_lesson()
@@ -188,7 +188,7 @@ class TestQuizAgentWebGrounding(unittest.TestCase):
                 web_m.assert_called_once()
 
     def test_rag_miss_web_hit_unverified_false(self):
-        """RAG=0, web=3 â†’ unverified=False, sources have web labels, web_sources key present."""
+        """RAG=0, web=3 → unverified=False, sources have web labels, web_sources key present."""
         with patch(_RAG, return_value=[]):
             with patch(_WEB, return_value=WEB_RESULTS):
                 res = _gen_quiz()
@@ -198,14 +198,14 @@ class TestQuizAgentWebGrounding(unittest.TestCase):
                 self.assertIn("web_sources", res.data)
 
     def test_rag_hit_unverified_false(self):
-        """RAG=1, web not needed â†’ unverified=False."""
+        """RAG=1, web not needed → unverified=False."""
         with patch(_RAG, return_value=RAG_CHUNKS):
             with patch(_WEB, return_value=[]):
                 res = _gen_quiz()
                 self.assertFalse(res.data["unverified"])
 
     def test_both_miss_unverified_true(self):
-        """RAG=0, web=0 â†’ unverified=True (graceful degradation, no crash)."""
+        """RAG=0, web=0 → unverified=True (graceful degradation, no crash)."""
         with patch(_RAG, return_value=[]):
             with patch(_WEB, return_value=[]):
                 res = _gen_quiz()
@@ -241,7 +241,7 @@ class TestFlashcardAgentWebGrounding(unittest.TestCase):
                 web_m.assert_called_once()
 
     def test_rag_miss_web_hit_unverified_false(self):
-        """RAG=0, web=3 â†’ unverified=False, sources have web labels, web_sources populated."""
+        """RAG=0, web=3 → unverified=False, sources have web labels, web_sources populated."""
         with patch(_RAG, return_value=[]):
             with patch(_WEB, return_value=WEB_RESULTS):
                 res = _gen_flashcard()
@@ -251,14 +251,14 @@ class TestFlashcardAgentWebGrounding(unittest.TestCase):
                 self.assertEqual(len(res.data.get("web_sources", [])), len(WEB_RESULTS))
 
     def test_rag_hit_unverified_false(self):
-        """RAG=1, web not needed â†’ unverified=False."""
+        """RAG=1, web not needed → unverified=False."""
         with patch(_RAG, return_value=RAG_CHUNKS):
             with patch(_WEB, return_value=[]):
                 res = _gen_flashcard()
                 self.assertFalse(res.data["unverified"])
 
     def test_both_miss_unverified_true(self):
-        """RAG=0, web=0 â†’ unverified=True (graceful degradation, no crash)."""
+        """RAG=0, web=0 → unverified=True (graceful degradation, no crash)."""
         with patch(_RAG, return_value=[]):
             with patch(_WEB, return_value=[]):
                 res = _gen_flashcard()
@@ -320,7 +320,7 @@ class TestWebContextHelperExists(unittest.TestCase):
 class TestGracefulDegradation(unittest.TestCase):
 
     def test_lesson_no_sources_returns_result(self):
-        """Empty RAG + empty web â†’ agent still returns result, unverified=True."""
+        """Empty RAG + empty web → agent still returns result, unverified=True."""
         with patch(_RAG, return_value=[]):
             with patch(_WEB, return_value=[]):
                 res = _gen_lesson()

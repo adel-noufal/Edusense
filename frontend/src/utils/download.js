@@ -136,7 +136,7 @@ export function flashcardsToHtml(data) {
 
 
 export function lessonToHtml(lesson) {
-  const objectives = (lesson.learning_objectives || []).map(o => `<li style="margin-bottom: 8px; font-weight: 600; color: #0f766e;">âœ“ ${o}</li>`).join('')
+  const objectives = (lesson.learning_objectives || []).map(o => `<li style="margin-bottom: 8px; font-weight: 600; color: #0f766e;">✓ ${o}</li>`).join('')
   const sections = (lesson.sections || []).map((s, i) => `
     <div style="margin-bottom: 28px; padding: 20px; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; border-left: 6px solid #0f766e; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
       <h3 style="color: #0f766e; margin-top: 0; font-size: 1.3em; font-weight: 800;">${s.heading}</h3>
@@ -156,8 +156,8 @@ export function lessonToHtml(lesson) {
         <span style="font-size: 0.75em; background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 12px; font-weight: bold;">Presentation Slide</span>
       </div>
       <p style="margin: 0 0 10px 0; color: #1e293b; line-height: 1.7; whitespace: pre-line;">${slide.content}</p>
-      ${slide.diagram ? `<p style="font-size: 0.85em; color: #0284c7; background: #e0f2fe; padding: 8px 12px; border-radius: 6px; margin-top: 8px; font-weight: 600;">ðŸ“ Diagram Blueprint: ${slide.diagram}</p>` : ''}
-      ${slide.notes ? `<p style="font-size: 0.85em; color: #475569; font-style: italic; background: #f1f5f9; padding: 8px 12px; border-radius: 6px; margin-top: 8px;">ðŸ—£ï¸ Instructor Notes: ${slide.notes}</p>` : ''}
+      ${slide.diagram ? `<p style="font-size: 0.85em; color: #0284c7; background: #e0f2fe; padding: 8px 12px; border-radius: 6px; margin-top: 8px; font-weight: 600;">📐 Diagram Blueprint: ${slide.diagram}</p>` : ''}
+      ${slide.notes ? `<p style="font-size: 0.85em; color: #475569; font-style: italic; background: #f1f5f9; padding: 8px 12px; border-radius: 6px; margin-top: 8px;">🗣️ Instructor Notes: ${slide.notes}</p>` : ''}
     </div>
   `).join('')
 
@@ -182,7 +182,7 @@ export function lessonToHtml(lesson) {
 </head>
 <body>
   <div className="no-print" style="margin-bottom: 20px; text-align: right;">
-    <button onclick="window.print()" style="background: #0f766e; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer;">ðŸ–¨ï¸ Print / Save as PDF</button>
+    <button onclick="window.print()" style="background: #0f766e; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer;">🖨️ Print / Save as PDF</button>
   </div>
 
   <div class="header-box">
@@ -249,7 +249,7 @@ export function downloadLessonAsPptxHtml(lesson, filename) {
       </div>
       ${slide.diagram ? `
         <div style="background: rgba(45, 212, 191, 0.1); border: 1px solid rgba(45, 212, 191, 0.3); padding: 14px 20px; border-radius: 10px;">
-          <p style="margin: 0; font-size: 0.9em; color: #2dd4bf; font-weight: bold;">ðŸ“ Visual Concept: ${slide.diagram}</p>
+          <p style="margin: 0; font-size: 0.9em; color: #2dd4bf; font-weight: bold;">📐 Visual Concept: ${slide.diagram}</p>
         </div>` : ''}
     </div>
   `).join('')
@@ -299,7 +299,7 @@ export function quizToHtml(quiz) {
 </head>
 <body>
   <div className="no-print" style="margin-bottom: 20px; text-align: right;">
-    <button onclick="window.print()" style="background: #0f766e; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer;">ðŸ–¨ï¸ Print / Save as PDF</button>
+    <button onclick="window.print()" style="background: #0f766e; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer;">🖨️ Print / Save as PDF</button>
   </div>
   <div style="background: #0f766e; color: #fff; padding: 24px; border-radius: 12px; margin-bottom: 28px;">
     <h1 style="margin: 0 0 6px 0; font-size: 2em; font-weight: 900;">${quiz.title || 'Quiz Assessment'}</h1>
@@ -387,7 +387,7 @@ export function downloadFlashcardsAsPdf(data, filename) {
 </head>
 <body>
   <div className="no-print" style="margin-bottom: 20px; text-align: right;">
-    <button onclick="window.print()" style="background: #0f766e; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer;">ðŸ–¨ï¸ Print / Save as PDF</button>
+    <button onclick="window.print()" style="background: #0f766e; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer;">🖨️ Print / Save as PDF</button>
   </div>
   <div style="background: #0f766e; color: #fff; padding: 24px; border-radius: 12px; margin-bottom: 28px;">
     <h1 style="margin: 0 0 6px 0; font-size: 2em; font-weight: 900;">${data.title || 'Flashcard Deck'}</h1>

@@ -1,5 +1,5 @@
 """
-Section 4 Verification Test â€” Instructor-Side Bugs
+Section 4 Verification Test — Instructor-Side Bugs
 1. GET /api/ai/generations/{id} returns the latest generation details (no stale content).
 2. Session resource upload with proper Authorization token succeeds and is retrievable via GET /api/sessions/{id}/resources.
 3. RAG document ingestion endpoint returns valid JSON on both success and error (no empty or unparseable responses).
