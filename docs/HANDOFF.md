@@ -299,7 +299,30 @@ Cold start with the new launcher and warm-up code, measured on the same machine:
 `warmup: {model_discovery: ready, knowledge_base: warming, emotion_detector: pending}`).
 Earlier measurement on an idle machine was 22.3 s; both are inside the 60 s target.
 
+### Push (batch 2)
+
+`feature/sessions-ingestion` was pushed as `81c23f2..d23a532` only after the gate
+passed twice: once by hand (`logs/add13-verify-gate3.log`, exit 0) and once by the
+pre-push hook, which prints `VERIFY PASSED` and then lets the push through
+(`logs/add13-push1.log`, `PUSH_EXIT=0`). The hook called `cmd.exe //d //c "verify.bat"`
+with a bare name and could not resolve it, so pushes failed before the gate even
+started; it now passes the absolute Windows path (`cygpath -w`). A copy of the old
+hook is at `.git/hooks/pre-push.bak-20261123`. `.github/workflows/ci.yml` was triggered
+by the push, but `gh` is not installed on this machine, so its result was not read.
+
+### Contract suite after the push (run 5)
+
+`logs/add13-contract5.log`, exit 1: `PASS lesson/Brief`, `FAIL lesson/Standard`,
+`PASS lesson/Detailed`, `PASS quiz/Medium x5`, `PASS flashcards/English x5`. Standard
+never reached a model — `gemini-2.5-flash-lite` answered `429` (quota, keys 0 and 1)
+and `404 This model ... is no longer available` (key 2, now disabled 6 h), and
+`gemma-4-26b-a4b-it` answered `503 ... high demand` on every key — so the agent wrote
+the 3-section, 29/30/28-word template. Removing that template (so the API says
+"providers unavailable" instead of inventing a lesson) is U3, the first item of
+batch 3.
+
 ### Still open
 
 U3 (remaining fabricated fallbacks, canonical JSON, renderers, filler judge,
-flashcards), U4–U6, U8–U10, U12. The gate is green; nothing is pushed yet.
+flashcards), U4–U6, U8–U10, U12. H1 stays BLOCKED on lesson/Standard until U3 lands and
+the providers recover.
