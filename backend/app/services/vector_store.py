@@ -8,7 +8,9 @@ from chromadb.utils import embedding_functions
 
 from app.core.config import get_settings
 
-DEFAULT_COLLECTION_NAME = "edusense_knowledge"
+# Tests export EDUSENSE_RAG_COLLECTION so their fixtures never land in the live
+# Knowledge Base collection (U7). Production keeps the pinned name.
+DEFAULT_COLLECTION_NAME = os.environ.get("EDUSENSE_RAG_COLLECTION", "edusense_knowledge")
 
 _client_instance: Optional[chromadb.PersistentClient] = None
 _embedding_function = None

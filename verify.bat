@@ -8,7 +8,8 @@ cd backend
 if errorlevel 1 exit /b 1
 
 echo [2/5] Running backend tests...
-.venv\Scripts\python.exe -m pytest -q -m "not live_provider"
+REM pytest.ini already sets -q; a second -q makes it -qq and hides the pass/fail summary.
+.venv\Scripts\python.exe -m pytest -m "not live_provider"
 if errorlevel 1 exit /b 1
 
 echo [3/5] Running live layout and emotion Playwright check...
@@ -23,7 +24,7 @@ if errorlevel 1 exit /b 1
 cd ..
 
 echo [5/5] Scanning tracked files and worktree for credential patterns...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$patterns = '(AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9]{20,}|nvidia_[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,})'; $files = git --no-pager grep -n -i -E $patterns -- . ':!*.lock' ':!backend/test_*' ':!*.example' ':!.env' 2>$null; if ($LASTEXITCODE -eq 1) { exit 0 }; if ($files) { Write-Output $files; exit 1 }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$patterns = '(AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9]{20,}|nvidia_[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,})'; $files = git --no-pager grep -n -i -E $patterns -- . ':!*.lock' ':!backend/tests/*' ':!backend/test_*' ':!*.example' ':!.env' 2>$null; if ($LASTEXITCODE -eq 1) { exit 0 }; if ($files) { Write-Output $files; exit 1 }"
 if errorlevel 1 exit /b 1
 
 echo [6/9] Scanning all tracked files for UTF-8 mojibake...

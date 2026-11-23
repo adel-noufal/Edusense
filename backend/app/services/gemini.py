@@ -438,14 +438,22 @@ def _extract_json(text: str) -> dict | list | None:
     return None
 
 
-def generate_via_ollama(prompt: str, model_name: str | None = None) -> str:
+def generate_via_ollama(prompt: str, model_name: str | None = None,
+                        max_output_tokens: int | None = None,
+                        timeout: float | None = None) -> str:
     """Send a prompt to the local Ollama server and return the text response."""
     settings = get_settings()
     target_model = model_name or settings.ollama_model
+    options = {"num_predict": int(max_output_tokens)} if max_output_tokens else {}
+    # A fixed 90 s ceiling is ~250 tokens on this CPU host, so any structured
+    # answer was cut off and reported as a timeout. Scale it to the budget.
+    if timeout is None:
+        timeout = min(600.0, 90.0 + 3.0 * (max_output_tokens or 700))
     body = json.dumps({
         "model": target_model,
         "prompt": prompt,
         "stream": False,
+        "options": options,
     }).encode()
     req = urllib.request.Request(
         settings.ollama_url,
@@ -453,17 +461,21 @@ def generate_via_ollama(prompt: str, model_name: str | None = None) -> str:
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=90) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             return json.loads(response.read().decode()).get("response", "")
     except Exception as exc:
         if target_model != settings.ollama_model:
             logger.info("[Ollama] model '%s' failed (%s); retrying '%s'", target_model, exc, settings.ollama_model)
-            return generate_via_ollama(prompt, model_name=settings.ollama_model)
+            return generate_via_ollama(prompt, model_name=settings.ollama_model,
+                                       max_output_tokens=max_output_tokens, timeout=timeout)
         raise
 
 
-def generate_json_via_ollama(prompt: str, model_name: str | None = None) -> dict | list:
-    text = generate_via_ollama(prompt, model_name=model_name)
+def generate_json_via_ollama(prompt: str, model_name: str | None = None,
+                             max_output_tokens: int | None = None,
+                             timeout: float | None = None) -> dict | list:
+    text = generate_via_ollama(prompt, model_name=model_name,
+                               max_output_tokens=max_output_tokens, timeout=timeout)
     parsed = _extract_json(text)
     if parsed is None:
         raise GeminiError(GeminiError.INVALID_RESPONSE,
@@ -481,7 +493,9 @@ def translate_text_via_qwen(text: str, target_language: str = "English") -> str:
         return text
 
 
-def generate_json_any(prompt: str, task_type: str = "general") -> dict | list:
+def generate_json_any(prompt: str, task_type: str = "general",
+                      max_output_tokens: int | None = None,
+                      timeout: float | None = None) -> dict | list:
     """
     Gemini-first with Ollama fallback. Task types map to model chains and
     Ollama models:
@@ -508,7 +522,12 @@ def generate_json_any(prompt: str, task_type: str = "general") -> dict | list:
     # Step 1: Gemini (online) — central client handles key×model rotation
     if settings.gemini_api_keys and settings.ai_provider in ("auto", "gemini"):
         try:
-            return generate_json(prompt, task_type=task_type)
+            # Cloud models stop at the prompt's own bounds: capping them at the
+            # local token budget truncated the JSON mid-object (INVALID_RESPONSE).
+            kwargs = {}
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+            return generate_json(prompt, task_type=task_type, **kwargs)
         except GeminiError as exc:
             # Don't bother with Ollama for non-transient errors
             if exc.code in (GeminiError.SAFETY_BLOCKED, GeminiError.INVALID_REQUEST):
@@ -521,7 +540,11 @@ def generate_json_any(prompt: str, task_type: str = "general") -> dict | list:
     # Step 2: Ollama (offline)
     if settings.ai_provider in ("auto", "gemini", "ollama"):
         try:
-            return generate_json_via_ollama(prompt, model_name=target_ollama_model)
+            # Without a budget Ollama stops at its default num_predict and returns
+            # truncated JSON, which parses as INVALID_RESPONSE (U3 root cause).
+            return generate_json_via_ollama(prompt, model_name=target_ollama_model,
+                                            max_output_tokens=max_output_tokens,
+                                            timeout=timeout)
         except Exception as exc:
             logger.info("[AI Fallback] Ollama '%s' unavailable (%s).", target_ollama_model, exc)
 

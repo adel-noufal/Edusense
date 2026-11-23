@@ -8,6 +8,11 @@ Verifies:
 import pytest
 from app.services.gemini import generate_content
 
+# These assertions check what a live model actually writes (language preservation).
+# No deterministic offline equivalent exists, so they run only with
+# RUN_LIVE_PROVIDERS=1 and are skipped by default (see tests/conftest.py).
+pytestmark = pytest.mark.live_provider
+
 def test_prompt_enhancer_english():
     instruction = (
         "You are a prompt engineer for an educational content generator. "

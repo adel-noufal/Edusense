@@ -117,33 +117,45 @@ def startup():
 
     # C9 & P0-3: Warm up vector-store and emotion analysis agent in background threads
     def _warmup_services():
+        from app.services import warmup
+
         # Live catalog discovery (per provider and key) + 1-token probes, so
         # routing and the dropdown only offer models this account can use.
+        warmup.set_status("model_discovery", "warming")
         try:
             from app.services import model_discovery
             cached = model_discovery.load_cache()
             age = model_discovery.cache_age_seconds(cached)
             if age > model_discovery.REFRESH_AFTER_SECONDS:
                 model_discovery.discover()
+                warmup.set_status("model_discovery", "ready", "probed live catalogs")
             else:
                 print(f"LLM model discovery cache is fresh ({age/60:.0f} min old)")
+                warmup.set_status("model_discovery", "ready", f"cache {age/60:.0f} min old")
         except Exception as e:
             print(f"LLM model discovery skipped: {e}")
+            warmup.set_status("model_discovery", "failed", str(e)[:200])
 
+        warmup.set_status("knowledge_base", "warming")
         try:
             from app.services.vector_store import init_collection
             init_collection()   # loads ChromaDB + embedding model once
             print("KB warm-up complete")
+            warmup.set_status("knowledge_base", "ready")
         except Exception as e:
             print(f"KB warm-up skipped: {e}")
+            warmup.set_status("knowledge_base", "failed", str(e)[:200])
 
+        warmup.set_status("emotion_detector", "warming")
         try:
             from app.agents.emotion_agent import EmotionAnalysisAgent
             agent = EmotionAnalysisAgent()
             agent.warm_up()
             print("Emotion detector warm-up complete")
+            warmup.set_status("emotion_detector", "ready")
         except Exception as e:
             print(f"Emotion warm-up skipped: {e}")
+            warmup.set_status("emotion_detector", "failed", str(e)[:200])
 
     threading.Thread(target=_warmup_services, daemon=True).start()
 
@@ -176,9 +188,12 @@ def health():
         except Exception:
             ollama_reachable = False
 
+    from app.services import warmup
+
     return {
         "status": "ok",
         "service": "EduSense",
+        "warmup": warmup.snapshot(),
         "database": db_kind,
         "ai_provider": settings.ai_provider,
         "gemini_configured": gemini_ok,

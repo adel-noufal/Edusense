@@ -1,5 +1,5 @@
 from datetime import date, datetime, time
-from pydantic import BaseModel, Field, EmailStr, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, field_serializer, field_validator
 from app.services.timefmt import iso_z
 
 
@@ -94,6 +94,11 @@ class EmotionLogIn(BaseModel):
 
 
 class LessonRequest(BaseModel):
+    # Lessons have no runtime: only VideoRequest carries a duration (U14).
+    # extra="ignore" keeps an older client that still posts `duration` working
+    # while the value is dropped and never reaches the lesson output.
+    model_config = ConfigDict(extra="ignore")
+
     topic: str
     prompt: str
     language: str = "English"
@@ -106,8 +111,6 @@ class LessonRequest(BaseModel):
     # RAG context filters (optional; when provided, RAG chunks are retrieved)
     subject: str | None = None
     grade_level: str | None = None
-    # Requested runtime in minutes; the video pipeline uses it for its word gate.
-    duration: int | None = None
 
 
 class QuizRequest(BaseModel):

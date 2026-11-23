@@ -68,7 +68,13 @@ def expand_lesson_sections(sections: list[dict], detail_level: str, language: st
             f"content paragraph of at least {wlow} words, written in {language}. "
             f"Keep the same topic and order. Return ONLY JSON: "
             '{"sections": [{"heading": "...", "content": "..."}]}\n'
-            + json.dumps(sections, ensure_ascii=False)[:6000]
+            # A digest, not json.dumps(sections)[:6000]: cutting the JSON in the
+            # middle of a string made the model answer with junk.
+            + json.dumps([
+                {"heading": s.get("heading", ""),
+                 "content": " ".join(str(s.get("content", "")).split()[:60])}
+                for s in sections
+            ], ensure_ascii=False)
         )
         raw = chat(prompt, task_type="lesson", temperature=0.3, max_output_tokens=3000,
                    timeout=240)
@@ -77,7 +83,14 @@ def expand_lesson_sections(sections: list[dict], detail_level: str, language: st
         new_sections = parsed.get("sections") if isinstance(parsed, dict) else None
         if isinstance(new_sections, list) and new_sections:
             print(f"[contract] expansion returned {len(new_sections)} sections", flush=True)
-            return enforce_lesson_detail(new_sections, detail_level)
+            # Never trade real sections for a degenerate answer: one provider once
+            # returned a single 1-word section and it replaced a complete lesson.
+            substantial = [s for s in new_sections
+                           if isinstance(s, dict) and _words(s.get("content", "")) >= wlow // 2]
+            if len(substantial) >= min(target, low) and len(new_sections) >= min(target, low):
+                return enforce_lesson_detail(new_sections, detail_level)
+            print("[contract] expansion rejected: too few substantial sections", flush=True)
+            return enforce_lesson_detail(sections, detail_level)
         print("[contract] expansion returned no usable sections", flush=True)
     except Exception as exc:
         print(f"[contract] lesson expansion unavailable: {exc}", flush=True)

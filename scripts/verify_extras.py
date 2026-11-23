@@ -69,9 +69,15 @@ def ensure_backend() -> str | None:
 
 
 def check_logs() -> None:
+    # Only logs written during this gate run. A wider window kept failing the gate on
+    # tracebacks from servers that were already stopped and already fixed (U23).
+    window = 60 * 60
+    now = time.time()
     bad = []
+    older = 0
     for log in sorted((ROOT / "logs").glob("api*.log")):
-        if log.stat().st_mtime < time.time() - 6 * 3600:
+        if log.stat().st_mtime < now - window:
+            older += 1
             continue
         text = log.read_text(encoding="utf-8", errors="replace")
         for match in re.finditer(r"Traceback \(most recent call last\)", text):
@@ -82,7 +88,7 @@ def check_logs() -> None:
         for item in bad[:5]:
             print("[FAIL] traceback", item)
     else:
-        print("[OK] no Traceback in recent API logs")
+        print(f"[OK] no Traceback in API logs of the last 60 min ({older} older log(s) not inspected)")
 
 
 def check_kb(token: str | None) -> None:

@@ -22,6 +22,7 @@ from app.db.session import get_db, SessionLocal
 from app.models.models import AIGeneration, ChatMessage as ChatMessageModel, Quiz, QuizAgentConfig, Report, Session as ClassSession, SessionResource, User, VideoProject, SessionRegistration
 from app.schemas.schemas import FlashcardRequest, LessonRequest, QuizRequest, QuizAgentConfigCreate, QuizAgentConfigUpdate, QuizAgentConfigOut, RecommendationDecision, VideoRequest, VideoScenesUpdateRequest
 from app.services.export import build_json_bytes, build_video_zip, build_word_document_bytes, lesson_to_markdown, build_true_docx_bytes, build_pptx_bytes
+from app.services.session_archive import visible_sessions
 from app.services.generation_jobs import create_job, get_job_payload, list_pending_jobs, set_job_status
 from app.services.source_extractor import build_session_source_context
 from app.services.timefmt import iso_z
@@ -432,7 +433,6 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
             prompt=payload.prompt,
             language=payload.language,
             style=payload.style,
-            duration=payload.duration,
             notes=payload.notes or "",
             status="processing",
         )
@@ -446,7 +446,6 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
                 prompt=payload.prompt,
                 language=payload.language,
                 teaching_style=payload.style,
-                duration=payload.duration,
                 additional_notes=notes,
                 session_id=payload.session_id,
                 source_session_id=payload.source_session_id,
@@ -521,7 +520,6 @@ def _run_video_edit_bg(job_id: str, video_id: int, payload: VideoRequest, instru
                 prompt=payload.prompt,
                 language=payload.language,
                 teaching_style=payload.style,
-                duration=payload.duration,
                 additional_notes=notes,
                 session_id=payload.session_id,
                 source_session_id=payload.source_session_id,
@@ -1328,7 +1326,7 @@ def _resolve_recommendation_sessions(db: Session, instructor_id: int,
     from app.api.sessions import reconcile_session_statuses
     reconcile_session_statuses(db)
 
-    query = db.query(ClassSession).filter(
+    query = visible_sessions(db, ClassSession).filter(
         ClassSession.instructor_id == instructor_id,
         ClassSession.status == "ended",
     )
@@ -1502,7 +1500,7 @@ def create_video(payload: VideoRequest, db: Session = Depends(get_db), user: Use
     db.commit()
     db.refresh(project)
     try:
-        lesson = lessons.generate(LessonRequest(topic=payload.title, prompt=payload.prompt, language=payload.language, teaching_style=payload.style, duration=payload.duration, additional_notes=notes, session_id=payload.session_id, source_session_id=payload.source_session_id)).data
+        lesson = lessons.generate(LessonRequest(topic=payload.title, prompt=payload.prompt, language=payload.language, teaching_style=payload.style, additional_notes=notes, session_id=payload.session_id, source_session_id=payload.source_session_id)).data
         video = generate_educational_video(project.id, project.title, lesson)
     except Exception as exc:
         project.status = "failed"
@@ -1551,7 +1549,6 @@ def edit_video(
                 prompt=payload.prompt,
                 language=payload.language,
                 teaching_style=payload.style,
-                duration=payload.duration,
                 additional_notes=notes,
                 session_id=payload.session_id,
                 source_session_id=payload.source_session_id,
@@ -1962,7 +1959,10 @@ async def list_conversations(
             func.count(ChatMessageModel.id).label("message_count"),
         ).filter(
             ChatMessageModel.user_id == user.id,
-            ChatMessageModel.conversation_id.like(f"{WEB_PREFIX}%"),
+            # Web conversations are "web:<id>", but a client may open one with a
+            # plain id (the startup migration also treats those as web). Only
+            # Knowledge Base threads are excluded here, which is why a chat
+            # created seconds ago now appears in the list.
             ~ChatMessageModel.conversation_id.like("kb:%"),
         ).group_by(
             ChatMessageModel.conversation_id

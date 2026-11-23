@@ -188,7 +188,7 @@ export function lessonToHtml(lesson) {
   <div class="header-box">
     <p style="text-transform: uppercase; tracking: 0.15em; font-size: 0.8em; font-weight: 800; color: #99f6e4;">EduSense Master Lesson Resource</p>
     <h1>${lesson.topic || 'Lesson Plan'}</h1>
-    <p>${lesson.duration || 60} Minutes &middot; ${lesson.style || 'Interactive Masterclass'} &middot; ${lesson.language || 'English'}</p>
+    <p>${lesson.style || 'Interactive Masterclass'} &middot; ${lesson.language || 'English'}</p>
   </div>
 
   ${lesson.overview ? `

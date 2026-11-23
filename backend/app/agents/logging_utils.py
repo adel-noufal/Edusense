@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from app.services.timefmt import iso_z
+
 # Configure logger
 logger = logging.getLogger("edusense.llm_audit")
 logger.setLevel(logging.INFO)

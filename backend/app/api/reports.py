@@ -16,6 +16,7 @@ from app.db.session import get_db
 from app.models.models import EmotionLog, Feedback, Profile, Quiz, Report, Session as ClassSession, SessionRegistration, User
 from app.services.attendance_service import calculate_session_attended_duration, calculate_student_attended_duration
 from app.services.report_data import clamp_duration
+from app.services.session_archive import visible_sessions
 from app.services.timefmt import iso_z
 from app.schemas.schemas import FeedbackIn
 
@@ -178,7 +179,7 @@ def create_report(session_id: int, request: Request, db: Session = Depends(get_d
 @router.get("/reports/sessions")
 def report_sessions(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
     sessions = (
-        db.query(ClassSession)
+        visible_sessions(db, ClassSession)
         .filter(
             ClassSession.instructor_id == user.id,
             ClassSession.status == "ended",  # Only show completed sessions in Reports

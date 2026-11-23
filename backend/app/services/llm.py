@@ -1368,7 +1368,8 @@ _LAST_USED = threading.local()
 def last_used() -> dict[str, str] | None:
     """Provider/model that answered the current thread's last chat() call."""
     return getattr(_LAST_USED, "value", None)
-MAX_ATTEMPTS_PER_REQUEST = 4  # circuit breaker: never walk 6 cooled-down pairs
+MAX_ATTEMPTS_PER_REQUEST = 8  # circuit breaker: never walk every key of every provider
+MAX_ATTEMPTS_PER_PROVIDER = 2  # ...and never let one dead provider eat the chain
 
 
 def chat(prompt: str, task_type: str = "general", model: str | None = None,
@@ -1425,13 +1426,23 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
                 continue
             viable.append((p, i, k, m))
 
-    # Circuit breaker: a single request tries at most MAX_ATTEMPTS_PER_REQUEST
-    # cloud/local pairs (Ollama is always kept as the final guaranteed option),
-    # so a fully cooled-down stack fails fast instead of walking every pair.
-    if len(viable) > MAX_ATTEMPTS_PER_REQUEST:
-        kept = viable[:MAX_ATTEMPTS_PER_REQUEST]
-        kept += [c for c in viable[MAX_ATTEMPTS_PER_REQUEST:] if c[0] == "ollama"]
-        viable = kept
+    # Circuit breaker with provider diversity: keeping only the first four pairs
+    # meant four Gemini keys consumed the whole budget and a request never tried
+    # NVIDIA/Groq, which could have answered. Two pairs per provider, eight total,
+    # and every Ollama pair kept as the guaranteed last resort.
+    kept: list = []
+    per_provider: dict[str, int] = {}
+    for candidate in viable:
+        provider = candidate[0]
+        if provider == "ollama":
+            kept.append(candidate)
+            continue
+        if per_provider.get(provider, 0) >= MAX_ATTEMPTS_PER_PROVIDER:
+            continue
+        per_provider[provider] = per_provider.get(provider, 0) + 1
+        kept.append(candidate)
+    cloud_kept = [c for c in kept if c[0] != "ollama"][:MAX_ATTEMPTS_PER_REQUEST]
+    viable = cloud_kept + [c for c in kept if c[0] == "ollama"]
 
     if not viable:
         if not router.provider_keys("ollama"):
@@ -1452,9 +1463,15 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
         masked = router.mask_key(k)
         grp = router.key_group(p, i)
         t0 = time.time()
-        # Local CPU inference is far slower than a cloud API: 60 s killed long
-        # lesson scripts mid-generation, so give Ollama its own floor.
-        call_timeout = max(timeout, 300.0) if p == "ollama" else timeout
+        # Local CPU inference is far slower than a cloud API: this host runs
+        # ~2.8 tokens/s, so a 300 s floor killed every lesson mid-generation.
+        # The timeout now scales with the requested output and is capped at 10
+        # minutes; below that the request is guaranteed to be truncated.
+        if p == "ollama":
+            needed = 90.0 + 3.0 * (max_output_tokens or 700)
+            call_timeout = min(600.0, max(timeout, needed))
+        else:
+            call_timeout = timeout
         try:
             text = _call_provider(spec, k, m, prompt, temperature, max_output_tokens, call_timeout)
             latency = time.time() - t0

@@ -57,6 +57,7 @@ def _ensure_schema_updates(db):
             db.execute(text("ALTER TABLE sessions ALTER COLUMN duration DROP NOT NULL;"))
             db.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS prep_start_time TIMESTAMP WITH TIME ZONE;"))
             db.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS reminders_sent VARCHAR(200);"))
+            db.execute(text("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP WITH TIME ZONE;"))
             db.execute(text("ALTER TABLE ai_generations ADD COLUMN IF NOT EXISTS session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL;"))
             db.execute(text("ALTER TABLE session_registrations ADD COLUMN IF NOT EXISTS joined_at TIMESTAMP WITH TIME ZONE;"))
             db.execute(text("ALTER TABLE session_registrations ADD COLUMN IF NOT EXISTS left_at TIMESTAMP WITH TIME ZONE;"))
@@ -144,7 +145,8 @@ def _ensure_schema_updates(db):
                         status VARCHAR(20) DEFAULT 'pending',
                         prep_start_time DATETIME,
                         reminder_sent BOOLEAN DEFAULT 0,
-                        reminders_sent VARCHAR(200)
+                        reminders_sent VARCHAR(200),
+                        archived_at DATETIME
                     );
                 """))
                 db.execute(text("""
@@ -164,6 +166,8 @@ def _ensure_schema_updates(db):
                 db.execute(text("ALTER TABLE sessions ADD COLUMN prep_start_time DATETIME;"))
             if "reminders_sent" not in cols:
                 db.execute(text("ALTER TABLE sessions ADD COLUMN reminders_sent VARCHAR(200);"))
+            if "archived_at" not in cols:
+                db.execute(text("ALTER TABLE sessions ADD COLUMN archived_at DATETIME;"))
 
             gen_cols = [r[1] for r in db.execute(text("PRAGMA table_info(ai_generations);")).fetchall()]
             if "session_id" not in gen_cols:

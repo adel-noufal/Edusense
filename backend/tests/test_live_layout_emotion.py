@@ -1,9 +1,15 @@
+import socket
 import sys
 
+import pytest
 from playwright.sync_api import sync_playwright
 
 
-BASE_URL = "http://127.0.0.1:5173"
+# Vite listens on ::1 here, which 127.0.0.1 does not reach, so this test could
+# never log in on this host. It needs a running dev server and is skipped by
+# default (RUN_LIVE_SERVERS=1); see tests/conftest.py.
+pytestmark = pytest.mark.live_server
+BASE_URL = "http://localhost:5173"
 EMAIL = "student@edusense.local"
 PASSWORD = "Password123"
 

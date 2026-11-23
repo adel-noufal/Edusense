@@ -23,6 +23,7 @@ from app.models.models import (
     SessionNote,
 )
 from app.schemas.schemas import SessionIn, SessionOut, NoteCreate
+from app.services.session_archive import visible_sessions
 from app.services.status import session_status, effective_status
 from app.services.timefmt import iso_z
 from app.services.email import _send_email_sync, send_session_live_email
@@ -143,7 +144,7 @@ def _get_session_linked_content(session_id: int, db: DbSession) -> list[dict]:
 
 @router.get("", response_model=list[SessionOut])
 def list_sessions(request: Request, db: DbSession = Depends(get_db), user: User = Depends(get_current_user)):
-    query = db.query(Session)
+    query = visible_sessions(db)
     if user.role == "instructor":
         query = query.filter(Session.instructor_id == user.id)
     sessions = query.order_by(Session.date, Session.start_time).all()
@@ -167,7 +168,7 @@ def list_sessions(request: Request, db: DbSession = Depends(get_db), user: User 
 
 @router.get("/browse")
 def browse_sessions(request: Request, db: DbSession = Depends(get_db), user: User = Depends(require_role("student"))):
-    sessions = db.query(Session).order_by(Session.date, Session.start_time).all()
+    sessions = visible_sessions(db).order_by(Session.date, Session.start_time).all()
     for item in sessions:
         refresh_status(item, db)
     db.commit()

@@ -149,6 +149,8 @@ backend/app/static/models/*.pth
 
 # ChromaDB Vector Store (Task 1)
 data/chroma/
+# Local JSON backups written by maintenance scripts (sessions, KB fixtures)
+data/backups/
 backend/data/chroma/
 backend/data/llm_usage.json
 backend/data/

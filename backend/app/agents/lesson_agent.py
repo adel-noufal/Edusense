@@ -145,6 +145,22 @@ class LessonGenerationAgent:
                 has_web_sources=bool(web_sources),
             )
 
+            # A lesson request used to ask for overview + 3 sections + 4 slides +
+            # script + summary, roughly 1,600 output tokens. On this host Ollama
+            # writes ~2.8 tokens/s, so the call always hit its timeout and the
+            # template fallback answered instead (U3 root cause). The model now
+            # produces the lesson core only, within a section/word budget, and the
+            # slides + lecture script are derived from those sections below.
+            detail_level = getattr(request, "detail_level", "Standard")
+            section_count, word_range = {
+                "Brief": (4, "90-110"),
+                "Standard": (5, "90-120"),
+                "Detailed": (8, "90-130"),
+            }.get(detail_level, (5, "90-120"))
+            # Local generation budget (num_predict / timeout). Cloud providers are
+            # not capped: a 1,270-token cap truncated their JSON mid-object.
+            output_budget = 500 + section_count * 300
+
             prompt = f"""
 {guardrail}
 
@@ -159,71 +175,31 @@ Extra guidance: {request.prompt}
 {source_instruction}
 Instructions:
 1. Provide deep, rigorous, and practical explanations. Avoid generic filler words.
-2. Structure slides like a senior presentation designer with clear titles, bullet points, visual diagram descriptions, and instructor speaking notes.
+2. Write each section like a senior instructor's notes: a precise heading, a real explanation, and a worked example.
 3. Include real-world industrial case studies, step-by-step mechanisms, and practical code/math examples.
 4. If source material is provided above, ground every claim in those sources and cite them using [Source: label] format.
 
 Return ONLY valid JSON matching this structure:
 {{
   "title": "Mastering {topic}",
-  "overview": "Comprehensive 3-paragraph executive introduction to {topic}, covering core theory, architectural mechanics, and industry significance.",
+  "overview": "Two-sentence introduction to {topic} (at most 70 words).",
   "learning_objectives": [
     "Synthesize the foundational principles of {topic}.",
-    "Analyze the structural workflow and mathematical/algorithmic mechanisms.",
-    "Implement real-world solutions and evaluate efficiency tradeoffs."
+    "Analyze the structural workflow and mechanisms.",
+    "Apply {topic} to a real problem and evaluate tradeoffs."
   ],
-  "outline": ["1. Architectural Foundations", "2. Core Mechanics & Formulas", "3. Industry Case Studies", "4. Practical Implementation", "5. Strategic Synthesis"],
+  "outline": ["1. Foundations", "2. Mechanics", "3. Case study", "4. Practice", "5. Synthesis"],
   "sections": [
     {{
-      "heading": "1. Architectural Foundations of {topic}",
-      "content": "Detailed, highly articulate multi-paragraph explanation of core principles...",
-      "example": "Real-world production case study detailing practical application..."
-    }},
-    {{
-      "heading": "2. Core Mechanics & Technical Pipeline",
-      "content": "Step-by-step breakdown of how {topic} operates under the hood...",
-      "example": "Concrete code snippet or mathematical formulation..."
-    }},
-    {{
-      "heading": "3. Advanced Strategies & Performance Tradeoffs",
-      "content": "Deep dive into performance optimization, edge cases, and best practices...",
-      "example": "Comparative evaluation matrix showing performance gains..."
+      "heading": "1. Foundations of {topic}",
+      "content": "{word_range} words of precise explanation, no filler and no repetition.",
+      "example": "A concrete example, code snippet or worked calculation for this section."
     }}
   ],
-  "slides": [
-    {{
-      "title": "1. Introduction to {topic}",
-      "content": "• Core Definition: Foundational concept breakdown\\n• Industry Value: Why leading organizations adopt this approach\\n• Key Objective: What learners will master by the end of this module",
-      "diagram": "Concept Architecture Diagram: Input -> Processing Core -> Output State",
-      "notes": "Welcome class! Start by highlighting the real-world impact of {topic} before diving into technical details."
-    }},
-    {{
-      "title": "2. Underlying Mechanics & Pipeline",
-      "content": "• Step 1: Initialization and feature preparation\\n• Step 2: Core processing pipeline & state transformation\\n• Step 3: Validation, error checking, and result delivery",
-      "diagram": "Flowchart: [Raw Data] -> [Preprocessing] -> [Core Engine] -> [Validated Output]",
-      "notes": "Focus on step 2 here—make sure students understand how the transformation happens under the hood."
-    }},
-    {{
-      "title": "3. Practical Case Study & Implementation",
-      "content": "• Real-World Scenario: Solving enterprise scaling challenges\\n• Key Implementation Details: Critical parameters & configurations\\n• Best Practices: Avoid common pitfalls and anti-patterns",
-      "diagram": "System Blueprint: Microservice Architecture & API Integration",
-      "notes": "Use this slide to connect theory to practice. Walk through the code/configuration line by line."
-    }},
-    {{
-      "title": "4. Summary & Strategic Takeaways",
-      "content": "• Foundational Insight: Core theoretical takeaway\\n• Operational Strategy: How to apply this immediately\\n• Next Steps: Advanced topics and practical exercises",
-      "diagram": "Summary Matrix: Strengths vs. Considerations",
-      "notes": "Wrap up by asking 2-3 quick questions to check student comprehension."
-    }}
-  ],
-  "script": "Professional, engaging, word-for-word lecture script for the instructor...",
-  "summary": "Master executive summary synthesizing all core learnings of {topic}.",
-  "key_points": [
-    "Foundational understanding of {topic} architecture.",
-    "Mastery of operational workflows and implementation steps.",
-    "Ability to evaluate tradeoffs and optimize performance."
-  ]
+  "summary": "What the learner can now do, at most 60 words.",
+  "key_points": ["point 1", "point 2", "point 3"]
 }}
+Return exactly {section_count} sections, each about {word_range} words in "content", covering different aspects of {topic} with no overlap. Do not add "slides", "script" or "images": they are derived from the sections.
 """
 
             # Audit logging for LLM call
@@ -239,7 +215,8 @@ Return ONLY valid JSON matching this structure:
                 web_source_count=len(web_sources),
             ) as audit_ctx:
                 audit_ctx.set_prompt(prompt)
-                data = generate_json_any(prompt, task_type="lesson")
+                data = generate_json_any(prompt, task_type="lesson",
+                                          max_output_tokens=output_budget, timeout=90)
                 audit_ctx.set_response(str(data), model_used="gemini", fallback_used=False)
 
             if isinstance(data, dict):
@@ -262,7 +239,6 @@ Return ONLY valid JSON matching this structure:
                     "topic": data.get("title") or f"Mastering {topic}",
                     "language": request.language,
                     "style": request.teaching_style,
-                    "duration": getattr(request, "duration", None),
                     "overview": data.get("overview", f"An expert masterclass on {topic}."),
                     "learning_objectives": data.get("learning_objectives") or [
                         f"Master the core theoretical foundation of {topic}.",
@@ -271,7 +247,8 @@ Return ONLY valid JSON matching this structure:
                     ],
                     "outline": data.get("outline") or [slide["title"] for slide in slides],
                     "sections": data.get("sections") or [],
-                    "script": data.get("script") or data.get("overview") or "",
+                    "script": data.get("script") or "\n\n".join(
+                        str(section.get("content", "")) for section in (data.get("sections") or [])),
                     "slides": slides,
                     "summary": data.get("summary", ""),
                     "key_points": data.get("key_points") or [],
@@ -321,7 +298,6 @@ Return ONLY valid JSON matching this structure:
             "topic": f"Mastering {topic}",
             "language": request.language,
             "style": request.teaching_style,
-            "duration": getattr(request, "duration", None),
             "overview": f"A comprehensive masterclass on {topic}, detailing theoretical foundations, architectural mechanisms, real-world case studies, and performance optimization strategies.",
             "learning_objectives": objectives,
             "outline": [slide["title"] for slide in slides],

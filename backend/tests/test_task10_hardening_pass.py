@@ -131,57 +131,37 @@ def test_rotator_pair_cooldown_and_reset(monkeypatch):
 
 
 def test_generate_content_rotates_on_invalid_key(monkeypatch):
-    """Verify generate_content seamlessly fails over from an invalid key to a working key."""
-    import io
-    import json
-    import urllib.error
-    from unittest.mock import MagicMock
-    from app.services import gemini
+    """An invalid key is skipped and the next candidate answers (U15).
 
-    keys = ["BAD_KEY_1", "GOOD_KEY_2"]
-    gemini.rotator.reset()
-    monkeypatch.setattr(gemini.rotator, "get_keys", lambda: keys)
+    generate_content has routed through the multi-provider llm.chat since
+    Addendum #11, so the old urllib-level mock tested a path production no
+    longer uses. This drives the real chat() rotation loop instead.
+    """
+    from app.services import gemini, llm
 
-    class DummySettings:
-        gemini_api_keys = keys
-        gemini_model = "gemini-2.5-flash"
-        gemini_models = "gemini-2.5-flash"
-        gemini_models_chat = ""
-        gemini_models_script = ""
+    llm.router.reset()
+    monkeypatch.setattr(llm.router, "candidates", lambda **kwargs: [
+        ("gemini", 0, "BAD_KEY_1", "gemini-2.5-flash"),
+        ("gemini", 1, "GOOD_KEY_2", "gemini-2.5-flash"),
+    ])
 
-    monkeypatch.setattr(gemini, "get_settings", lambda: DummySettings())
+    calls = []
 
-    call_count = 0
+    def fake_call(spec, key, model, prompt, temperature, max_output_tokens, timeout):
+        calls.append((spec.name, key, model))
+        if key == "BAD_KEY_1":
+            raise gemini.GeminiError(gemini.GeminiError.QUOTA_EXHAUSTED, "API_KEY_INVALID")
+        return "Success from key 2"
 
-    def mock_urlopen(request, timeout=15):
-        nonlocal call_count
-        call_count += 1
-        url = request.full_url
-        if "BAD_KEY_1" in url:
-            fp = io.BytesIO(b'{"error": {"code": 400, "message": "API_KEY_INVALID"}}')
-            raise urllib.error.HTTPError(url, 400, "Bad Request", hdrs={}, fp=fp)
-        elif "GOOD_KEY_2" in url:
-            payload = {
-                "candidates": [{
-                    "content": {
-                        "parts": [{"text": "Success from key 2"}]
-                    }
-                }]
-            }
-            fp = io.BytesIO(json.dumps(payload).encode("utf-8"))
-            return fp
-        raise RuntimeError(f"Unexpected url: {url}")
-
-    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
-
-    response = gemini.generate_content("hello")
-    assert response == "Success from key 2"
-    assert call_count == 2
-    # BAD_KEY_1 pair on the primary model should now be in cooldown
-    status = gemini.rotator.status()
-    cooled = [p for p in status["pairs"] if p["cooling_down"]]
-    assert len(cooled) >= 1
-    gemini.rotator.reset()
+    monkeypatch.setattr(llm, "_call_provider", fake_call)
+    try:
+        response = llm.chat("hello", timeout=5)
+        assert response == "Success from key 2"
+        assert [c[1] for c in calls] == ["BAD_KEY_1", "GOOD_KEY_2"]
+        # The bad pair is now in cooldown and must not be retried next time.
+        assert llm.router._states[("gemini", 0, "gemini-2.5-flash")].cooldown_until > 0
+    finally:
+        llm.router.reset()
 
 
 def test_frontend_quiz_timer_logic():

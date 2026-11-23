@@ -44,6 +44,8 @@ class Session(Base):
     reminder_sent: Mapped[bool] = mapped_column(Boolean, default=False)
     # Comma-separated list of minutes for which reminders have been sent (e.g. "15,10,5")
     reminders_sent: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Reversibly hidden test/QA rows: set to a UTC timestamp instead of deleting.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     registrations: Mapped[list["SessionRegistration"]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
 
