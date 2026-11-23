@@ -1,5 +1,6 @@
 from datetime import date, datetime, time
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from pydantic import BaseModel, Field, EmailStr, field_serializer, field_validator
+from app.services.timefmt import iso_z
 
 
 class UserCreate(BaseModel):
@@ -74,6 +75,10 @@ class SessionOut(SessionIn):
     linked_content: list[dict] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("prep_start_time")
+    def _prep_start_time_utc(self, value, _info):
+        return iso_z(value)
 
 
 class EmotionFrameIn(BaseModel):

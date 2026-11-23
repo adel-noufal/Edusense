@@ -24,6 +24,7 @@ from app.models.models import (
 )
 from app.schemas.schemas import SessionIn, SessionOut, NoteCreate
 from app.services.status import session_status, effective_status
+from app.services.timefmt import iso_z
 from app.services.email import _send_email_sync, send_session_live_email
 from app.core.config import get_settings
 import json
@@ -107,7 +108,7 @@ def serialize_browse_session(item: Session, user: User, registrations: list[Sess
         "max_students": item.max_students,
         "status": item.status,
         "effective_status": effective_status(item),
-        "prep_start_time": item.prep_start_time.isoformat() if item.prep_start_time else None,
+        "prep_start_time": iso_z(item.prep_start_time),
         "registration_count": len(attendee_ids),
         "available_seats": seats_left,
         "is_registered": is_registered,
@@ -126,7 +127,7 @@ def _get_session_linked_content(session_id: int, db: DbSession) -> list[dict]:
             "content_id": g.id,
             "type": g.type,
             "topic": g.topic,
-            "created_at": g.created_at.isoformat() if g.created_at else None,
+            "created_at": iso_z(g.created_at),
         })
     quizzes = db.query(Quiz).filter_by(session_id=session_id).order_by(Quiz.created_at.desc()).all()
     for q in quizzes:
@@ -135,7 +136,7 @@ def _get_session_linked_content(session_id: int, db: DbSession) -> list[dict]:
             "content_id": q.id,
             "type": "quiz",
             "topic": q.title,
-            "created_at": q.created_at.isoformat() if q.created_at else None,
+            "created_at": iso_z(q.created_at),
         })
     return linked
 
@@ -453,7 +454,7 @@ def start_session(session_id: int, request: Request, background_tasks: Backgroun
 
     if force_go_live or item.status == "ongoing":
         return {"message": "Session is now live!", "status": "ongoing", "live_url": f"/instructor/sessions/{session_id}/live"}
-    return {"message": "15-minute preparation timer started", "status": "preparing", "prep_start_time": item.prep_start_time.isoformat(), "live_url": f"/instructor/sessions/{session_id}/live"}
+    return {"message": "15-minute preparation timer started", "status": "preparing", "prep_start_time": iso_z(item.prep_start_time), "live_url": f"/instructor/sessions/{session_id}/live"}
 
 
 @router.get("/{session_id}/live")
@@ -648,7 +649,7 @@ async def upload_session_resource(
         "name": resource.name,
         "file_type": resource.file_type,
         "file_size": resource.file_size,
-        "uploaded_at": resource.uploaded_at.isoformat(),
+        "uploaded_at": iso_z(resource.uploaded_at),
         "url": f"/static/resources/{safe_name}",
         "available": True,
         "chunks_indexed": len(chunks),
@@ -678,7 +679,7 @@ def list_library_resources(db: DbSession = Depends(get_db), user: User = Depends
             "name": resource.name,
             "file_type": resource.file_type,
             "file_size": resource.file_size,
-            "uploaded_at": resource.uploaded_at.isoformat(),
+            "uploaded_at": iso_z(resource.uploaded_at),
             "url": f"/static/resources/{filename}" if available else None,
             "available": available,
         })
@@ -763,7 +764,7 @@ def list_session_resources(session_id: int, db: DbSession = Depends(get_db), use
             "name": resource.name,
             "file_type": resource.file_type,
             "file_size": resource.file_size,
-            "uploaded_at": resource.uploaded_at.isoformat(),
+            "uploaded_at": iso_z(resource.uploaded_at),
             "url": f"/static/resources/{filename}" if available else None,
             "available": available,
         })
@@ -905,7 +906,7 @@ def list_session_generations(session_id: int, db: DbSession = Depends(get_db), u
             "id": g.id,
             "type": g.type,
             "topic": g.topic,
-            "created_at": g.created_at.isoformat() if g.created_at else None,
+            "created_at": iso_z(g.created_at),
             "data": data,
         })
     quizzes = db.query(Quiz).filter_by(session_id=session_id).order_by(Quiz.created_at.desc()).all()
@@ -918,7 +919,7 @@ def list_session_generations(session_id: int, db: DbSession = Depends(get_db), u
             "id": q.id,
             "type": "quiz",
             "topic": q.title,
-            "created_at": q.created_at.isoformat() if q.created_at else None,
+            "created_at": iso_z(q.created_at),
             "data": {"title": q.title, "difficulty": q.difficulty, "questions": q_data},
         })
     return result

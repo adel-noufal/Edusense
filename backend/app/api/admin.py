@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, HTTPException, Request
 from app.api.deps import require_role
 from app.core.audit import log_audit_event
+from app.services.timefmt import iso_z
 from app.db.session import engine, get_db
 from app.models.models import User, Session as AppSession, SessionRegistration, EmotionLog, Report, Feedback, VideoProject, Quiz, SessionNote, AIGeneration
 
@@ -26,7 +27,7 @@ ALLOWED_TABLES = {
 
 def serialize_cell(val):
     if isinstance(val, (datetime, date)):
-        return val.isoformat()
+        return iso_z(val)
     if isinstance(val, bytes):
         return "<binary data>"
     return val

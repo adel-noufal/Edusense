@@ -2,6 +2,7 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 from app.agents.base import AgentResult, adk_agent
 from app.models.models import EmotionLog
+from app.services.timefmt import iso_z
 
 ADK_AGENT = adk_agent("student_engagement_agent", "Calculate attention, engagement, participation, and disengagement signals.")
 POSITIVE = {"happy": 1.0, "surprise": 0.82, "neutral": 0.72, "sad": 0.35, "angry": 0.28, "fear": 0.25, "disgust": 0.2}
@@ -27,7 +28,7 @@ class StudentEngagementAgent:
         timeline = []
         for log, score in zip(logs, scores):
             by_student[log.student_id].append(score)
-            timeline.append({"timestamp": log.timestamp.isoformat(), "score": round(score * 100, 2), "emotion": log.emotion})
+            timeline.append({"timestamp": iso_z(log.timestamp), "score": round(score * 100, 2), "emotion": log.emotion})
         participation = {str(student_id): round(sum(items) / len(items) * 100, 2) for student_id, items in by_student.items()}
         return AgentResult(self.name, {
             "engagement_percentage": engagement,

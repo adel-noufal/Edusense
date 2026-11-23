@@ -2,8 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookOpen, CheckCircle2, FileDown, FolderOpen, Link2, PlayCircle, Plus, RefreshCw, Trash2, Upload, Users, X } from 'lucide-react'
 import { api, staticUrl, token } from '../services/api'
+import { formatDate } from '../services/time'
+import Modal from '../components/Modal'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
+
+const ENDED_PAGE_SIZE = 20
 
 const initialForm = {
   title: '',
@@ -36,6 +40,10 @@ export default function Sessions() {
   const [linkingId, setLinkingId] = useState(null)
   const [availableGenerations, setAvailableGenerations] = useState([])
   const [selectedGenerationId, setSelectedGenerationId] = useState('')
+  const [endedQuery, setEndedQuery] = useState('')
+  const [endedFrom, setEndedFrom] = useState('')
+  const [endedTo, setEndedTo] = useState('')
+  const [endedPage, setEndedPage] = useState(1)
   const toast = useToast()
 
   async function load() {
@@ -119,6 +127,30 @@ export default function Sessions() {
       return st === 'ended' || st === 'missed' || st === 'completed' || st === 'finished' || st === 'cancelled' || st === 'canceled'
     })
   }, [sessions])
+
+  const filteredEnded = useMemo(() => {
+    const query = endedQuery.trim().toLowerCase()
+    return [...endedSessions]
+      .filter((session) => {
+        if (query && !`${session.title || ''} ${session.description || ''}`.toLowerCase().includes(query)) return false
+        const day = String(session.date || '').slice(0, 10)
+        if (endedFrom && day && day < endedFrom) return false
+        if (endedTo && day && day > endedTo) return false
+        return true
+      })
+      .sort((a, b) => (
+        `${b.date || ''}${String(b.start_time || '').slice(0, 8)}`
+          .localeCompare(`${a.date || ''}${String(a.start_time || '').slice(0, 8)}`)
+      ))
+  }, [endedSessions, endedQuery, endedFrom, endedTo])
+
+  const endedPageCount = Math.max(1, Math.ceil(filteredEnded.length / ENDED_PAGE_SIZE))
+  const safeEndedPage = Math.min(endedPage, endedPageCount)
+  const visibleEnded = filteredEnded.slice(
+    (safeEndedPage - 1) * ENDED_PAGE_SIZE,
+    safeEndedPage * ENDED_PAGE_SIZE,
+  )
+  const listedSessions = activeTab === 'upcoming' ? upcomingSessions : visibleEnded
 
   function startEdit(session) {
     setEditingSession(session)
@@ -370,13 +402,50 @@ export default function Sessions() {
         </div>
         {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">{error}</p>}
         {loading && <p className="text-sm text-slate-500">{t('sessions.loading')}</p>}
-        {!loading && (activeTab === 'upcoming' ? upcomingSessions : endedSessions).length === 0 && !error && (
+        {activeTab === 'ended' && !loading && (
+          <div className="flex flex-wrap items-end gap-2 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
+            <label className="flex-1 min-w-[180px] space-y-1">
+              <span className="text-xs font-semibold text-slate-500">Search ended sessions</span>
+              <input
+                className="input"
+                data-testid="ended-search"
+                placeholder="Title or description"
+                value={endedQuery}
+                onChange={(e) => { setEndedQuery(e.target.value); setEndedPage(1) }}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-semibold text-slate-500">From</span>
+              <input
+                className="input"
+                data-testid="ended-from"
+                type="date"
+                value={endedFrom}
+                onChange={(e) => { setEndedFrom(e.target.value); setEndedPage(1) }}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-semibold text-slate-500">To</span>
+              <input
+                className="input"
+                data-testid="ended-to"
+                type="date"
+                value={endedTo}
+                onChange={(e) => { setEndedTo(e.target.value); setEndedPage(1) }}
+              />
+            </label>
+            <p className="ml-auto text-xs font-semibold text-slate-500" data-testid="ended-count">
+              {filteredEnded.length} matching · page {safeEndedPage}/{endedPageCount}
+            </p>
+          </div>
+        )}
+        {!loading && listedSessions.length === 0 && !error && (
           <p className="text-sm text-slate-500">
-            {activeTab === 'upcoming' ? 'No upcoming sessions scheduled.' : 'No ended sessions found.'}
+            {activeTab === 'upcoming' ? 'No upcoming sessions scheduled.' : 'No ended sessions match this filter.'}
           </p>
         )}
-        <div className="space-y-3">
-          {(activeTab === 'upcoming' ? upcomingSessions : endedSessions).map((session) => {
+        <div className="space-y-3" data-testid="session-list">
+          {listedSessions.map((session) => {
             const isEnded = activeTab === 'ended'
             const eff = (session.effective_status || session.status || '').toLowerCase()
             const isMissed = eff === 'missed'
@@ -384,6 +453,8 @@ export default function Sessions() {
               <div
                 className="rounded-2xl border border-slate-200 p-4 transition hover:shadow-md dark:border-slate-700 cursor-pointer"
                 key={session.id}
+                data-testid="session-row"
+                data-session-id={session.id}
                 onClick={() => navigate(`/instructor/reports?session_id=${session.id}`)}
               >
                 <div className="flex items-start justify-between gap-4">
@@ -475,6 +546,7 @@ export default function Sessions() {
                       <button
                         className="btn-soft text-purple-600 hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-950/20"
                         type="button"
+                        data-testid="view-resources"
                         onClick={(e) => { e.stopPropagation(); openResourcePanel(session, true); }}
                       >
                         <FolderOpen size={16} />View Resources
@@ -486,13 +558,41 @@ export default function Sessions() {
             )
           })}
         </div>
+        {activeTab === 'ended' && endedPageCount > 1 && (
+          <div className="flex items-center justify-between gap-2 border-t border-slate-200 pt-3 dark:border-slate-700">
+            <button
+              className="btn-soft"
+              type="button"
+              data-testid="ended-prev"
+              disabled={safeEndedPage <= 1}
+              onClick={() => setEndedPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </button>
+            <span className="text-xs font-semibold text-slate-500">Page {safeEndedPage} of {endedPageCount}</span>
+            <button
+              className="btn-soft"
+              type="button"
+              data-testid="ended-next"
+              disabled={safeEndedPage >= endedPageCount}
+              onClick={() => setEndedPage((p) => Math.min(endedPageCount, p + 1))}
+            >
+              Next
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Edit modal */}
       {editingSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setEditingSession(null)}>
-          <form className="modal-panel w-full max-w-md space-y-3 rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 dark:text-slate-100" onSubmit={saveEdit} onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl font-bold">Edit Session</h3>
+        <Modal
+          open
+          onClose={() => setEditingSession(null)}
+          title="Edit Session"
+          subtitle={editingSession.title}
+          maxWidth="max-w-md"
+        >
+          <form className="space-y-3" onSubmit={saveEdit}>
             <input className="input dark:bg-slate-800 dark:border-slate-700" placeholder="Title" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} required />
             <textarea className="input min-h-24 dark:bg-slate-800 dark:border-slate-700" placeholder="Description" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
             <input className="input dark:bg-slate-800 dark:border-slate-700" type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} required />
@@ -529,18 +629,19 @@ export default function Sessions() {
               <button className="btn-soft flex-1" type="button" onClick={() => setEditingSession(null)}>Cancel</button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
 
       {/* Enrolled students modal */}
       {attendeesModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="modal-panel w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold">Enrolled Students</h3>
-              <button className="btn-soft p-1.5" type="button" onClick={() => setAttendeesModal(null)}><X size={18} /></button>
-            </div>
-            <p className="text-xs text-slate-500 -mt-2">{attendeesModal.session.title}</p>
+        <Modal
+          open
+          onClose={() => setAttendeesModal(null)}
+          title="Enrolled Students"
+          subtitle={attendeesModal.session.title}
+          maxWidth="max-w-md"
+        >
+          <div className="space-y-4">
             {loadingAttendees ? (
               <p className="text-sm text-slate-500">Loading students...</p>
             ) : attendeesModal.list.length === 0 ? (
@@ -561,21 +662,18 @@ export default function Sessions() {
               </ul>
             )}
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Resource Management Modal */}
       {resourcePanel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-slate-900 dark:text-slate-100 flex flex-col max-h-[85vh]">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 px-6 py-4">
-              <div>
-                <h3 className="text-lg font-bold flex items-center gap-2"><FolderOpen size={20} className="text-purple-500" />Session Resources</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{resourcePanel.session.title}</p>
-              </div>
-              <button className="btn-soft p-1.5" type="button" onClick={() => setResourcePanel(null)}><X size={18} /></button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1 space-y-4">
+        <Modal
+          open
+          onClose={() => setResourcePanel(null)}
+          title="Session Resources"
+          subtitle={resourcePanel.session.title}
+        >
+            <div className="space-y-4">
               {/* Upload area */}
               {!resourcePanel.readOnly && (
                 <div
@@ -615,7 +713,7 @@ export default function Sessions() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-sm truncate">{r.name}</p>
-                        <p className="text-xs text-slate-500">{formatBytes(r.file_size)} · {new Date(r.uploaded_at).toLocaleDateString()}</p>
+                        <p className="text-xs text-slate-500">{formatBytes(r.file_size)} · {formatDate(r.uploaded_at)}</p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {r.available ? (
@@ -650,22 +748,18 @@ export default function Sessions() {
               )}
               <p className="text-xs text-slate-400 text-center">Students enrolled in this session can download these resources from their session history.</p>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Link AI content modal */}
       {linkPanel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="modal-panel w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-slate-900 dark:text-slate-100 flex flex-col max-h-[85vh]">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 px-6 py-4">
-              <div>
-                <h3 className="text-lg font-bold flex items-center gap-2"><Link2 size={20} className="text-teal-600" />Link AI Content</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{linkPanel.session.title}</p>
-              </div>
-              <button className="btn-soft p-1.5" type="button" onClick={() => setLinkPanel(null)}><X size={18} /></button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1 space-y-3">
+        <Modal
+          open
+          onClose={() => setLinkPanel(null)}
+          title="Link AI Content"
+          subtitle={linkPanel.session.title}
+        >
+            <div className="space-y-3">
               <p className="text-sm text-slate-600 dark:text-slate-300">
                 Pick a lesson, flashcard deck, or video to share with students enrolled in this session.
               </p>
@@ -687,7 +781,7 @@ export default function Sessions() {
                             <p className="font-semibold text-sm truncate">{gen.topic}</p>
                           </div>
                           <p className="text-xs text-slate-500 mt-0.5">
-                            {gen.created_at ? new Date(gen.created_at).toLocaleDateString() : 'Ready'}
+                            {gen.created_at ? formatDate(gen.created_at) : 'Ready'}
                             {isLinkedHere && (
                               <span className="ms-2 font-bold text-emerald-600 dark:text-emerald-400">
                                 • Currently attached to this session
@@ -725,8 +819,7 @@ export default function Sessions() {
                 </ul>
               )}
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   )

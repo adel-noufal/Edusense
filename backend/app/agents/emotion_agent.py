@@ -21,6 +21,7 @@ import cv2
 import numpy as np
 from sqlalchemy.orm import Session
 from app.models.models import EmotionLog
+from app.services.timefmt import iso_z
 
 
 # Lightweight inline result type — avoids importing the full LLM-laden base module
@@ -141,7 +142,7 @@ class EmotionAnalysisAgent:
                 "face_detected": bool(detail.get("face_detected")),
                 "hint": detail.get("hint"),
                 "top_emotions": detail.get("top_emotions"),
-                "timestamp": log.timestamp.isoformat() if log is not None else datetime.now(timezone.utc).isoformat(),
+                "timestamp": iso_z(log.timestamp) if log is not None else iso_z(datetime.now(timezone.utc)),
                 "backend": getattr(self, "_active_backend", "unknown"),
             },
         )
@@ -160,7 +161,7 @@ class EmotionAnalysisAgent:
                 "session_id": session_id,
                 "distribution": data,
                 "samples": len(logs),
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": iso_z(datetime.now(timezone.utc)),
             },
         )
 

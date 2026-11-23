@@ -166,3 +166,40 @@ the model dropdown for dead names.
 - Second-model answer-key verification: not implemented; the answer key is computed from the
   generated `answer` fields.
 - No screenshot of the Arabic submission flow in this addendum.
+
+## 9. Addendum #13 state (ledger, U1/U2, specs)
+
+Process: `docs/ISSUES.md` is now the ledger (P1). An issue is only `DONE` when a named
+test that reproduces the visible symptom runs inside `verify.bat`.
+
+### Batch 1 — closed
+
+| ID | What was wrong | Fix | Test |
+|---|---|---|---|
+| U1 | Session Resources modal centred in the whole document; Ended list printed every row | `components/Modal.jsx` portal dialog (viewport-centred, scroll lock, Esc/overlay close, focus trap); Ended list 20/page + search + from/to dates, newest first | `tests/walkthrough_addendum13.py::run_u1` |
+| U2 | UTC stored naive, browser read it as local (06:19 shown for 08:19) | `services/timefmt.py::iso_z` for every API timestamp; `frontend/src/services/time.js` formats in the browser timezone | `tests/test_addendum13_time_utc.py`, `run_u2` |
+| U13 | Launcher bound a random port when `PORT=0`, so `/health` never answered on 8000 | `find_free_port` / `preferred_port` reject `<= 0` | `verify.bat` step 8 |
+
+Live proof of U2: `2026-11-14T21:21:34.153224Z` renders as `Indexed: 14 Nov 2026, 23:21`
+in Africa/Cairo (`docs/screenshots/add13-u2-kb-indexed-time.png`).
+
+`verify.bat` gained step 9: it runs the Playwright walkthrough after `verify_extras.py`
+has started the servers, and fails on any of its assertions.
+
+### Specs written, implementation not started
+
+- `docs/SPEC_RAG.md` — local RAG (structure-aware chunks, local embeddings + reranker,
+  exact-passage mode, grounded local generation, zero LLM calls on page load, evaluation
+  targets hit@5 ≥ 85 %, faithfulness ≥ 90 %, refusal ≥ 90 % on negatives).
+- `docs/SPEC_VIDEO.md` — editable storyboard of scenes, director pass, per-scene hash
+  cache, animated templates + captions, TTS, honest ceiling (illustrated explainer, not
+  text-to-video), free-key checklist, milestones M1–M4.
+
+Both are specifications only: U3–U11 stay `OPEN` in the ledger.
+
+### Addendum #12 leftovers landed here
+
+`expand_lesson_sections` now caps the section count to the detail-level upper bound and
+logs why it expands. The contract suite still cannot be proven on this host: in
+`logs/add13-contract1.log` every cloud model answered 404/503 and `ollama mistral`
+timed out at 302 s, so the run never completed. Recorded as H1 `BLOCKED` in the ledger.

@@ -19,6 +19,7 @@ from fastapi import Request
 from sqlalchemy.orm import Session
 
 from app.models.models import AuditLog, User
+from app.services.timefmt import iso_z
 
 # Configure logger
 logger = logging.getLogger("edusense.audit")
@@ -96,7 +97,7 @@ def log_audit_event(
 
     # Also log to file for SIEM integration
     log_data = {
-        "timestamp": audit_entry.created_at.isoformat(),
+        "timestamp": iso_z(audit_entry.created_at),
         "audit_id": audit_entry.id,
         "user_id": audit_entry.user_id,
         "action": action,

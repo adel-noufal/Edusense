@@ -1,5 +1,6 @@
 import os
 import uuid
+from app.services.timefmt import iso_z
 import datetime
 import io
 import re
@@ -31,7 +32,7 @@ def create_ingestion_job(job_id: str, filename: str, total_size: int = 0) -> Dic
             "current_page": 0,
             "error": None,
             "file_url": f"/static/knowledge_base/{filename}",
-            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "created_at": iso_z(datetime.datetime.now(datetime.timezone.utc)),
         }
         _ingestion_jobs[job_id] = job
         return job
@@ -334,7 +335,7 @@ def process_and_ingest_document(
         if job_id:
             update_ingestion_progress(job_id, 10, f"Extracting content from '{filename}'...")
 
-        ingestion_date = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        ingestion_date = iso_z(datetime.datetime.now(datetime.timezone.utc))
         pages_content: List[Dict[str, Any]] = []
 
         if filename.lower().endswith(".pdf"):
@@ -441,7 +442,7 @@ def get_indexed_sources() -> List[Dict[str, Any]]:
                 "grade_level": str(meta.get("grade_level", "")),
                 "topic": str(meta.get("topic", "")),
                 "ingestion_date": ing_date,
-                "ingested_at": ing_date,
+                "ingested_at": iso_z(ing_date),
                 "chunk_count": 0,
                 "has_file": False,
                 "file_url": None,

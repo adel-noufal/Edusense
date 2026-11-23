@@ -16,6 +16,7 @@ from app.db.session import get_db
 from app.models.models import EmotionLog, Feedback, Profile, Quiz, Report, Session as ClassSession, SessionRegistration, User
 from app.services.attendance_service import calculate_session_attended_duration, calculate_student_attended_duration
 from app.services.report_data import clamp_duration
+from app.services.timefmt import iso_z
 from app.schemas.schemas import FeedbackIn
 
 router = APIRouter(tags=["Reports and Feedback"])
@@ -128,7 +129,7 @@ def _student_report_payload(db: Session, item: ClassSession, student: User) -> d
                 }
                 for log in logs
             ],
-            "notes": [{"id": n.id, "note": n.note, "created_at": n.created_at.isoformat()} for n in notes],
+            "notes": [{"id": n.id, "note": n.note, "created_at": iso_z(n.created_at)} for n in notes],
         },
         "quizzes": [
             {

@@ -10,16 +10,20 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api, API_URL } from '../services/api'
+import { parseUtc } from '../services/time'
 
 function formatDate(dt) {
   if (!dt) return 'No due date'
-  return new Date(dt).toLocaleDateString(undefined, {
+  const parsed = parseUtc(dt)
+  if (!parsed) return 'No due date'
+  return parsed.toLocaleDateString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 }
 
 function isPast(dt) {
-  return dt && new Date(dt) < new Date()
+  const parsed = parseUtc(dt)
+  return parsed ? parsed < new Date() : false
 }
 
 function formatFileSize(bytes) {

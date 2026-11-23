@@ -4,6 +4,7 @@ import { CheckCircle2, Clock3, Download, FileQuestion, Layers, Sparkles, Trash2,
 import MarkdownText from '../utils/markdown'
 import { normalizeSource, normalizeSources } from '../utils/sources'
 import { api, downloadAuthenticatedRequest, staticUrl } from '../services/api'
+import { formatDate, formatDateTime } from '../services/time'
 import { downloadBlob, downloadText, flashcardsToHtml, lessonToMarkdown, downloadLessonAsDoc, downloadLessonAsHtml, downloadLessonAsPdf, downloadLessonAsPptxHtml, downloadQuizAsDoc, downloadQuizAsHtml, downloadQuizAsPdf, downloadFlashcardsAsDoc, downloadFlashcardsAsPdf } from '../utils/download'
 import { useLanguage } from '../context/LanguageContext'
 import { useGenerationJobs } from '../context/GenerationJobContext'
@@ -276,7 +277,7 @@ export function LessonGenerator() {
                   <Trash2 size={16} />
                 </button>
               </div>
-              <p className="text-xs text-slate-500 mt-1">{new Date(h.created_at).toLocaleDateString()}</p>
+              <p className="text-xs text-slate-500 mt-1">{formatDate(h.created_at)}</p>
             </div>
           ))}
           {!history.length && <p className="text-sm text-slate-500">No lessons generated yet.</p>}
@@ -399,7 +400,7 @@ export function FlashcardGenerator() {
                   <Trash2 size={16} />
                 </button>
               </div>
-              <p className="text-xs text-slate-500 mt-1">{new Date(h.created_at).toLocaleDateString()}</p>
+              <p className="text-xs text-slate-500 mt-1">{formatDate(h.created_at)}</p>
               {h.prompt && <p className="text-xs text-slate-400 mt-1 truncate">{h.prompt}</p>}
             </div>
           ))}
@@ -1092,7 +1093,7 @@ export function QuizGenerator() {
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-slate-500 mt-1">{new Date(h.created_at).toLocaleDateString()}</p>
+              <p className="text-xs text-slate-500 mt-1">{formatDate(h.created_at)}</p>
             </div>
           ))}
           {!history.length && <p className="text-sm text-slate-500">No quizzes generated yet.</p>}
@@ -1245,7 +1246,7 @@ export function VideoLibrary() {
                   <Trash2 size={16} />
                 </button>
               </div>
-              <p className="text-xs text-slate-500 mt-1">{new Date(h.created_at).toLocaleDateString()} · {h.status}</p>
+              <p className="text-xs text-slate-500 mt-1">{formatDate(h.created_at)} · {h.status}</p>
               {h.scenes?.length > 0 && <p className="text-xs text-slate-400 mt-1">{h.scenes.length} scenes</p>}
             </div>
           ))}
@@ -1536,8 +1537,8 @@ function PublishExamModal({ quiz, onClose, onPublished }) {
       const targetSession = sessions.find((s) => String(s.id) === String(sessionId || quiz.session_id))
       const sessionLabel = targetSession ? targetSession.title : (updated.session_title || 'session')
       const studentCount = updated.enrolled_student_count ?? 0
-      const availMsg = updated.available_from ? ` available from ${new Date(updated.available_from).toLocaleString()}` : ''
-      const dueMsg = updated.due_date ? ` until ${new Date(updated.due_date).toLocaleString()}` : ''
+      const availMsg = updated.available_from ? ` available from ${formatDateTime(updated.available_from)}` : ''
+      const dueMsg = updated.due_date ? ` until ${formatDateTime(updated.due_date)}` : ''
       toast.success(`Visible to ${studentCount} students in session ${sessionLabel}${availMsg || dueMsg ? `,${availMsg}${dueMsg}` : ''}`)
       onPublished(updated)
       onClose()

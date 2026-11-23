@@ -9,10 +9,11 @@ import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, BookOpen, CheckCircle, Clock, FileText, Lock, Shield } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../services/api'
+import { formatDate as formatUtcDate } from '../services/time'
 
 function formatDate(dt) {
   if (!dt) return null
-  return new Date(dt).toLocaleDateString(undefined, {
+  return formatUtcDate(dt, {
     year: 'numeric', month: 'short', day: 'numeric',
   })
 }

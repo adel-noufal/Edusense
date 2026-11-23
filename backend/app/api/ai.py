@@ -24,6 +24,7 @@ from app.schemas.schemas import FlashcardRequest, LessonRequest, QuizRequest, Qu
 from app.services.export import build_json_bytes, build_video_zip, build_word_document_bytes, lesson_to_markdown, build_true_docx_bytes, build_pptx_bytes
 from app.services.generation_jobs import create_job, get_job_payload, list_pending_jobs, set_job_status
 from app.services.source_extractor import build_session_source_context
+from app.services.timefmt import iso_z
 from app.services.video import (
     generate_educational_video,
     rebuild_video_from_scenes,
@@ -379,7 +380,7 @@ def _serialize_video_project(project: VideoProject) -> dict:
         "duration": project.duration,
         "notes": project.notes,
         "status": project.status,
-        "created_at": project.created_at.isoformat() if project.created_at else None,
+        "created_at": iso_z(project.created_at),
         "video_url": (f"/static/videos/video-{project.id}/player.html"
                       if (VIDEO_STATIC_DIR / f"video-{project.id}" / "player.html").exists()
                       else None),

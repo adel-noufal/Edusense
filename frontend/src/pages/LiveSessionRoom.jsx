@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Calendar, Camera, Clock, Info, Mic, MicOff, MonitorUp, PhoneOff, Play, Users, Video, VideoOff, XCircle } from 'lucide-react'
 import { api, staticUrl } from '../services/api'
+import { formatTime } from '../services/time'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 
@@ -541,7 +542,7 @@ export default function LiveSessionRoom() {
                     <div key={log.id} className="rounded-md border border-slate-200 p-2 text-sm dark:border-slate-700">
                       <span className="font-semibold capitalize">{log.emotion}</span>
                       <span className="text-slate-500"> · {(log.confidence * 100).toFixed(0)}%</span>
-                      <span className="block text-xs text-slate-400">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                      <span className="block text-xs text-slate-400">{formatTime(log.timestamp)}</span>
                     </div>
                   ))}
                   {!emotions.length && <p className="text-sm text-slate-500">{t('live.noEmotions')}</p>}

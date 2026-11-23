@@ -5,6 +5,7 @@ import {
   Paperclip, RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, Upload, X, Zap, Maximize2, Minimize2
 } from 'lucide-react'
 import { api } from '../services/api'
+import { formatDateTime, formatTime, isoOf } from '../services/time'
 import { normalizeSources } from '../utils/sources'
 import SearchInput from '../components/SearchInput'
 
@@ -285,6 +286,7 @@ function SourceCard({ src, onDelete, onPreview, onAsk }) {
           </button>
           <button type="button"
             className="btn-soft p-1.5"
+            data-testid="library-expand"
             onClick={() => setExpanded(v => !v)}>
             {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
           </button>
@@ -294,7 +296,7 @@ function SourceCard({ src, onDelete, onPreview, onAsk }) {
       {expanded && (
         <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400 space-y-1">
           {src.ingested_at && (
-            <p>Indexed: <span className="font-medium text-slate-700 dark:text-slate-300">{new Date(src.ingested_at).toLocaleString()}</span></p>
+            <p data-testid="library-indexed">Indexed: <span className="font-medium text-slate-700 dark:text-slate-300">{formatDateTime(src.ingested_at)}</span></p>
           )}
         </div>
       )}
@@ -503,7 +505,8 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
         text: m.content,
         sources: m.metadata?.sources || [],
         chunks_used: m.metadata?.chunks_used || 0,
-        timestamp: m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+        timestamp: m.created_at ? formatTime(m.created_at) : '',
+        iso: isoOf(m.created_at),
       }))
       setMessages(loaded.length ? loaded : [GREETING])
       setActiveConvId(convId)
@@ -736,7 +739,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
                 </div>
               )}
 
-              <div className="mt-1 text-right text-[10px] opacity-60">
+              <div className="mt-1 text-right text-[10px] opacity-60" data-testid="message-time" data-iso={m.iso || ''}>
                 {m.timestamp}
               </div>
             </div>

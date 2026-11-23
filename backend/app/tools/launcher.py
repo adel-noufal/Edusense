@@ -62,6 +62,10 @@ def kill_stale_process_on_port(port: int):
 
 def find_free_port(start_port: int = 8000, max_ports: int = 20) -> int:
     """Find first free port starting at start_port."""
+    # Port 0 means "let the OS choose" to bind(), which silently moved the API
+    # to a random port and broke the frontend proxy and every verify step.
+    if start_port <= 0:
+        start_port = 8000
     for p in range(start_port, start_port + max_ports):
         kill_stale_process_on_port(p)
         if is_port_bindable("127.0.0.1", p):
@@ -108,7 +112,12 @@ def run_server():
     if not venv_python.exists():
         venv_python = Path(sys.executable)
 
-    preferred_port = int(os.environ.get("PORT", "8000"))
+    try:
+        preferred_port = int(os.environ.get("PORT", "8000") or 8000)
+    except ValueError:
+        preferred_port = 8000
+    if preferred_port <= 0:
+        preferred_port = 8000
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:

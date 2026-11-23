@@ -12,7 +12,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -100,7 +100,7 @@ def log_llm_call(
         fallback_used: Whether a fallback (template/Ollama) was used
     """
     entry = LLMAuditEntry(
-        timestamp=datetime.utcnow().isoformat() + "Z",
+        timestamp=iso_z(datetime.now(timezone.utc)),
         agent_name=agent_name,
         method_name=method_name,
         prompt_hash=_hash_prompt(prompt),

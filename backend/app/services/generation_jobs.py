@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session as DbSession
 from app.models.models import GenerationJob
+from app.services.timefmt import iso_z
 
 
 def utcnow():
@@ -62,7 +63,7 @@ def list_pending_jobs(db: DbSession, instructor_id: int) -> list[dict]:
         .order_by(GenerationJob.created_at.desc())
         .all()
     )
-    return [{"job_id": j.id, "type": j.job_type, "label": j.label, "status": j.status, "startedAt": j.created_at.isoformat()} for j in jobs]
+    return [{"job_id": j.id, "type": j.job_type, "label": j.label, "status": j.status, "startedAt": iso_z(j.created_at)} for j in jobs]
 
 
 def reap_stale_jobs(db: DbSession, max_age_seconds: int = 300) -> int:
