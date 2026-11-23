@@ -317,8 +317,18 @@ class LLMRouter:
         self._probed: dict[str, dict[str, bool]] = {}   # provider -> model -> works
         self._working: dict[str, list[str]] = {}        # provider -> live working models
         self._ollama_boot_tried = False
+        self._cache_loaded = False
         self._rr: dict[str, int] = {}
         self.reload_keys()
+        # Every process (API, scripts, verify) starts from the same discovered
+        # model list instead of guessing configured names.
+        try:
+            from app.services import model_discovery
+            cached = model_discovery.load_cache()
+            if cached and cached.get("working"):
+                self.set_working_models(cached["working"])
+        except Exception:
+            pass
 
     # -- Key Discovery & Registry ------------------------------------------
 
@@ -601,6 +611,20 @@ class LLMRouter:
                 out.append((p.strip(), m.strip()))
         return out or None
 
+    def _load_discovery_cache_once(self) -> None:
+        if self._cache_loaded:
+            return
+        self._cache_loaded = True
+        try:
+            from app.services.model_discovery import load_cache
+            cached = load_cache()
+            if cached and cached.get("working"):
+                self.set_working_models(cached["working"])
+                print(f"[LLM] routing from discovered models cached at {cached.get('generated_at_iso')}",
+                      flush=True)
+        except Exception as exc:
+            print(f"[LLM] discovery cache unavailable ({exc})", flush=True)
+
     def candidates(self, task_type: str = "general", prompt_tokens: int = 100,
                    exclude_provider: str | None = None, touch_student_data: bool = False,
                    language: str | None = None
@@ -608,6 +632,7 @@ class LLMRouter:
         """
         Build ordered best-fit candidates: (provider, key_index, key, model).
         """
+        self._load_discovery_cache_once()
         task = _TASK_ALIASES.get(task_type, task_type)
         override = self._chain_override(task) or self._chain_override("general")
 

@@ -46,6 +46,44 @@ def enforce_lesson_detail(sections: list[dict], detail_level: str) -> list[dict]
     return list(sections or [])[:high]
 
 
+def expand_lesson_sections(sections: list[dict], detail_level: str, language: str = "English") -> list[dict]:
+    """One corrective pass when the model returns too few or too thin sections."""
+    low, high = LESSON_SECTION_RANGE.get(detail_level, (4, 6))
+    wlow, _whigh = LESSON_WORDS_PER_SECTION.get(detail_level, (90, 260))
+    sections = list(sections or [])
+    thin = [s for s in sections if _words(s.get("content", "")) < wlow]
+    if sections and low <= len(sections) <= high and not thin:
+        return sections
+    target = min(high, max(low, len(sections)))
+    print(
+        f"[contract] expanding {detail_level}: {len(sections)} sections "
+        f"({len(thin)} thin) -> target {target}",
+        flush=True,
+    )
+    try:
+        from app.services.llm import chat
+        prompt = (
+            f"Rewrite these lesson sections for a {detail_level} level lesson. "
+            f"Return exactly {target} sections, each with a heading and a "
+            f"content paragraph of at least {wlow} words, written in {language}. "
+            f"Keep the same topic and order. Return ONLY JSON: "
+            '{"sections": [{"heading": "...", "content": "..."}]}\n'
+            + json.dumps(sections, ensure_ascii=False)[:6000]
+        )
+        raw = chat(prompt, task_type="lesson", temperature=0.3, max_output_tokens=3000,
+                   timeout=240)
+        start, end = raw.find("{"), raw.rfind("}")
+        parsed = json.loads(raw[start:end + 1]) if start != -1 and end > start else {}
+        new_sections = parsed.get("sections") if isinstance(parsed, dict) else None
+        if isinstance(new_sections, list) and new_sections:
+            print(f"[contract] expansion returned {len(new_sections)} sections", flush=True)
+            return enforce_lesson_detail(new_sections, detail_level)
+        print("[contract] expansion returned no usable sections", flush=True)
+    except Exception as exc:
+        print(f"[contract] lesson expansion unavailable: {exc}", flush=True)
+    return enforce_lesson_detail(sections, detail_level)
+
+
 def check_lesson(result: dict, detail_level: str = "Standard", language: str = "English") -> list[str]:
     problems = []
     sections = result.get("sections") or []
@@ -156,7 +194,7 @@ def run_suite(local_only: bool = True) -> int:
             report(f"lesson/{level}", [f"generation failed: {exc}"])
 
     try:
-        quiz = QuizGenerationAgent().generate("The water cycle", "Medium", 5, "", language="English").data
+        quiz = QuizGenerationAgent().generate("The water cycle", "Medium", 5, "").data
         quiz = stamp_quiz(quiz, "Medium")
         report("quiz/Medium x5", check_quiz(quiz, 5, "Medium"))
     except Exception as exc:

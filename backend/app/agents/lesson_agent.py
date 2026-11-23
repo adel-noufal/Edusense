@@ -244,9 +244,10 @@ Return ONLY valid JSON matching this structure:
 
             if isinstance(data, dict):
                 data = format_strict_text(data)
-                from app.services.contract import enforce_lesson_detail
-                data["sections"] = enforce_lesson_detail(
-                    data.get("sections") or [], getattr(request, "detail_level", "Standard"))
+                from app.services.contract import expand_lesson_sections
+                data["sections"] = expand_lesson_sections(
+                    data.get("sections") or [], getattr(request, "detail_level", "Standard"),
+                    request.language)
                 rubric = critique_output(data, topic)
                 slides = data.get("slides") or [
                     {
