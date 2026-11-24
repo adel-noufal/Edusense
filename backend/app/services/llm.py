@@ -543,8 +543,31 @@ class LLMRouter:
                 return entries[key_index].quota_group or str(key_index)
         return str(key_index)
 
+    # Specialist / non-chat models must never enter a content chain (F2/U4):
+    # they answer HTTP 200 with garbage or 404, and a translation or
+    # calibration model silently "succeeding" was one of the ways a lesson
+    # came back empty. Matched case-insensitively on the model id.
+    SPECIALIST_MODEL_MARKERS = (
+        "riva-translate", "ising-calibration", "embed", "embedding", "bge-",
+        "rerank", "guard", "safety", "vision", "vl-", "-vl", "tts", "whisper",
+        "audio", "speech", "image", "diffusion", "flux", "sdxl", "-preview",
+        "preview-", "ocr", "parse", "deplot", "kosmos",
+    )
+
+    @classmethod
+    def is_chat_model(cls, model: str) -> bool:
+        """True when a model id looks like a general text-chat model."""
+        name = (model or "").lower()
+        return not any(marker in name for marker in cls.SPECIALIST_MODEL_MARKERS)
+
     def provider_models(self, provider: str, task_type: str = "general") -> list[str]:
-        """Configured model chain for a provider."""
+        """Configured model chain for a provider, chat-capable models only."""
+        models = self._provider_models_raw(provider, task_type)
+        chat = [m for m in models if self.is_chat_model(m)]
+        return chat or models
+
+    def _provider_models_raw(self, provider: str, task_type: str = "general") -> list[str]:
+        """Configured model chain for a provider, before capability filtering."""
         s = get_settings()
         spec = PROVIDERS.get(provider)
         if not spec:
@@ -678,6 +701,10 @@ class LLMRouter:
                     models = self.provider_models(pname, task)
 
                 for m in models:
+                    if not self.is_chat_model(m):
+                        # A translation / calibration / embedding model answering
+                        # 200 with nonsense is worse than no model at all (F2).
+                        continue
                     if self._model_gone(pname, m):
                         continue
                     profile = self.get_model_profile(pname, m)

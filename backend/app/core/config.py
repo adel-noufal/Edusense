@@ -119,7 +119,9 @@ class Settings(BaseSettings):
     #   private -> local Ollama only (recommended for uploaded books)
     #   cloud   -> cloud providers only, never local Ollama
     kb_engine: str = Field(
-        default="auto",
+        # F3: uploaded books are answered locally by default (llama3.2, the
+        # fastest local model here); cloud is an explicit opt-in switch.
+        default="private",
         validation_alias=AliasChoices("KB_ENGINE", "EDUSENSE_KB_ENGINE", "kb_engine")
     )
 

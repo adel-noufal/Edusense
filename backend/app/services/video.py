@@ -95,13 +95,35 @@ def strip_latex(text: str) -> str:
     return out.replace("$", "").replace("\\", "")
 
 
+_CITATION_PATTERNS = (
+    re.compile(r"\[\s*Web\s*\d+\s*:[^\]]*\]", re.IGNORECASE),
+    re.compile(r"\[\s*Source\s*:[^\]]*\]", re.IGNORECASE),
+    re.compile(r"\[\s*\d+\s*\]"),
+    re.compile(r"https?://\S+", re.IGNORECASE),
+    re.compile(r"\bwww\.\S+", re.IGNORECASE),
+)
+
+
+def strip_citations(text: str) -> str:
+    """Remove citation markers and URLs from anything the learner will read or
+    hear (F6b). Sources belong in a credits scene, not mid-slide."""
+    if not isinstance(text, str) or not text:
+        return text
+    out = text
+    for pattern in _CITATION_PATTERNS:
+        out = pattern.sub("", out)
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"\s+([,.;:])", r"\1", out)
+    return out.strip()
+
+
 def _sanitize_scene(scene: dict) -> dict:
     cleaned = dict(scene)
     for key in ("title", "narration", "content", "diagram", "highlight"):
         if isinstance(cleaned.get(key), str):
-            cleaned[key] = strip_latex(cleaned[key])
+            cleaned[key] = strip_citations(strip_latex(cleaned[key]))
     if isinstance(cleaned.get("bullets"), list):
-        cleaned["bullets"] = [strip_latex(b) for b in cleaned["bullets"]]
+        cleaned["bullets"] = [strip_citations(strip_latex(b)) for b in cleaned["bullets"]]
     return cleaned
 
 
@@ -241,7 +263,15 @@ def enforce_script_quality(scenes: list[dict], duration_min: int, title: str) ->
 # ---------------------------------------------------------------------------
 
 def _section_count(duration_min: int) -> int:
-    return max(2, min(8, int(round(max(1, duration_min)))))
+    """`ceil(duration_seconds / 10)` scenes: one slide per ~10 s (F6a).
+
+    A 1-minute video used to get 2 scenes of 30 s each, which read as a odd
+    two-slide slideshow. Cap stays modest so script generation does not turn
+    into a dozen sequential model calls.
+    """
+    seconds = max(60, int(round(max(1, duration_min))) * 60)
+    by_density = -(-seconds // 10)
+    return max(5, min(12, by_density))
 
 
 def _llm_chat(prompt: str, task_type: str = "video", **kwargs) -> str:

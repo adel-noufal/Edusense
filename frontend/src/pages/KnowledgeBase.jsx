@@ -254,7 +254,9 @@ function SourceCard({ src, onDelete, onPreview, onAsk }) {
           <FileText size={18} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-bold text-sm">{src.source_file}</p>
+          {/* Filenames must be readable in a demo: `truncate` alone collapsed
+              them to "ECU-…" because the flex item had no min width. */}
+          <p className="min-w-0 flex-1 break-words font-bold text-sm leading-snug">{src.source_file}</p>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             {src.topic && <Pill label={src.topic} color="teal" />}
           </div>
@@ -458,7 +460,7 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
   const [selectedSources, setSelectedSources] = useState([])
   const [focusMode, setFocusMode] = useState(false)
   // Engine tier for KB answers: auto | private | cloud (addendum #11 §1.7)
-  const [engine, setEngine] = useState('auto')
+  const [engine, setEngine] = useState('private')  // F3: local by default
   const [engineInfo, setEngineInfo] = useState(null)
   const chatEndRef              = useRef(null)
 
@@ -597,12 +599,13 @@ function QAPanel({ scopedSource = null, scopedSourceLabel = null, onClearScope =
     }
   }
 
-  const SUGGESTIONS = [
-    'Explain the Calvin cycle in simple terms',
-    'What are Newton’s laws of motion?',
-    'Summarize key topics from uploaded biology PDFs',
-    'Create 3 review questions on cell division'
-  ]
+  // F3: the old hardcoded biology chips (Calvin cycle, Newton, cell division)
+  // had nothing to do with the uploaded book. Suggestions now come from the
+  // library itself, so they can never point at material that is not there.
+  const SUGGESTIONS = [...new Set((sourceList || [])
+    .map(doc => doc.filename || doc.source_file || doc.name || '')
+    .filter(Boolean)
+    .map(name => `Summarise the key points of ${name}`))].slice(0, 4)
 
   const filteredConvs = conversations.filter(c =>
     !convSearch || (c.title || '').toLowerCase().includes(convSearch.toLowerCase()))

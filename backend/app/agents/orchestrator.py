@@ -35,6 +35,7 @@ from app.agents.prompts.scope_guardrail import (
 from app.agents.tools import RAG_Search_Tool, Web_Search_Tool
 from app.core.config import get_settings
 from app.services import vector_store
+from app.core.errors import ContentGenerationUnavailable
 
 
 async def _run_with_timeout(func: Callable, timeout: float, *args, **kwargs):
@@ -406,8 +407,7 @@ Assistant:"""
                     web_source_count=web_count,
                 ) as audit_ctx:
                     audit_ctx.set_prompt(prompt)
-                    answer = self.llm._template(prompt, subject=subject, grade_level=grade_level, query=query)
-                    audit_ctx.set_response(answer, model_used="template", fallback_used=True)
+                    raise ContentGenerationUnavailable("answer", fallback_reason or "all providers failed")
                 mode = "offline_rag_template"
                 model_used = "template"
                 fallback_used = True
@@ -430,9 +430,9 @@ Assistant:"""
                 has_web_sources=False,
                 web_source_count=0,
             ) as audit_ctx:
-                audit_ctx.set_prompt(query)  # template uses just the query
-                answer = self.llm._template(query, subject=subject, grade_level=grade_level)
-                audit_ctx.set_response(answer, model_used="template", fallback_used=True)
+                audit_ctx.set_prompt(query)
+                audit_ctx.set_response("", model_used="none", fallback_used=True)
+            raise ContentGenerationUnavailable("answer", fallback_reason or "all providers failed")
             mode = "offline_template_only"
             model_used = "template"
             fallback_used = True

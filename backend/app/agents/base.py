@@ -8,6 +8,7 @@ from app.agents.prompts.scope_guardrail import (
     get_refusal_message,
 )
 from app.core.config import get_settings
+from app.core.errors import ContentGenerationUnavailable
 from app.services.gemini import generate_content, generate_via_ollama
 
 
@@ -41,14 +42,16 @@ class LocalLLM:
             print(f"[AI Fallback] Routed providers unavailable ({exc}). Switching to Ollama...")
 
         # 2. Direct Ollama (last resort, guaranteed when the daemon is up)
+        ollama_error = None
         if settings.ai_provider in ("auto", "gemini", "ollama"):
             try:
                 return generate_via_ollama(prompt)
             except Exception as exc:
-                print(f"[AI Fallback] Ollama text generation unavailable ({exc}). Using template...")
+                ollama_error = exc
+                print(f"[AI Fallback] Ollama text generation unavailable ({exc})")
 
-        # 3. Final local template fallback
-        return self._template(prompt)
+        # 3. No fabrication: the caller must surface this as a clear error (F1).
+        raise ContentGenerationUnavailable("answer", ollama_error or "all providers failed")
 
 
     def _template(self, prompt: str, subject: str | None = None, grade_level: str | None = None,

@@ -9,6 +9,7 @@ from app.agents.prompts.scope_guardrail import build_guardrail_prompt, get_refus
 from app.core.config import get_settings
 from app.services.gemini import generate_json_any
 from app.services.content_pipeline import format_strict_text, validate_quality, critique_output
+from app.core.errors import ContentGenerationUnavailable
 
 ADK_AGENT = adk_agent("lesson_generation_agent", "Generate lesson outlines, scripts, slides, images, and diagrams.")
 
@@ -259,75 +260,8 @@ Return exactly {section_count} sections, each about {word_range} words in "conte
                     "quality": rubric,
                     "quality_issues": validate_quality(data, source_attached=bool(rag_sources)),
                 })
-        except Exception:
-            pass
-
-        # Expert Fallback Template
-        objectives = [
-            f"Understand the core architecture and mathematical principles of {topic}.",
-            f"Evaluate real-world case studies and practical implementation steps.",
-            f"Analyze performance tradeoffs, common pitfalls, and optimization strategies."
-        ]
-        slides = [
-            {
-                "title": f"1. Executive Overview: {topic}",
-                "content": f"• Foundational Definition: Core principles of {topic}\n• Industry Significance: Why top organizations leverage this concept\n• Primary Goal: Achieving structural mastery and analytical clarity",
-                "diagram": f"High-Level Architecture: [Input Context] ➔ [{topic} Engine] ➔ [Optimized Outcome]",
-                "notes": f"Begin the session by connecting {topic} to real-world industrial applications."
-            },
-            {
-                "title": f"2. Core Mechanics & Technical Pipeline",
-                "content": "• Phase 1: Data preparation & initialization\n• Phase 2: Algorithmic transformation & optimization loop\n• Phase 3: Validation, metric evaluation, and deployment",
-                "diagram": "Process Pipeline: [Data Source] ➔ [Transformation Core] ➔ [Validation Check]",
-                "notes": "Emphasize Phase 2 during lecture—this is where the primary computational transformation occurs."
-            },
-            {
-                "title": f"3. Production Case Study & Implementation",
-                "content": "• Enterprise Context: Solving real-world scale challenges\n• Critical Parameters: Essential configuration patterns\n• Tradeoff Analysis: Balancing performance vs. system complexity",
-                "diagram": "System Blueprint: Component Interaction & Data Flow",
-                "notes": "Walk through the configuration step-by-step so students can reproduce the setup."
-            },
-            {
-                "title": "4. Synthesis & Key Takeaways",
-                "content": "• Theoretical Mastery: Core principles internalized\n• Operational Blueprint: Practical roadmap for implementation\n• Next Steps: Advanced topics and hands-on laboratory exercises",
-                "diagram": "Mastery Matrix: Core Competencies Checklist",
-                "notes": "Conclude with an interactive knowledge check."
-            }
-        ]
-        return AgentResult(self.name, {
-            "topic": f"Mastering {topic}",
-            "language": request.language,
-            "style": request.teaching_style,
-            "overview": f"A comprehensive masterclass on {topic}, detailing theoretical foundations, architectural mechanisms, real-world case studies, and performance optimization strategies.",
-            "learning_objectives": objectives,
-            "outline": [slide["title"] for slide in slides],
-            "sections": [
-                {
-                    "heading": f"1. Architectural Principles of {topic}",
-                    "content": f"The foundational core of {topic} relies on clear architectural abstractions and structured domain mechanics. By decoupling system components into modular layers, practitioners achieve optimal efficiency and maintainability.",
-                    "example": f"Enterprise Case Study: Implementing {topic} to streamline data processing pipelines."
-                },
-                {
-                    "heading": f"2. Operational Mechanics & Technical Pipeline",
-                    "content": f"Under the hood, {topic} executes a multi-stage transformation process. Stage 1 initializes boundary parameters, Stage 2 applies domain-specific transformations, and Stage 3 verifies correctness through automated validation matrices.",
-                    "example": f"Code Implementation: Production configuration pattern for {topic}."
-                },
-                {
-                    "heading": "3. Optimization Strategies & Best Practices",
-                    "content": f"To maximize efficiency when deploying {topic}, engineers prioritize resource allocation, bottleneck reduction, and proactive error handling. Adhering to these industry standards minimizes latency and enhances robustness.",
-                    "example": "Benchmarking results comparing legacy approaches against optimized architectures."
-                }
-            ],
-            "script": f"Welcome everyone to today's deep dive into {topic}. We will start with the high-level architecture before examining the underlying code and deployment best practices...",
-            "slides": slides,
-            "summary": f"Learners now possess a thorough understanding of {topic}, spanning theoretical fundamentals, hands-on implementation steps, and production optimization techniques.",
-            "key_points": objectives,
-            "images": [],
-            "sources": rag_sources + web_sources,
-            "unverified": len(rag_sources + web_sources) == 0,
-            "web_sources": web_results,
-        })
-
+        except Exception as exc:
+            raise ContentGenerationUnavailable("lesson", exc) from exc
     def simplify_from_recommendation(self, topic: str, recommendations: list[str]) -> AgentResult:
         return AgentResult(self.name, {
             "topic": topic,

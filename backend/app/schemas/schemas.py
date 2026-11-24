@@ -291,6 +291,17 @@ class QuizSubmitResponse(BaseModel):
     passed: bool
 
 
+class QuizViolationCreate(BaseModel):
+    """Body the exam page actually sends (F5: it was a query-string-only endpoint).
+
+    `event_type` stays optional so older callers can keep sending it in the query
+    string while the body carries only `details`.
+    """
+
+    event_type: str | None = None
+    details: dict | None = None
+
+
 class QuizViolationOut(BaseModel):
     id: int
     quiz_id: int

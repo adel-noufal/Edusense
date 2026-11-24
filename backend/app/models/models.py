@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, Time, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -166,6 +167,17 @@ class QuizViolation(Base):
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     re_entry_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    @property
+    def details(self) -> dict | None:
+        """Parsed `details_json`, so API responses return the real payload (F5)."""
+        if not self.details_json:
+            return None
+        try:
+            parsed = json.loads(self.details_json)
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
 
 class QuizAgentConfig(Base):

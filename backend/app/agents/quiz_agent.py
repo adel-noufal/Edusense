@@ -12,6 +12,7 @@ from app.db.session import SessionLocal
 from app.models.models import QuizAgentConfig
 from app.services.gemini import generate_json_any
 from app.services.content_pipeline import format_strict_text, validate_quality, critique_output
+from app.core.errors import ContentGenerationUnavailable
 
 ADK_AGENT = adk_agent("quiz_generation_agent", "Generate MCQ, true/false, and short-answer quizzes.")
 
@@ -331,85 +332,8 @@ Return ONLY valid JSON:
                     "quality": quality,
                     "quality_issues": validate_quality({"sections": [{"content": str(q)} for q in questions]}, source_attached=bool(rag_sources)),
                 })
-        except Exception:
-            pass
-
-        # Expert Fallback Questions
-        questions = [
-            {
-                "type": "multiple_choice",
-                "question": f"Which architectural principle is most fundamental to mastering {topic} in production?",
-                "options": [
-                    "A) Modular decoupling of state management and processing logic",
-                    "B) Coupling all components into a single monolithic script",
-                    "C) Disabling error logging to decrease computational overhead",
-                    "D) Static hardcoding of dynamic network parameters"
-                ],
-                "answer": "A",
-                "explanation": "Modular decoupling ensures maintainability, isolation of failure modes, and seamless horizontal scaling in enterprise deployments.",
-                "difficulty": difficulty,
-            },
-            {
-                "type": "multiple_choice",
-                "question": f"When scaling {topic} to handle high throughput, what is the primary optimization bottleneck to monitor?",
-                "options": [
-                    "A) Memory bandwidth & state serialization overhead",
-                    "B) Background styling CSS colors",
-                    "C) Unused localized string translations",
-                    "D) Client screen resolution bounds"
-                ],
-                "answer": "A",
-                "explanation": "High-throughput systems processing {topic} are primarily constrained by serialization overhead, memory allocation bandwidth, and database query latency.",
-                "difficulty": difficulty,
-            },
-            {
-                "type": "true_false",
-                "question": f"True or False: Implementing automated validation boundaries in {topic} significantly reduces downstream failure rates.",
-                "answer": "True",
-                "explanation": "Automated validation catches invalid state transitions early at the ingestion boundary before corrupting downstream execution pipelines.",
-                "difficulty": difficulty,
-            },
-            {
-                "type": "multiple_choice",
-                "question": f"What is the recommended best practice when handling edge cases in {topic} execution?",
-                "options": [
-                    "A) Enforce explicit exception boundaries with fallback recovery handlers",
-                    "B) Silently swallow runtime exceptions without logging",
-                    "C) Terminate the host process immediately without cleanup",
-                    "D) Ignore edge cases and assume inputs are always valid"
-                ],
-                "answer": "A",
-                "explanation": "Explicit exception boundaries prevent unhandled crashes, log empirical diagnostic traces, and safely activate fallback mechanisms.",
-                "difficulty": difficulty,
-            }
-        ]
-        while len(questions) < count:
-            idx = len(questions) + 1
-            questions.append({
-                "type": "multiple_choice",
-                "question": f"Question {idx}: In {topic}, how does strategy {idx} optimize system performance?",
-                "options": [
-                    f"A) By reducing redundant operations and caching intermediate results",
-                    f"B) By increasing duplicate network requests",
-                    f"C) By bypassing security validation checks",
-                    f"D) By running blocking loops on the main thread"
-                ],
-                "answer": "A",
-                "explanation": "Strategy A eliminates redundant processing through intelligent caching and memoization, dramatically improving execution speed.",
-                "difficulty": difficulty,
-            })
-        questions = format_strict_text(normalize_questions(questions, count, topic, difficulty))
-        from app.services.contract import stamp_quiz
-        result = {
-            "title": f"{topic} Master Assessment",
-            "difficulty": normalize_difficulty(difficulty),
-            "questions": questions,
-            "sources": rag_sources + web_sources,
-            "unverified": len(rag_sources + web_sources) == 0,
-            "web_sources": web_results,
-        }
-        return AgentResult(self.name, stamp_quiz(result, difficulty))
-
+        except Exception as exc:
+            raise ContentGenerationUnavailable("quiz", exc) from exc
     @staticmethod
     def dumps(data: dict) -> str:
         return json.dumps(data, ensure_ascii=False)

@@ -53,3 +53,24 @@ Verbatim column = the reporter's words, not a paraphrase.
 | H7 | Video: Notes never pre-filled, no phantom `player.html`, real 1-minute MP4, LaTeX cleaned | video-14 MP4 ffprobe `61.17 s`, h264/aac, player HTTP 200, screenshot `docs/screenshots/add12-video-player-clean.png` | — | DONE |
 | H8 | Video V2 milestones M1–M4 | Not started | — | NOT DONE |
 | H9 | Arabic submission-flow screenshot | Missing | — | NOT DONE |
+
+## Batch 3 — demo day (2026-11-24)
+
+Timeboxed, stability first. Tag `demo-base` at `4db15aa` was created before any
+change; nothing was pushed to `main`. Answers to the open questions: the 13
+archived rows stay archived (reversible, no hard delete); model suitability (old
+U4) before U3; the purple "Freebuff" badge is the browser overlay, not the app
+(confirmed in the DOM at the login page and dashboard).
+
+| ID | Symptom / requirement | Root cause | Fix | Proof | Status |
+|---|---|---|---|---|---|
+| U24 (F1) | Lessons/quizzes/flashcards came back as enterprise filler ("architectural principles", "Enterprise Case Study") whenever providers failed | Six separate fabricating fallbacks swallowed the provider error: `lesson_agent` "Expert Fallback Template", `quiz_agent` "Expert Fallback Questions", `flashcard_agent` `_generate_distinct_fallback_cards` (web-title/pedagogical filler), `base.LocalLLM._template`, `orchestrator` template-only mode, `rag_qa._call_llm` template | All six removed; new `app/core/errors.py::ContentGenerationUnavailable` raised instead, mapped to HTTP 503 `{code: providers_unavailable, retry: true}` in `main.py`. Flashcard backfill now quotes real course chunks only (`real_sources_only=True`). Specialist models (`riva-translate`, `ising-calibration`, `embed`, `guard`, `tts`, `vision`, `-preview`) excluded from every chain via `LLMRouter.is_chat_model` | `logs/f1-acceptance2.log` (Gemini disabled: lesson EN 200/26.3 s/5 sections/3 of 3 keywords/0 filler; lesson AR 200/27.3 s; quiz 5 200/17.0 s/4 of 4; flashcards 200/3.4 s/4 of 4) + `tests/test_task6_flashcard_distinctness.py` rewritten to assert the honest error | TEST PASSING |
+| U25 (F5) | `POST /api/quizzes/{id}/violations` returned 422 during a student exam | Endpoint declared `event_type`/`details` as query parameters while `Quiz.jsx` posts a JSON body; `QuizViolationOut.details` was never populated | Body model `QuizViolationCreate` accepted alongside the query form; `QuizViolation.details` property parses `details_json` | `tests/test_addendum13_exam_violation_contract.py` (3 tests) + `test_section5_quiz_publishing.py` + `test_task10_11_quiz.py` (26 passed together) | TEST PASSING |
+| U26 (F6a,b) | A 60-second video had 2 scenes of 30 s; citation markers reached slide text | `_section_count` returned minutes (1 → 2 scenes); nothing stripped `[Web N: …]` / URLs from scene text | `_section_count` = one scene per ~10 s (1 min → 6 scenes, capped at 12); `strip_citations` applied in `_sanitize_scene` to title/narration/content/bullets | `tests/test_addendum13_video_scenes.py` (4 passed) | TEST PASSING (no new MP4 rendered yet) |
+| U27 (F3) | KB chat defaulted to cloud-first and offered Calvin-cycle/Newton/biology chips unrelated to the uploaded book; raw `[Source: …]` markers appeared in prose | `kb_engine` default `auto`; hardcoded `SUGGESTIONS`; model output returned verbatim | Default engine `private` (local Ollama); chips derived from `sourceList`; `strip_inline_citations` removes `[Source: …]`/`[Web N: …]` from the answer | Live browser: "How is model drift detected in the book?" answered in ~15 s with **ECU-ITAI-3-04.pdf p.128** and "GROUNDED IN 1 DOCUMENT CHUNK"; `docs/screenshots/demo-02-kb-library.png` | TEST PASSING |
+| U28 (F2, part) | Dropdown/routing offered specialist models that answer with nonsense | No capability filter anywhere | `LLMRouter.is_chat_model` + `provider_models` filtering + skip in `candidates()` | Diagnostic chains no longer list `riva-translate` / `ising-calibration` | PARTIAL — grouped dropdown, badges and "Generated with <model>" still open |
+
+Still open after this batch: **F4** emotion badge/warm-up/brightness (untouched),
+**F7** one-JSON lesson exports (untouched), **F6c/d** SVG diagrams and per-scene
+regenerate (untouched — the video is a basic slideshow renderer), flashcard exact
+count when the model returns fewer cards, Playwright recording of the demo script.

@@ -8,6 +8,7 @@ from app.agents.prompts.scope_guardrail import build_guardrail_prompt
 from app.core.config import get_settings
 from app.services.gemini import generate_json_any
 from app.services.content_pipeline import format_strict_text, validate_quality, critique_output
+from app.core.errors import ContentGenerationUnavailable
 
 ADK_AGENT = adk_agent("flashcard_generation_agent", "Generate study flashcards from educational topics.")
 
@@ -133,6 +134,7 @@ def _generate_distinct_fallback_cards(
     count: int,
     rag_chunks: Optional[list[dict]] = None,
     web_results: Optional[list[dict]] = None,
+    real_sources_only: bool = False,
 ) -> list[dict]:
     """Generates `count` completely distinct, pedagogically structured flashcards with zero repeated questions."""
     cards: list[dict] = []
@@ -161,6 +163,10 @@ def _generate_distinct_fallback_cards(
             front = f"According to course material on {topic} ({src_label}), how is the following concept evaluated: \"{first_sentence}\"?"
             back = f"• Source Citation: [Source: {src_label}]\n• Curriculum Anchor: {raw_text[:280]}...\n• Key Takeaway: Essential course concept for mastering {topic}."
             _add_card(front, back)
+
+    if real_sources_only:
+        # Only real course text may become a card; no invented "dimensions".
+        return cards
 
     # 2. Synthesize from Web results if available and still need cards
     if web_results and len(cards) < count:
@@ -415,7 +421,8 @@ Return ONLY valid JSON:
                         topic=topic,
                         count=count,
                         rag_chunks=rag_chunks,
-                        web_results=web_results,
+                        web_results=None,
+                        real_sources_only=True,
                     )
                     for bf_card in backfill:
                         norm_bf = " ".join(bf_card["front"].lower().split())
@@ -435,23 +442,27 @@ Return ONLY valid JSON:
                     "unverified": len(rag_sources + web_sources) == 0,
                     "web_sources": web_results,
                 })
-        except Exception:
-            pass
-
-        # High-Yield Diverse Fallback Cards (guaranteed 100% distinct across any count)
-        cards = _generate_distinct_fallback_cards(
-            topic=topic,
-            count=count,
-            rag_chunks=rag_chunks,
-            web_results=web_results,
-        )
-        return AgentResult(self.name, {
-            "title": f"{topic} Master Study Deck",
-            "topic": topic,
-            "language": language,
-            "prompt": prompt,
-            "cards": format_strict_text(cards[:count]),
-            "sources": rag_sources + web_sources,
-            "unverified": len(rag_sources + web_sources) == 0,
-            "web_sources": web_results,
-        })
+        except Exception as exc:
+            # No model answered. Only real course text may still produce cards:
+            # quote the retrieved chunks with their page numbers, and report an
+            # honest error when there is nothing real to build from (F1).
+            chunk_cards = _generate_distinct_fallback_cards(
+                topic=topic,
+                count=count,
+                rag_chunks=rag_chunks,
+                web_results=None,
+                real_sources_only=True,
+            ) if rag_chunks else []
+            if chunk_cards:
+                return AgentResult(self.name, {
+                    "title": f"{topic} — cards from your course material",
+                    "topic": topic,
+                    "language": language,
+                    "prompt": prompt,
+                    "cards": format_strict_text(chunk_cards[:count]),
+                    "sources": rag_sources + web_sources,
+                    "unverified": False,
+                    "web_sources": web_results,
+                    "generated_by": "course-chunks",
+                })
+            raise ContentGenerationUnavailable("flashcards", exc) from exc

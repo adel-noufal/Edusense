@@ -7,7 +7,7 @@ anti-cheat violation logging, and instructor violation review/re-entry.
 import json
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_role
@@ -16,7 +16,7 @@ from app.db.session import get_db
 from app.models.models import Quiz, QuizAttempt, QuizViolation, User, Session as ClassSession, AIGeneration
 from app.schemas.schemas import (
     QuizOut, PublishExamRequest, QuizAttemptOut, QuizSubmitRequest, QuizSubmitResponse,
-    QuizViolationOut, QuizAgentConfigCreate, QuizAgentConfigOut, QuizAgentConfigUpdate,
+    QuizViolationOut, QuizViolationCreate, QuizAgentConfigCreate, QuizAgentConfigOut, QuizAgentConfigUpdate,
     QuizCreateManual, QuizUpdateSettings
 )
 from app.models.models import SessionRegistration
@@ -797,8 +797,8 @@ def list_my_quiz_attempts(
 @router.post("/{quiz_id}/violations", response_model=QuizViolationOut)
 def log_quiz_violation(
     quiz_id: int,
-    event_type: str,
-    details: Optional[dict] = None,
+    payload: Optional[QuizViolationCreate] = Body(None),
+    event_type: Optional[str] = Query(None),
     request: Request = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_role("student"))
@@ -808,6 +808,15 @@ def log_quiz_violation(
     Called automatically when fullscreen exit, tab switch, or second device detected.
     Auto-locks the attempt and submits current answers.
     """
+    # F5: the exam page sends {"event_type", "details"} as a JSON body, but this
+    # endpoint only declared query parameters, so every report answered 422 and
+    # no violation was ever recorded. Accept both shapes.
+    resolved_type = ((payload.event_type if payload else None) or event_type or "")
+    resolved_details = payload.details if payload else None
+    resolved_type = resolved_type.strip()
+    if not resolved_type:
+        raise HTTPException(422, "event_type is required (JSON body {\"event_type\": ...} or ?event_type=...)")
+
     quiz = db.query(Quiz).filter_by(id=quiz_id).first()
     if not quiz:
         raise HTTPException(404, "Quiz not found")
@@ -823,15 +832,15 @@ def log_quiz_violation(
         quiz_id=quiz_id,
         attempt_id=attempt.id if attempt else None,
         student_id=user.id,
-        event_type=event_type,
-        details_json=json.dumps(details) if details else None,
+        event_type=resolved_type,
+        details_json=json.dumps(resolved_details) if resolved_details else None,
     )
     db.add(violation)
 
     # Lock the attempt if it exists and isn't already locked
     if attempt and not attempt.is_locked:
         attempt.is_locked = True
-        attempt.lock_reason = f"Anti-cheat violation: {event_type}"
+        attempt.lock_reason = f"Anti-cheat violation: {resolved_type}"
         # Auto-submit current answers (partial credit)
         # Note: actual answers would need to be sent from frontend; we just mark as locked
 
@@ -841,7 +850,7 @@ def log_quiz_violation(
     # Audit
     log_audit_event(db, action="quiz_violation", user=user, resource_type="quiz", resource_id=str(quiz_id), request=request, details={
         "violation_id": violation.id,
-        "event_type": event_type,
+        "event_type": resolved_type,
         "attempt_id": attempt.id if attempt else None,
     })
 

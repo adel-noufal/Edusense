@@ -2,9 +2,11 @@ import os
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.api import admin, ai, assignments, auth, emotions, quizzes, rag, reports, sessions, users
 from app.core.config import get_settings
+from app.core.errors import ContentGenerationUnavailable
 from app.db.seed import init_db
 from app.core.scheduler import start_scheduler, shutdown_scheduler
 
@@ -43,6 +45,16 @@ app = FastAPI(
         "url": "https://opensource.org/licenses/MIT",
     },
 )
+
+
+@app.exception_handler(ContentGenerationUnavailable)
+async def _content_generation_unavailable(request, exc: ContentGenerationUnavailable):
+    """Honest failure path (F1): when no provider can answer, say so.
+
+    Previously every agent swallowed the provider error and wrote a generic
+    template, which the user saw as fabricated lesson/quiz/flashcard content.
+    """
+    return JSONResponse(status_code=503, content=exc.payload())
 
 app.add_middleware(
     CORSMiddleware,

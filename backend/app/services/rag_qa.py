@@ -22,6 +22,7 @@ from app.services import vector_store
 from app.services.gemini import generate_content, generate_via_ollama
 from app.core.config import get_settings
 from app.services.ingestion import get_indexed_sources
+from app.core.errors import ContentGenerationUnavailable
 
 
 def _find_referenced_source(question: str) -> str | None:
@@ -150,6 +151,19 @@ def _history_source_files(history: list[dict] | None) -> list[str]:
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
+_INLINE_CITATION = re.compile(r"\[\s*(?:Source|Web)\b[^\]]*\]", re.IGNORECASE)
+
+
+def strip_inline_citations(text: str) -> str:
+    """Remove inline [Source: …] / [Web N: …] markers from rendered prose."""
+    if not isinstance(text, str) or not text:
+        return text
+    out = _INLINE_CITATION.sub("", text)
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"[ \t]+([.,;:])", r"\1", out)
+    return out.strip()
+
+
 def _format_context(chunks: list[dict]) -> tuple[str, list[str]]:
     """
     Turn RAG chunk results into a prompt-ready context block and a
@@ -218,17 +232,17 @@ def _call_llm(prompt: str, subject: Optional[str] = None, grade_level: Optional[
                     model_used=attempt["label"],
                     fallback_used=attempt["label"] != "auto",
                 )
-            return response, attempt["label"], attempt["label"] != "auto"
+            # F3: the models still emit "[Source: file p.128]" inline. The page
+            # is already shown in the sources panel, so strip the markers from
+            # the prose instead of showing raw citation syntax to the learner.
+            return strip_inline_citations(response), attempt["label"], attempt["label"] != "auto"
         except Exception as exc:
             # Never surface provider JSON to the user; log and try the next tier.
             print(f"[RAG-QA] KB engine {attempt['label']} unavailable ({str(exc)[:160]})")
 
-    # Auto/cloud/private exhausted: honest template fallback with scope check.
-    # Private mode never silently calls a cloud provider.
-    llm = LocalLLM()
-    fallback = llm._template(
-        prompt, subject=subject, grade_level=grade_level, query=topic or None
-    )
+    # Auto/cloud/private exhausted: report it instead of writing a template
+    # that only looks like an answer (F1). The retrieved passages stay in the
+    # prompt but nothing invented reaches the learner.
     with LLMAuditContext(
         agent_name="RAG_QA_Service",
         method_name="answer_question",
@@ -239,8 +253,8 @@ def _call_llm(prompt: str, subject: Optional[str] = None, grade_level: Optional[
         rag_source_count=rag_source_count,
     ) as audit_ctx:
         audit_ctx.set_prompt(prompt)
-        audit_ctx.set_response(fallback, model_used="template", fallback_used=True)
-    return fallback, "template", True
+        audit_ctx.set_response("", model_used="none", fallback_used=True)
+    raise ContentGenerationUnavailable("answer", "knowledge-base engines exhausted")
 
 
 _PAGE_RANGE_RE = re.compile(
