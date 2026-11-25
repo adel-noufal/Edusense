@@ -180,3 +180,6 @@ backend/scratch/
 # Verification artefacts
 *.y4m
 backend/logs/
+
+# Offline switch file (created on the target PC, never committed)
+/OFFLINE
