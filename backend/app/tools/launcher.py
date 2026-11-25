@@ -19,7 +19,6 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 ROOT_DIR = BACKEND_DIR.parent
 PORT_FILE = BACKEND_DIR / ".active_port"
 ENV_LOCAL_FILE = ROOT_DIR / "frontend" / ".env.local"
-MAX_RETRIES = 3
 SERVER_MODULE = "app.main:app"
 
 
@@ -179,7 +178,13 @@ def find_free_port(start_port: int = 8000, max_ports: int = 20, skip: set[int] |
 # ---------------------------------------------------------------------------
 
 def save_active_port(port: int) -> None:
-    """Save active port to backend/.active_port and frontend/.env.local."""
+    """Record the one API port for the Vite proxy.
+
+    frontend/.env.local is deliberately NOT written any more: it was a second
+    source of truth for the API URL and a stale copy (http://localhost:8001/api)
+    made every request fail after the port changed. The frontend now reads its
+    single default from src/services/api.js.
+    """
     try:
         PORT_FILE.write_text(str(port).strip(), encoding="utf-8")
         log(f"[LAUNCHER] Active port saved to {PORT_FILE.name}: {port}")
@@ -187,12 +192,11 @@ def save_active_port(port: int) -> None:
         log(f"[WARN] Failed to write {PORT_FILE}: {e}")
 
     try:
-        ENV_LOCAL_FILE.parent.mkdir(parents=True, exist_ok=True)
-        content = f"VITE_API_URL=http://localhost:{port}/api\nVITE_BACKEND_PORT={port}\n"
-        ENV_LOCAL_FILE.write_text(content, encoding="utf-8")
-        log(f"[LAUNCHER] Synced frontend configuration in {ENV_LOCAL_FILE.name}")
+        if ENV_LOCAL_FILE.exists():
+            ENV_LOCAL_FILE.unlink()
+            log(f"[LAUNCHER] Removed stale {ENV_LOCAL_FILE.name} (the API URL has one source of truth)")
     except Exception as e:
-        log(f"[WARN] Failed to write {ENV_LOCAL_FILE}: {e}")
+        log(f"[WARN] Failed to remove {ENV_LOCAL_FILE}: {e}")
 
 
 def ensure_local_models():
@@ -208,12 +212,39 @@ def ensure_local_models():
         log(f"[LAUNCHER] Ollama check skipped: {exc}")
 
 
+def _dotenv_port() -> str:
+    """Read EDUSENSE_PORT from backend/.env. A bare inherited PORT is ignored:
+    it was the source of the old `PORT=0` runs that moved the API to a random
+    port and broke the frontend."""
+    env_file = BACKEND_DIR / ".env"
+    try:
+        for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() == "EDUSENSE_PORT":
+                return value.strip().strip("'\"")
+    except Exception:
+        pass
+    return ""
+
+
 def preferred_port() -> int:
-    raw = (os.environ.get("PORT") or "8000").strip()
+    """One fixed port per installation (default 8000).
+
+    Order: EDUSENSE_PORT in backend/.env -> EDUSENSE_PORT in the process env ->
+    8000. Bare PORT is deliberately not read (see _dotenv_port).
+    """
+    raw = (_dotenv_port() or (os.environ.get("EDUSENSE_PORT") or "").strip() or "8000").strip()
     if not re.fullmatch(r"\d+", raw):
+        log(f"[LAUNCHER] Invalid EDUSENSE_PORT={raw!r}; using 8000.")
         return 8000
     port = int(raw)
-    return port if 1 <= port <= 65535 else 8000
+    if not 1 <= port <= 65535:
+        log(f"[LAUNCHER] EDUSENSE_PORT={port} is out of range; using 8000.")
+        return 8000
+    return port
 
 
 # ---------------------------------------------------------------------------
@@ -234,59 +265,59 @@ def run_server():
     if not venv_python.exists():
         venv_python = Path(sys.executable)
 
-    start_port = preferred_port()
-    raw_port = (os.environ.get("PORT") or "").strip()
-    if raw_port and (not raw_port.isdigit() or int(raw_port) <= 0):
-        log(f"[LAUNCHER] Ignoring PORT={raw_port} (a random port broke the frontend); using {start_port}.")
+    port = preferred_port()
+    log(f"[LAUNCHER] EduSense API port: {port} (fixed; set EDUSENSE_PORT in backend/.env to change)")
 
-    # One EduSense API server at a time: earlier runs (including the legacy
+    # One EduSense API server at a time: earlier runs (including legacy
     # `--port 0` ones) are stopped before this one binds.
     terminate_stale_project_servers()
+    kill_stale_process_on_port(port)
 
-    tried: set[int] = set()
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            # A port that just failed to bind is not retried: a second attempt on
-            # it only reproduces WinError 10048.
-            port = find_free_port(start_port, skip=tried)
-            tried.add(port)
-            save_active_port(port)
+    if not port_is_free(port):
+        owners = sorted(_listening_pids(port))
+        details = ", ".join(f"PID {pid} ({_image_name(pid) or 'unknown'})" for pid in owners)
+        log("=" * 60)
+        log(f"[LAUNCHER] Port {port} is still in use by {details or 'an unidentified process'}.")
+        log("[LAUNCHER] EduSense always uses one fixed port and will NOT move to another one.")
+        log("[LAUNCHER] Stop that process, or set EDUSENSE_PORT=<free port> in backend/.env.")
+        log("[LAUNCHER] Inspect it with: netstat -ano | findstr :%d" % port)
+        log("=" * 60)
+        sys.exit(1)
 
-            log("=" * 60)
-            log("  EduSense AI Education Platform - Backend")
-            log(f"  Port:     http://localhost:{port}")
-            log(f"  API Docs: http://localhost:{port}/docs")
-            log(f"  Health:   http://localhost:{port}/health")
-            log(f"  Python:   {venv_python}")
-            log("=" * 60)
+    save_active_port(port)
 
-            cmd = [
-                str(venv_python), "-u", "-m", "uvicorn",
-                SERVER_MODULE,
-                "--host", "127.0.0.1",
-                "--port", str(port),
-            ]
-            if os.environ.get("EDUSENSE_RELOAD", "").lower() in ("1", "true"):
-                cmd.append("--reload")
+    log("=" * 60)
+    log("  EduSense AI Education Platform - Backend")
+    log(f"  Port:     http://localhost:{port}")
+    log(f"  API Docs: http://localhost:{port}/docs")
+    log(f"  Health:   http://localhost:{port}/health")
+    log(f"  Python:   {venv_python}")
+    log("=" * 60)
 
-            result = subprocess.run(cmd)
-            if result.returncode == 0:
-                log("[LAUNCHER] Server exited normally.")
-                sys.exit(0)
-            log(f"[LAUNCHER] Server exited with code {result.returncode} (Attempt {attempt}/{MAX_RETRIES})")
-            time.sleep(2)
-        except Exception as e:
-            log(f"[LAUNCHER ERROR] Attempt {attempt}/{MAX_RETRIES} failed: {e}")
-            time.sleep(2)
+    cmd = [
+        str(venv_python), "-u", "-m", "uvicorn",
+        SERVER_MODULE,
+        "--host", "127.0.0.1",
+        "--port", str(port),
+    ]
+    # A delivered app restarts on demand, not on every file save. Reload is opt-in.
+    if os.environ.get("EDUSENSE_RELOAD", "").lower() in ("1", "true"):
+        cmd.append("--reload")
+
+    result = subprocess.run(cmd)
+    if result.returncode == 0:
+        log("[LAUNCHER] Server exited normally.")
+        sys.exit(0)
 
     log("\n" + "!" * 60)
-    log("FATAL: Backend server failed to start after 3 attempts.")
+    log(f"[LAUNCHER] Server exited with code {result.returncode}. Port stays {port} (no silent port change).")
     log("Troubleshooting steps:")
-    log("1. Check Windows Firewall or security software blocking python.exe socket bindings.")
+    log("1. Read the error lines printed above this banner (they are the exact reason).")
     log("2. Run 'python -m app.tools.doctor' to diagnose environment, DB, and dependencies.")
     log("3. Check for zombie python processes: tasklist | findstr python")
+    log("4. Check Windows Firewall or security software blocking python.exe socket bindings.")
     log("!" * 60)
-    sys.exit(1)
+    sys.exit(result.returncode or 1)
 
 
 if __name__ == "__main__":

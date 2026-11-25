@@ -90,7 +90,7 @@ def log_llm_call(
         prompt: Full prompt sent to LLM
         response: Full response from LLM
         duration_ms: Call duration in milliseconds
-        model_used: Model identifier (e.g., "gemini-2.5-flash", "ollama:mistral", "template")
+        model_used: Model identifier (e.g., "llama3.2", "ollama:mistral", "template")
         subject: Academic subject context
         grade_level: Grade level context
         topic: Topic being processed
@@ -130,7 +130,7 @@ class LLMAuditContext:
     Usage:
         with LLMAuditContext("LessonGenerationAgent", "generate", subject="Biology", grade_level="10") as ctx:
             response = llm.generate(prompt)
-            ctx.set_response(response, model_used="gemini-2.5-flash")
+            ctx.set_response(response, model_used="provider-default")
     """
 
     def __init__(

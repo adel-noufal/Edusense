@@ -1,4 +1,6 @@
-const API_URL = import.meta.env.VITE_API_URL || '/api'
+// Single source of truth for the backend address. VITE_API_URL may override it
+// (frontend/.env.local is written by the launcher with the fixed port).
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace(/\/$/, '')
 
 export function token() {
   return localStorage.getItem('edusense_token')
@@ -87,14 +89,14 @@ export async function api(path, options = {}) {
     if (error instanceof TypeError && /Failed to fetch|NetworkError/i.test(error.message)) {
       const targetDesc = API_URL.startsWith('http') ? API_URL : `${window.location.origin}/api`
       notifyBackendStatus(false, `Cannot reach backend at ${targetDesc}`)
-      throw new Error(`Cannot reach the backend server at ${targetDesc}. Run start-backend.bat or start-all.bat.`)
+      throw new Error(`Cannot reach the backend server at ${targetDesc}. Run start-all.bat.`)
     }
     throw error
   }
 }
 
 export function staticUrl(path) {
-  const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/api\/?$/, '')
+  const base = API_URL.replace(/\/api\/?$/, '')
   return `${base}${path.startsWith('/') ? path : `/${path}`}`
 }
 

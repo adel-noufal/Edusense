@@ -5,10 +5,7 @@
       "kind": "gemini",
       "base_url": "https://generativelanguage.googleapis.com/v1beta",
       "auth_style": "query_param",
-      "default_models": [
-        "gemini-2.5-flash",
-        "gemini-2.5-pro"
-      ]
+      "default_models": []
     },
     "groq": {
       "name": "groq",
@@ -80,48 +77,6 @@
   },
   "model_profiles": {
     "gemini": {
-      "gemini-2.5-flash": {
-        "context_window": 1048576,
-        "max_output_tokens": 8192,
-        "speed": "high",
-        "arabic_quality": "high",
-        "json_reliability": "high",
-        "streaming": true,
-        "free_rpm": 15,
-        "free_rpd": 1500,
-        "free_tpm": 1000000,
-        "cost": "free",
-        "may_train_on_data": false,
-        "free_tier": true
-      },
-      "gemini-2.5-flash-lite": {
-        "context_window": 1048576,
-        "max_output_tokens": 8192,
-        "speed": "ultra",
-        "arabic_quality": "medium-high",
-        "json_reliability": "high",
-        "streaming": true,
-        "free_rpm": 30,
-        "free_rpd": 1500,
-        "free_tpm": 1000000,
-        "cost": "free",
-        "may_train_on_data": false,
-        "free_tier": true
-      },
-      "gemini-2.0-flash": {
-        "context_window": 1048576,
-        "max_output_tokens": 8192,
-        "speed": "high",
-        "arabic_quality": "high",
-        "json_reliability": "high",
-        "streaming": true,
-        "free_rpm": 15,
-        "free_rpd": 1500,
-        "free_tpm": 1000000,
-        "cost": "deprecated",
-        "may_train_on_data": false,
-        "free_tier": false
-      },
       "gemini-flash-latest": {
         "context_window": 1048576,
         "max_output_tokens": 8192,
@@ -135,20 +90,6 @@
         "cost": "experiencing_spikes",
         "may_train_on_data": false,
         "free_tier": false
-      },
-      "gemini-2.5-pro": {
-        "context_window": 2097152,
-        "max_output_tokens": 8192,
-        "speed": "medium",
-        "arabic_quality": "high",
-        "json_reliability": "high",
-        "streaming": true,
-        "free_rpm": 2,
-        "free_rpd": 50,
-        "free_tpm": 32000,
-        "cost": "free",
-        "may_train_on_data": false,
-        "free_tier": true
       }
     },
     "groq": {

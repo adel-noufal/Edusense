@@ -5,10 +5,11 @@ import { api, staticUrl } from '../services/api'
 import { formatTime } from '../services/time'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
+import { analyseFrame, cameraErrorMessage, smoothEmotion } from '../services/faceEmotion'
 
 export default function LiveSessionRoom() {
   const { sessionId } = useParams()
-  const { user } = useAuth()
+  const { user, hasConsent } = useAuth()
   const { t } = useLanguage()
   const navigate = useNavigate()
   const isInstructor = user?.role === 'instructor'
@@ -35,6 +36,9 @@ export default function LiveSessionRoom() {
   const camStream = useRef(null)
   const shareInterval = useRef(null)
   const emotionInterval = useRef(null)
+  const emotionHistory = useRef([])
+  const lastEmotionLog = useRef(0)
+  const camError = useRef('')
 
   async function fetchSession() {
     try {
@@ -179,14 +183,31 @@ export default function LiveSessionRoom() {
 
   async function performFrameAnalysis() {
     if (!localVideo.current || !camStream.current) return null
-    const canvas = document.createElement('canvas')
-    canvas.width = 480
-    canvas.height = 360
-    canvas.getContext('2d').drawImage(localVideo.current, 0, 0, 480, 360)
-    return await api('/emotions/analyze', {
-      method: 'POST',
-      body: { session_id: Number(sessionId), image: canvas.toDataURL('image/jpeg') },
-    })
+    // Recognition happens on this device; only the label is sent to the API.
+    const raw = await analyseFrame(localVideo.current)
+    const smoothed = smoothEmotion(emotionHistory.current, raw)
+    emotionHistory.current = smoothed.history
+    const frame = smoothed.frame
+
+    if (frame.status === 'result' && !frame.uncertain) {
+      const now = Date.now()
+      if (hasConsent('emotion_detection') && now - lastEmotionLog.current >= 2000) {
+        lastEmotionLog.current = now
+        api('/emotions/event', {
+          method: 'POST',
+          body: {
+            session_id: Number(sessionId),
+            emotion: frame.emotion,
+            confidence: frame.confidence,
+            timestamp: new Date().toISOString(),
+          },
+        }).catch(() => {})
+      }
+      return { emotion: frame.emotion, confidence: frame.confidence }
+    }
+    if (frame.status === 'too_dark') return { emotion: 'too dark', confidence: 0 }
+    if (frame.status === 'no_face') return { emotion: 'no face', confidence: 0 }
+    return null
   }
 
   async function captureSinglePhoto() {
@@ -222,12 +243,25 @@ export default function LiveSessionRoom() {
       }
       return
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-    camStream.current = stream
-    if (localVideo.current) localVideo.current.srcObject = stream
-    setCamOn(true)
-    if (!isInstructor && captureMode === 'continuous') {
-      startEmotionMonitoring('continuous')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      })
+      camStream.current = stream
+      if (localVideo.current) {
+        localVideo.current.srcObject = stream
+        await localVideo.current.play().catch(() => {})
+      }
+      setCamOn(true)
+      setError('')
+      if (!isInstructor && captureMode === 'continuous') {
+        startEmotionMonitoring('continuous')
+      }
+    } catch (err) {
+      const mapped = cameraErrorMessage(err)
+      camError.current = mapped.message
+      setError(mapped.message)
     }
   }
 

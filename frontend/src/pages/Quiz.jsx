@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
 import { ConsentModal } from '../components/ConsentModal'
+import { analyseFrame } from '../services/faceEmotion'
 
 const WATERMARK_OPACITY = 0.08
 const VIOLATION_CHECK_INTERVAL = 500
@@ -313,29 +314,21 @@ export default function Quiz() {
     if (!cameraMonitoring || !cameraActive) return
 
     const detectFace = async () => {
-      if (!videoRef.current || !canvasRef.current) return
-
-      const video = videoRef.current
-      const canvas = canvasRef.current
-      const ctx = canvas.getContext('2d')
-
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-      // Send frame to backend for emotion/face detection
-      // Reusing the emotion pipeline endpoint
+      if (!videoRef.current) return
       try {
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.5)
-        // Only send periodically to avoid overload
-        if (Math.random() < 0.1) { // ~10% of frames
-          await api('/emotion/frame', {
+        // Face presence is detected in this browser tab; only the verdict and
+        // label are sent, no image.
+        const frame = await analyseFrame(videoRef.current)
+        if (Math.random() < 0.5) { // ~1 report every 4 s
+          await api('/emotions/event', {
             method: 'POST',
             body: {
               session_id: quiz.session_id,
-              image: dataUrl,
               quiz_monitoring: true,
-              attempt_id: attempt.id
+              attempt_id: attempt.id,
+              face_detected: frame.status === 'result',
+              emotion: frame.status === 'result' ? frame.rawEmotion || frame.emotion : null,
+              confidence: frame.status === 'result' ? frame.confidence : 0,
             }
           })
         }

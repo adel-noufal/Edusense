@@ -176,3 +176,7 @@ backend/scratch/
 *.docx
 *.mp4
 *.srt
+
+# Verification artefacts
+*.y4m
+backend/logs/

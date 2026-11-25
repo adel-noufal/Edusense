@@ -41,14 +41,21 @@ def test_find_free_port_skips_an_occupied_port():
         held.close()
 
 
-def test_port_zero_and_negative_are_never_requested(monkeypatch):
-    # Only the resolution is asserted here: calling find_free_port(8000) would
-    # stop a running dev API, which a test must never do.
+def test_port_resolution_is_one_fixed_port(monkeypatch):
+    # Contract: EDUSENSE_PORT (backend/.env or process env) is the single port;
+    # a bare inherited PORT is ignored (that is where PORT=0 came from), and an
+    # invalid value falls back to 8000 instead of a random port.
+    monkeypatch.setattr(launcher, "_dotenv_port", lambda: "")
     monkeypatch.setenv("PORT", "0")
     assert launcher.preferred_port() == 8000
-    monkeypatch.setenv("PORT", "-5")
-    assert launcher.preferred_port() == 8000
-    monkeypatch.setenv("PORT", "not-a-port")
-    assert launcher.preferred_port() == 8000
     monkeypatch.setenv("PORT", "8100")
+    assert launcher.preferred_port() == 8000  # bare PORT never changes the port
+
+    monkeypatch.setenv("EDUSENSE_PORT", "0")
+    assert launcher.preferred_port() == 8000
+    monkeypatch.setenv("EDUSENSE_PORT", "-5")
+    assert launcher.preferred_port() == 8000
+    monkeypatch.setenv("EDUSENSE_PORT", "not-a-port")
+    assert launcher.preferred_port() == 8000
+    monkeypatch.setenv("EDUSENSE_PORT", "8100")
     assert launcher.preferred_port() == 8100

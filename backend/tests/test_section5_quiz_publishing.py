@@ -113,7 +113,10 @@ def test_section5():
     quiz_data = r_create.json()
     quiz_id = quiz_data["id"]
 
-    due = "2026-11-25T18:00:00Z"
+    # Relative deadline: a hardcoded date turned this into a time bomb that
+    # failed every run after that hour ("This exam is past its due date.").
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    due = (_dt.now(_tz.utc) + _td(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     publish_payload = {
         "session_id": session.id,
         "time_limit_seconds": 3600,

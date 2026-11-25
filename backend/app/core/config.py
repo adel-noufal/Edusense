@@ -17,13 +17,15 @@ class Settings(BaseSettings):
     access_token_minutes: int = 1440
     engagement_threshold: int = 62
     allow_paid_models: bool = Field(default=False, validation_alias=AliasChoices("ALLOW_PAID_MODELS", "allow_paid_models"))
-    ai_provider: str = "gemini"
+    ai_provider: str = "auto"
     gemini_api_key: str = Field(
         default="",
         validation_alias=AliasChoices("GEMINI_API_KEY", "EDUSENSE_GEMINI_API_KEY", "gemini_api_key")
     )
+    # Empty by default: the model is chosen from the key's live catalog, never
+    # from a hardcoded (possibly retired) name.
     gemini_model: str = Field(
-        default="gemini-2.5-flash",
+        default="",
         validation_alias=AliasChoices("GEMINI_MODEL", "EDUSENSE_GEMINI_MODEL", "gemini_model")
     )
     # Ordered model fallback chains (comma-separated). Task-specific chains
@@ -78,12 +80,14 @@ class Settings(BaseSettings):
 
     # ── Reports ───────────────────────────────────────────────────────────────
     # Minimum data before AI insights/scores are generated
+    # A short class (10-15 min) must still get an analysis: 3 real samples and
+    # half a minute of attendance are enough to show measured data.
     report_min_emotion_samples: int = Field(
-        default=10,
+        default=3,
         validation_alias=AliasChoices("REPORT_MIN_EMOTION_SAMPLES", "EDUSENSE_REPORT_MIN_EMOTION_SAMPLES", "report_min_emotion_samples")
     )
     report_min_attended_minutes: float = Field(
-        default=2.0,
+        default=0.5,
         validation_alias=AliasChoices("REPORT_MIN_ATTENDED_MINUTES", "EDUSENSE_REPORT_MIN_ATTENDED_MINUTES", "report_min_attended_minutes")
     )
     report_min_participants: int = Field(
@@ -105,8 +109,11 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434/api/generate"
     ollama_model: str = "llama3.2"
     ollama_model_translation: str = "qwen2.5"
-    ollama_model_lesson: str = "mistral"
-    ollama_model_quiz: str = "llama3.1"
+    # llama3.2 is the default local model for every feature: it is the only one
+    # that answers in tens of seconds on a 4 GB GPU. mistral / llama3.1 / qwen2.5
+    # stay selectable and are labelled "slow on this PC" in the UI.
+    ollama_model_lesson: str = "llama3.2"
+    ollama_model_quiz: str = "llama3.2"
     ollama_model_flashcard: str = "llama3.2"
 
     # RAG Search Settings
@@ -133,6 +140,13 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("TAVILY_API_KEY", "EDUSENSE_TAVILY_API_KEY", "tavily_api_key")
     )
     frontend_url: str = "http://localhost:5173"
+
+    # HTTP request guard: a stuck provider call is cut off instead of hanging
+    # the browser tab. Long background generations are jobs, not requests.
+    request_timeout_seconds: int = Field(
+        default=300,
+        validation_alias=AliasChoices("REQUEST_TIMEOUT_SECONDS", "EDUSENSE_REQUEST_TIMEOUT_SECONDS", "request_timeout_seconds")
+    )
 
     # Security: Disable default/demo accounts in production
     disable_default_accounts: bool = Field(

@@ -124,13 +124,14 @@ def run_doctor():
         port_8000_open = True
         check("Port 8000", True, "127.0.0.1:8000 is open and ready to bind")
     except Exception as e:
-        # Check if fallback port is available
-        from app.tools.launcher import find_free_port
-        try:
-            alt_port = find_free_port(8001)
-            check("Port 8000", True, f"Port 8000 busy/reserved; fallback port {alt_port} is bindable and will be used automatically")
-        except Exception as e2:
-            check("Port 8000", False, f"Cannot bind on 8000 ({e}) or any fallback ({e2})", "taskkill /F /IM python.exe")
+        # One fixed port: report the real reason instead of inventing a fallback.
+        check(
+            "Port 8000",
+            False,
+            f"Port 8000 is busy ({e}). The launcher will stop a stale EduSense server, "
+            "otherwise it stops with this reason instead of moving to another port.",
+            "netstat -ano | findstr :8000  (or set EDUSENSE_PORT in backend/.env)",
+        )
 
     # 6. ffmpeg
     try:

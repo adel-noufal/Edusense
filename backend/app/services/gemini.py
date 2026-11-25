@@ -61,6 +61,18 @@ class _PairState:
     last_error: str = ""
 
 
+def discovered_gemini_models() -> list[str]:
+    """Models this installation's Gemini key(s) actually answered during the
+    cached live probe (see app.services.model_discovery)."""
+    try:
+        from app.services.model_discovery import load_cache
+
+        cached = load_cache() or {}
+        return [m for m in (cached.get("working") or {}).get("gemini", []) if m]
+    except Exception:
+        return []
+
+
 class GeminiRotator:
     """
     Thread-safe rotator over (api_key, model) pairs.
@@ -126,8 +138,11 @@ class GeminiRotator:
         primary = primary.strip()
         if primary and primary not in chain:
             chain.insert(0, primary)
-        # Sane defaults — current stable Gemini IDs; dedup, keep order
-        for m in ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"):
+        # No hardcoded model names: the live, probed catalog decides, so a
+        # retired model can never be requested from an account that no longer
+        # lists it. Without a cache the chain stays empty and the router runs
+        # discovery first.
+        for m in discovered_gemini_models():
             if m not in chain:
                 chain.append(m)
         # de-dup preserving order

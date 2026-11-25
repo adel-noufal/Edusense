@@ -64,7 +64,7 @@ export default function BackendOfflineBanner() {
         <AlertTriangle size={18} className="shrink-0 text-amber-100" />
         <span>
           Backend server is offline or unreachable{targetUrl ? ` (${targetUrl})` : ''}.
-          Please run <code className="rounded bg-amber-600/70 px-1 py-0.5 text-amber-50">start-backend.bat</code> or <code className="rounded bg-amber-600/70 px-1 py-0.5 text-amber-50">start-all.bat</code>.
+          Please run <code className="rounded bg-amber-600/70 px-1 py-0.5 text-amber-50">start-all.bat</code>.
         </span>
       </div>
       <button

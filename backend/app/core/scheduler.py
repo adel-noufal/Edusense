@@ -11,7 +11,15 @@ from app.services.email import send_session_reminder_email
 logger = logging.getLogger("app.core.scheduler")
 settings = get_settings()
 
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(
+    job_defaults={
+        # One slow run (large DB, email timeout) must not queue up misses and
+        # make APScheduler print "job was missed by 42s" warnings.
+        "coalesce": True,
+        "max_instances": 1,
+        "misfire_grace_time": 55,
+    }
+)
 
 async def check_upcoming_sessions():
     """
@@ -93,11 +101,19 @@ async def check_upcoming_sessions():
 
 def start_scheduler():
     try:
-        scheduler.add_job(check_upcoming_sessions, 'interval', minutes=1)
+        if scheduler.running:
+            return
+        scheduler.add_job(
+            check_upcoming_sessions,
+            'interval',
+            minutes=1,
+            id="session-reminders",
+            replace_existing=True,
+        )
         scheduler.start()
-        print("APScheduler background task started.")
+        logger.info("APScheduler background task started (session reminders, 1 min).")
     except Exception as e:
-        print(f"APScheduler note: {e}")
+        logger.warning("APScheduler did not start: %s", e)
 
 def shutdown_scheduler():
     try:

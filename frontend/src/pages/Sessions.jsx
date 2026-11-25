@@ -55,7 +55,17 @@ export default function Sessions() {
         api('/ai/generations'),
       ])
       setSessions(Array.isArray(sessionData) ? sessionData : [])
-      setAvailableGenerations(Array.isArray(generationsData) ? generationsData : [])
+      // The generations endpoint can repeat the same id; duplicated <option>
+      // keys made React warn and could drop options from the dropdown.
+      const seenGenerations = new Set()
+      const uniqueGenerations = []
+      for (const gen of (Array.isArray(generationsData) ? generationsData : [])) {
+        if (gen && !seenGenerations.has(gen.id)) {
+          seenGenerations.add(gen.id)
+          uniqueGenerations.push(gen)
+        }
+      }
+      setAvailableGenerations(uniqueGenerations)
     } catch (err) {
       setError(err.message)
       setSessions([])

@@ -1251,7 +1251,7 @@ def available_models(user: User = Depends(get_current_user)):
     llm.router._ensure_ollama()
     ollama_up = bool(llm.router.provider_keys("ollama"))
     healthy = [
-        {"provider": "auto", "model": "auto", "label": "Auto (best free model)"}
+        {"provider": "auto", "model": "auto", "label": "Auto (best working model)", "group": "auto"}
     ]
     seen: set[tuple[str, str]] = set()
 
@@ -1268,7 +1268,9 @@ def available_models(user: User = Depends(get_current_user)):
                 "label": f"ollama: {model}",
                 "free_tier": True,
                 "is_local": True,
+                "group": "offline",
                 "badge": "Offline",
+                "slow": not model.lower().startswith("llama3.2"),
             })
             continue
 
@@ -1295,6 +1297,7 @@ def available_models(user: User = Depends(get_current_user)):
                 "model": model,
                 "label": f"{provider}: {model}",
                 "free_tier": True,
+                "group": "online",
                 "badge": profile.get("badge") or "Free",
                 "task": profile.get("task"),
                 "speed": profile.get("speed"),

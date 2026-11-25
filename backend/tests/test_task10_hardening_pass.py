@@ -141,8 +141,8 @@ def test_generate_content_rotates_on_invalid_key(monkeypatch):
 
     llm.router.reset()
     monkeypatch.setattr(llm.router, "candidates", lambda **kwargs: [
-        ("gemini", 0, "BAD_KEY_1", "gemini-2.5-flash"),
-        ("gemini", 1, "GOOD_KEY_2", "gemini-2.5-flash"),
+        ("gemini", 0, "BAD_KEY_1", "test-model-a"),
+        ("gemini", 1, "GOOD_KEY_2", "test-model-a"),
     ])
 
     calls = []
@@ -159,7 +159,7 @@ def test_generate_content_rotates_on_invalid_key(monkeypatch):
         assert response == "Success from key 2"
         assert [c[1] for c in calls] == ["BAD_KEY_1", "GOOD_KEY_2"]
         # The bad pair is now in cooldown and must not be retried next time.
-        assert llm.router._states[("gemini", 0, "gemini-2.5-flash")].cooldown_until > 0
+        assert llm.router._states[("gemini", 0, "test-model-a")].cooldown_until > 0
     finally:
         llm.router.reset()
 

@@ -1,14 +1,26 @@
+import asyncio
+import logging
 import os
+import time
+import uuid
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 from app.api import admin, ai, assignments, auth, emotions, quizzes, rag, reports, sessions, users
 from app.core.config import get_settings
 from app.core.errors import ContentGenerationUnavailable
+from app.core.logging_config import configure_logging
 from app.db.seed import init_db
 from app.core.scheduler import start_scheduler, shutdown_scheduler
+
+configure_logging()
+logger = logging.getLogger("edusense.api")
 
 settings = get_settings()
 
@@ -27,14 +39,14 @@ app = FastAPI(
     title="EduSense AI Education Platform",
     description="""
     **EduSense** is a multi-agent AI Education Platform for adaptive learning,
-    real-time webcam facial emotion recognition (PyTorch v7 EfficientNet-B0 — 90.9% Accuracy),
-    and intelligent multi-tier AI model task routing (Gemini 2.0 Flash -> Specialized Local Ollama Models).
+    in-browser facial emotion recognition (face-api.js, no image leaves the browser),
+    and intelligent multi-tier AI model task routing across live, verified providers.
 
     👤 **Author:** Adel Mohamed Noufal
     🔗 **LinkedIn:** https://www.linkedin.com/in/adel-mohamed-noufal-3a9440348/
     📦 **GitHub:** https://github.com/adel-noufal/Edusense
     """,
-    version="2.0.0",
+    version="2.1.0",
     openapi_tags=tags_metadata,
     contact={
         "name": "Adel Mohamed Noufal",
@@ -55,6 +67,89 @@ async def _content_generation_unavailable(request, exc: ContentGenerationUnavail
     template, which the user saw as fabricated lesson/quiz/flashcard content.
     """
     return JSONResponse(status_code=503, content=exc.payload())
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError):
+    """Validation failures are JSON too, never Starlette's HTML page."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": jsonable_encoder(exc.errors()), "code": "validation_error"},
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_error(request: Request, exc: StarletteHTTPException):
+    """HTTP errors (404, 401, ...) always answer with a JSON body."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "code": "http_error"},
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_error(request: Request, exc: Exception):
+    """Last line of defence: an unhandled exception is logged and answered
+    with JSON 500, so the browser never receives an HTML traceback page."""
+    request_id = getattr(request.state, "request_id", "-")
+    logger.exception("Unhandled %s on %s %s [%s]", type(exc).__name__, request.method, request.url.path, request_id)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error. The failure was logged; retry the request.",
+            "code": "internal_error",
+            "request_id": request_id,
+        },
+    )
+
+
+class RequestGuardMiddleware(BaseHTTPMiddleware):
+    """Request id, hang protection and slow-request logging.
+
+    A stuck request (dead provider socket, saturated CPU) is cut off after
+    ``request_timeout_seconds`` and answered with JSON 504 instead of hanging the
+    browser tab forever. Static files and API docs are exempt.
+    """
+
+    EXEMPT_PREFIXES = ("/static", "/docs", "/redoc", "/openapi.json")
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = uuid.uuid4().hex[:12]
+        request.state.request_id = request_id
+        started = time.perf_counter()
+        exempt = request.url.path.startswith(self.EXEMPT_PREFIXES)
+        timeout = float(getattr(settings, "request_timeout_seconds", 300) or 300)
+        try:
+            if exempt:
+                response = await call_next(request)
+            else:
+                response = await asyncio.wait_for(call_next(request), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.error("Request timed out after %.0fs: %s %s [%s]",
+                         timeout, request.method, request.url.path, request_id)
+            return JSONResponse(
+                status_code=504,
+                content={
+                    "detail": f"The request took longer than {int(timeout)}s and was stopped. Retry, or use a faster model.",
+                    "code": "request_timeout",
+                    "request_id": request_id,
+                },
+            )
+        except Exception as exc:  # pragma: no cover - defence in depth
+            logger.exception("Unhandled %s on %s %s [%s]", type(exc).__name__, request.method, request.url.path, request_id)
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error.", "code": "internal_error", "request_id": request_id},
+            )
+        elapsed = (time.perf_counter() - started) * 1000
+        if elapsed > 5000:
+            logger.warning("Slow request %.1fs: %s %s [%s]", elapsed / 1000, request.method, request.url.path, request_id)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+
+app.add_middleware(RequestGuardMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -125,9 +220,12 @@ def startup():
             _db.close()
     except Exception as exc:
         print(f"Startup session/job reconcile skipped: {exc}")
-    start_scheduler()
+    try:
+        start_scheduler()
+    except Exception as exc:
+        logger.warning("Scheduler did not start: %s", exc)
 
-    # C9 & P0-3: Warm up vector-store and emotion analysis agent in background threads
+    # C9 & P0-3: Warm up the live model catalog and vector store in background threads
     def _warmup_services():
         from app.services import warmup
 
@@ -158,22 +256,24 @@ def startup():
             print(f"KB warm-up skipped: {e}")
             warmup.set_status("knowledge_base", "failed", str(e)[:200])
 
-        warmup.set_status("emotion_detector", "warming")
-        try:
-            from app.agents.emotion_agent import EmotionAnalysisAgent
-            agent = EmotionAnalysisAgent()
-            agent.warm_up()
-            print("Emotion detector warm-up complete")
-            warmup.set_status("emotion_detector", "ready")
-        except Exception as e:
-            print(f"Emotion warm-up skipped: {e}")
-            warmup.set_status("emotion_detector", "failed", str(e)[:200])
+    # Emotion recognition runs in the browser (face-api.js); there is no
+    # server-side model to warm up any more. This bookkeeping must never be
+    # able to stop the server from starting.
+    try:
+        from app.services import warmup
 
-    threading.Thread(target=_warmup_services, daemon=True).start()
+        warmup.set_status("emotion_detector", "ready", "in-browser (face-api.js)")
+    except Exception as exc:
+        logger.warning("Warm-up status could not be published: %s", exc)
+
+    threading.Thread(target=_warmup_services, daemon=True, name="edusense-warmup").start()
 
 @app.on_event("shutdown")
 def shutdown():
-    shutdown_scheduler()
+    try:
+        shutdown_scheduler()
+    except Exception:
+        pass
 
 
 @app.get("/health")
@@ -189,16 +289,15 @@ def health():
         gemini_hint = "Get a key from aistudio.google.com (starts with AIza or AQ.)"
     db_kind = "postgresql" if "postgresql" in settings.database_url else "sqlite"
 
-    # Check Ollama connectivity (non-blocking)
+    # Check Ollama connectivity (short timeout: /health must always answer fast)
     ollama_reachable = False
-    if settings.ai_provider == "ollama":
-        import urllib.request
-        try:
-            base = settings.ollama_url.replace("/api/generate", "")
-            with urllib.request.urlopen(f"{base}/api/tags", timeout=2):
-                ollama_reachable = True
-        except Exception:
-            ollama_reachable = False
+    import urllib.request
+    try:
+        base = settings.ollama_url.replace("/api/generate", "")
+        with urllib.request.urlopen(f"{base}/api/tags", timeout=1.5):
+            ollama_reachable = True
+    except Exception:
+        ollama_reachable = False
 
     from app.services import warmup
 

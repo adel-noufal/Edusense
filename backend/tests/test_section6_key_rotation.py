@@ -104,7 +104,7 @@ def test_section6():
             ["K1", "K2"], model="gemini-primary")):
         chain = r.model_chain("chat")
         check("3.1 Primary configured model leads the chain", chain[0] == "gemini-primary", f"Got: {chain}")
-        check("3.2 Default fallback models appended", "gemini-2.5-flash" in chain and "gemini-flash-latest" in chain, f"Got: {chain}")
+        check("3.2 No retired Gemini model is hardcoded", not any("2.5" in m for m in chain), f"Got: {chain}")
         check("3.3 Chain has no duplicates", len(chain) == len(set(chain)), f"Got: {chain}")
 
         pairs = list(r.iter_pairs(["m1", "m2"]))

@@ -81,7 +81,7 @@ def _build_provider_specs() -> dict[str, ProviderSpec]:
             name="gemini", kind="gemini",
             base_url="https://generativelanguage.googleapis.com/v1beta",
             auth_style="query_param",
-            default_models=("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest", "gemini-2.5-pro"),
+            default_models=(),  # live catalog only: see model_discovery
         ),
         "groq": ProviderSpec(
             name="groq", kind="openai",
@@ -776,9 +776,9 @@ class LLMRouter:
         "kb_chat": ("llama3.2", "llama3.1", "qwen2.5", "mistral"),
         "prompt_enhance": ("llama3.2", "llama3.1", "qwen2.5", "mistral"),
         "flashcards": ("llama3.2", "llama3.1", "qwen2.5", "mistral"),
-        "quizzes": ("llama3.1", "llama3.2", "qwen2.5", "mistral"),
-        "exams": ("llama3.1", "llama3.2", "qwen2.5", "mistral"),
-        "video_script": ("mistral", "qwen2.5", "llama3.1", "llama3.2"),
+        "quizzes": ("llama3.2", "llama3.1", "qwen2.5", "mistral"),
+        "exams": ("llama3.2", "llama3.1", "qwen2.5", "mistral"),
+        "video_script": ("llama3.2", "mistral", "qwen2.5", "llama3.1"),
     }
 
     def _ollama_order(self, models: list[str], task: str, language: str | None = None) -> list[str]:

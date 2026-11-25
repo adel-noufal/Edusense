@@ -38,6 +38,9 @@ const styles = [
 const difficulties = ['Easy', 'Medium', 'Hard']
 const FALLBACK_AI_MODELS = ['Gemini (Internet Required)', 'Local Ollama - Mistral / Llama 3.2 (Offline)']
 let cachedModelOptions = null
+// label -> { group: 'online' | 'offline' | 'auto', slow } for the grouped dropdown
+let cachedModelMeta = {}
+let modelMeta = {}
 
 /** Fetch the backend's currently-healthy model list once; fall back to static labels. */
 function useAiModelOptions() {
@@ -50,9 +53,14 @@ function useAiModelOptions() {
     let cancelled = false
     api('/ai/available-models')
       .then((data) => {
-        const labels = (data?.models || []).map((m) => m.label).filter(Boolean)
+        const models = data?.models || []
+        const labels = models.map((m) => m.label).filter(Boolean)
         if (labels.length) {
           cachedModelOptions = labels
+          cachedModelMeta = Object.fromEntries(
+            models.filter((m) => m.label).map((m) => [m.label, { group: m.group || 'online', slow: Boolean(m.slow) }])
+          )
+          modelMeta = cachedModelMeta
           if (!cancelled) setOptions(labels)
         }
       })
@@ -1308,11 +1316,30 @@ function Field({ label, value, onChange, type = 'text', textarea = false }) {
 }
 
 function SelectField({ label, value, options, onChange }) {
+  // Model dropdown: "Online — cloud" vs "Offline — runs on this PC", each option
+  // carries a status dot, and slow local models say so.
+  const groups = { auto: [], online: [], offline: [] }
+  options.forEach((option) => {
+    const meta = modelMeta[option] || {}
+    const group = meta.group === 'offline' ? 'offline' : meta.group === 'auto' ? 'auto' : 'online'
+    groups[group].push(option)
+  })
+  const renderOptions = (list) => list.map((option) => {
+    const meta = modelMeta[option] || {}
+    const dot = meta.group === 'offline' ? '🔵' : meta.group === 'auto' ? '⚪' : '🟢'
+    return (
+      <option key={option} value={option}>
+        {dot} {option}{meta.slow ? ' — slow on this PC' : ''}
+      </option>
+    )
+  })
   return (
     <label className="space-y-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
       <span>{label}</span>
       <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+        {groups.auto.length > 0 && <optgroup label="Automatic">{renderOptions(groups.auto)}</optgroup>}
+        {groups.online.length > 0 && <optgroup label="Online — cloud">{renderOptions(groups.online)}</optgroup>}
+        {groups.offline.length > 0 && <optgroup label="Offline — runs on this PC">{renderOptions(groups.offline)}</optgroup>}
       </select>
     </label>
   )
@@ -1353,7 +1380,9 @@ function LessonResult({ result, request }) {
       {/* ── Download Bar ── */}
       <DownloadBar
         items={[
-          { label: 'Word (.doc)', onClick: () => downloadLessonAsDoc(lesson, `${slug}.doc`) },
+          // A real .docx from the server (python-docx), generated from the same
+          // stored lesson JSON shown above.
+          { label: 'Word (.docx)', onClick: () => postDownload('/ai/export/docx', { title: lesson?.topic || 'Lesson', content: lesson }, `${slug}.docx`) },
           { label: 'PowerPoint (.pptx)', onClick: () => postDownload('/ai/export/pptx', { title: lesson?.topic || 'Lesson', content: lesson }, `${slug}.pptx`) },
           { label: 'PDF (.pdf)', onClick: () => postDownload('/ai/export/pdf', { title: lesson?.topic || 'Lesson', content: lesson }, `${slug}.pdf`) },
           { label: 'HTML (.html)', onClick: () => downloadLessonAsHtml(lesson, `${slug}.html`) },
