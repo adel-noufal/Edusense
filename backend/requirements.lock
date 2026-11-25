@@ -1,7 +1,8 @@
 # Reproducible dependency lock generated from the verified delivery environment
 # (Python 3.13, Windows). Install with: pip install -r requirements.lock
 # Face detection and emotion recognition run in the browser, so the old
-# server-side TensorFlow / DeepFace / Torch wheels are not required.
+# server-side TensorFlow / DeepFace wheels are not required. Torch is still
+# required by sentence-transformers, which builds the local RAG embeddings.
 
 absl-py==2.5.0
 aiohappyeyeballs==2.7.1
@@ -164,6 +165,7 @@ termcolor==3.3.0
 threadpoolctl==3.7.0
 tiktoken==0.14.0
 tokenizers==0.23.2
+torch==2.14.1
 tqdm==4.70.1
 transformers==5.17.0
 truststore==0.10.4

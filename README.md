@@ -23,29 +23,6 @@ The API is always on **one fixed port** (`EDUSENSE_PORT` in `backend/.env`, defa
 If 8000 is busy the launcher stops a stale EduSense server, and otherwise exits with the
 exact reason instead of silently moving the API to another port.
 
-### First run needs internet once, then offline
-
-The first `start-all.bat` run downloads the pinned Python packages, `npm install`, and the
-local embedding model (`all-MiniLM-L6-v2`, cached in `backend\data\models`). After that the
-launcher skips pip whenever `requirements.lock` is unchanged (its SHA256 is stored in
-`backend\.venv\.deps-ok`), so later starts take seconds.
-
-To run with **no internet**, create an empty file named `OFFLINE` next to `start-all.bat`
-(or set `EDUSENSE_OFFLINE=1`). The launcher then sets `HF_HUB_OFFLINE`, `TRANSFORMERS_OFFLINE`
-and `PIP_NO_INDEX` for every child window: nothing is downloaded, and a start that still has
-all packages simply works. If the packages or the embedding model were never downloaded, the
-launcher or the Knowledge Base says so instead of hanging.
-
-Still needs the internet: web-search citations, cloud AI providers, and video narration
-(Google TTS). Lessons, quizzes, flashcards, chatbot, RAG and emotions all run locally
-with Ollama (`llama3.2`) and show “generated with llama3.2”.
-
-To move the project to an offline PC, copy the whole folder **including** `backend\.venv`,
-`backend\data` (chroma + models) and `frontend\node_modules`. Python virtual environments
-contain absolute paths, so if the copied folder lives at a different path, run
-`start-all.bat` once online on the new machine: it detects the broken environment, rebuilds
-it and keeps your data.
-
 ## Features
 
 **Instructor**
