@@ -162,3 +162,20 @@ No timed rehearsal, no `.webm`.
 ### 9. Gate / tag / push
 
 `logs/demo-gate3.log` holds the gate run of this final tree. Tag `demo-final` and the push are reported in the final message, not assumed here.
+
+### Checked directly against the running API in this window
+
+| Endpoint | Result |
+|---|---|
+| `GET /api/reports/sessions/19/export.csv` | 200, `text/csv; charset=utf-8`, 889 bytes, **UTF-8 BOM present** (`EF BB BF`) — Excel will open it with correct accents |
+| `GET /api/ai/generations` | 200, lists the pack: id 107/106 lesson, 108 flashcard, 97–103 earlier runs |
+| `POST /api/sessions/3/join` (student) | 400 "no longer open for registration" — session 3 is ended, so it cannot be used to give the student an exam |
+| `GET /api/quizzes/student/exams` (student) | after republishing to session 19: `149 Neural Networks Master Assessment`, `147 Midterm: Quantum Gates` |
+| `GET /api/rag/engine` | `private` (Ollama), `may_train_on_data: false`, embeddings local MiniLM |
+| `/api/health` under load | returns 200 (the 000s seen mid-run were the port being held by a dead process, not an app failure); uvicorn must be started as a real background process, `nohup … &` inside a one-shot shell leaves the port dead |
+
+### Feature verdict for demo day
+
+- **GREEN, safe to demo with stored items:** lesson generation EN + AR, flashcards (8/8), quiz generation + publish-as-exam (student-visible), KB Q&A on a normal question and on a pasted passage, Reports CSV export (BOM), KB library, KB chat.
+- **YELLOW, show stored artefact only, do not generate live:** video (no new render), web chat (answer is real but has no numbered citations), lesson DOCX/PDF/PPTX (export is a second generation).
+- **RED, do not show:** emotion detection (never detects a face, times out), "page 58" page-number question (guardrail refuses).
