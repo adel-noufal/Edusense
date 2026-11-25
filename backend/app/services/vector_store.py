@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
@@ -140,12 +141,25 @@ def get_embedding_function(model_name: Optional[str] = None):
     if _embedding_function is None or model_name is not None:
         settings = get_settings()
         selected_model = model_name or settings.embedding_model
+        # Keep the model inside the project so the folder can be copied to an
+        # offline PC: SentenceTransformer honours SENTENCE_TRANSFORMERS_HOME.
+        cache_dir = Path(__file__).resolve().parents[2] / "data" / "models"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", str(cache_dir))
         try:
             embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name=selected_model
+                model_name=selected_model, cache_folder=str(cache_dir)
             )
         except Exception as exc:  # noqa: BLE001 - re-raised with guidance
             if os.environ.get("EDUSENSE_ALLOW_ONNX_EMBEDDING", "0") != "1":
+                offline = (os.environ.get("HF_HUB_OFFLINE") == "1"
+                           or os.environ.get("TRANSFORMERS_OFFLINE") == "1")
+                if offline or "connect" in str(exc).lower() or "offline" in str(exc).lower():
+                    raise RuntimeError(
+                        f"Embedding model {selected_model!r} is not cached; connect once to "
+                        "download it (start-all.bat does this), then the Knowledge Base "
+                        "works offline."
+                    ) from exc
                 raise RuntimeError(
                     "The sentence-transformers embedding function could not be loaded "
                     f"({type(exc).__name__}: {exc}). The Knowledge Base collection was index"

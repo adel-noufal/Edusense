@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -504,6 +505,11 @@ def _gtts_scene(text: str, out_path: Path, lang: str = "en") -> bool:
 def _gtts_scene_timed(text: str, out_path: Path, lang: str, timeout: float) -> tuple[bool, str | None]:
     """Run gTTS with a hard timeout; returns (ok, error_message).
     shutdown(wait=False) so a hung worker thread cannot block the request."""
+    if os.environ.get("EDUSENSE_OFFLINE") == "1" or os.environ.get("HF_HUB_OFFLINE") == "1":
+        return False, (
+            "Narration needs internet (Google TTS). Connect once to generate the voice "
+            "track, or remove the OFFLINE file for this run."
+        )
     pool = ThreadPoolExecutor(max_workers=1)
     try:
         fut = pool.submit(_gtts_scene, text, out_path, lang)
@@ -513,7 +519,13 @@ def _gtts_scene_timed(text: str, out_path: Path, lang: str, timeout: float) -> t
         except FuturesTimeout:
             return False, f"TTS timed out after {timeout:.0f}s"
         except Exception as exc:
-            return False, str(exc)[:200]
+            message = str(exc)[:200]
+            if any(word in message.lower() for word in ("getaddrinfo", "connection", "network", "timed out")):
+                message = (
+                    "Narration needs internet (Google TTS) and the connection failed. "
+                    "Connect once, or generate the video without narration."
+                )
+            return False, message
     finally:
         pool.shutdown(wait=False)
 
