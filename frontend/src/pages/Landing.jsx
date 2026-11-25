@@ -54,7 +54,7 @@ export default function Landing() {
       </header>
 
       <section className="relative overflow-hidden hero-shimmer">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1523580846011-d3a5bc25702b?auto=format&fit=crop&w=1800&q=80')] bg-cover bg-center scale-105 transition-transform duration-[2s] ease-out" />
+        <div className="absolute inset-0 bg-[url('/images/landing-classroom.jpg')] bg-cover bg-center scale-105 transition-transform duration-[2s] ease-out" />
         <div className="absolute inset-0 bg-gradient-to-b from-slate-950/75 via-slate-950/65 to-slate-950/90" />
         <div className="hero-glow pointer-events-none absolute left-1/2 top-1/3 h-72 w-72 -translate-x-1/2 rounded-full bg-teal-400/20 blur-3xl" />
         <div className="relative mx-auto flex min-h-[72vh] max-w-6xl flex-col justify-center px-4 py-12 sm:px-6 sm:py-16 landing-hero-content">
