@@ -1,0 +1,33 @@
+{
+  "conversation_id": "web:c5154f1f-c850-417c-98bb-3bda2980ad82",
+  "kind": "web",
+  "answer": "Hello and welcome to EduSense AI! I'm glad to assist you with your question about backpropagation in neural networks.\n\nBackpropagation is a crucial technique used in neural networks to train the model and improve its performance. It works by calculating the error between the desired output and the actual output produced by the neural network. By analyzing the error, backpropagation adjusts the weights and biases, enabling the network to converge towards the optimal solution.\n\nIn the context of neural networks, backpropagation helps the network learn and adapt by:\n\n1. Calculating the error between the input and output of the neural network.\n2. Working backward from output nodes to input nodes to reduce the error and produce the desired result.\n3. Adjusting the weights and biases accordingly to improve the network's performance.\n\nFeel free to ask me more questions or discuss the topic further!",
+  "chatbot_name": "EduSense AI",
+  "sources": [],
+  "web_sources": [
+    {
+      "title": "Backpropagation in Neural Network - GeeksforGeeks",
+      "url": "https://www.geeksforgeeks.org/machine-learning/backpropagation-in-neural-network",
+      "content": "Computes gradients of the loss function with respect to each weight using the chain rule\n Updates weights and biases efficiently to reduce error\n Scales well to deep and complex neural networks\n Enables automatic learning and continuous improvement across training iterations\n\nBackpropagation-in-Neural-Network-1\n\nFig(a) A simple illustration of how the backpropagation works by adjustments of weights\n\n## Working of Back Propagation Algorithm [...] In this step, the error between predicted and actual output is propagated backward to update weights and biases. Error is calculated (e.g., using Mean Squared Error)\n\n> \\text{MSE} = (\\text{Predicted Output} - \\text{Actual Output})^2\n\n Gradients are computed using the chain rule\n Weights and biases are updated to reduce the error\n Process continues layer by layer from output to input\n Derivatives of activation functions are used to compute gradients effectively\n\n## Example [...] Backpropagation is an algorithm that trains neural networks by reducing prediction error. It works by propagating errors backward, computing gradients using the chain rule and updating weights and biases to improve performance.",
+      "score": 0.8044059
+    },
+    {
+      "title": "What is Backpropagation? | IBM",
+      "url": "https://www.ibm.com/think/topics/backpropagation",
+      "content": "These three interwoven processes—a loss function that tracks model error across different inputs, the backward propagation of that error to see how different parts of the network contribute to the error and the gradient descent algorithms that adjust model weights accordingly—are how deep learning models “learn.” As such, backpropagation is fundamental to training neural network models, from the most basic multilayer perceptrons to the complex deep neural network architectures used for [...] Abstractly speaking, the purpose of backpropagation is to train a neural network to make better predictions through supervised learning. More fundamentally, the goal of backpropagation is to determine how model weights and biases should be adjusted to minimize error as measured by a \"loss function\". [...] Short for \"backward propagation of error\", backpropagation is an elegant method to calculate how changes to any of the weights or biases of a neural network will affect the accuracy of model predictions. It’s essential to the use of supervised learning, semi-supervised learning or self-supervised learning to train neural networks.",
+      "score": 0.7900447
+    },
+    {
+      "title": "What Is Backpropagation Neural Network? | Coursera",
+      "url": "https://www.coursera.org/articles/backpropagation-neural-network",
+      "content": "Backpropagation in a neural network helps reduce errors and improve outcomes, resulting in more reliable machine responses. It's a process of analyzing errors, comparing them to the anticipated response, and re-running the model until it produces the desired outcome. The steps (shown below) mimic how the human brain learns through trial and error.\n\n1. Supply data to the network and give the weights time to work through the model. [...] Backpropagation is an algorithm used in artificial intelligence and machine learning to train artificial neural networks through error correction. The computer learns by calculating the loss function, or the difference between the input you provided and the output it produced. When you apply backpropagation, you work backward from output nodes to input nodes to reduce the loss function and produce the desired result.\n\n## What does backpropagation do in a neural network? [...] When you apply backpropagation, the computer learns by calculating the loss function, or the difference between the input you provided and the output it produced, working backward from output nodes to input nodes to reduce the loss function and produce the desired result.\n\n You can use static backpropagation in a feedforward neural network to sort or classify, and recurrent backpropagation to identify patterns and make predictions.",
+      "score": 0.7744129
+    }
+  ],
+  "mode": "online_web_only",
+  "rag_chunks_used": 0,
+  "web_results_used": 3,
+  "fallback_reason": null,
+  "provider": "groq",
+  "model": "allam-2-7b"
+}

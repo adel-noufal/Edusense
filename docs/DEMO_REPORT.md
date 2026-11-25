@@ -97,3 +97,68 @@ The 40-minute budget was spent re-establishing a running API. `netstat` showed n
 ### What is safe to show tomorrow
 
 Only what was proven before this window: login, dashboard, KB library, KB chat, lesson/quiz/flashcard generation with Gemini disabled (`logs/f1-acceptance2.log`), exam-violation contract, video-scene density by unit test, and the gate at `a5c3f30`. Everything in the list marked NOT DONE above must be presented as "not shown" rather than demonstrated live.
+
+---
+
+## Final push — measured results (25 Nov, 06:19–07:00)
+
+The first `docs/DEMO_REPORT.md` section above was written before generation ran. This section replaces its "not done" rows with what actually happened.
+
+### 1. Demo content pack — 7 of 8 items stored and real
+
+All items were generated through the live API on `127.0.0.1:8000` with `EDUSENSE_DISABLE_PROVIDERS=gemini` (Gemini was never called). Stored JSON in `docs/demo-pack/`, produced by `scripts/demo_pack.py`:
+
+| Item | Stored id | Result (`docs/demo-pack/…`) |
+|---|---|---|
+| Lesson EN "Neural Networks" | `AIGeneration` 107 (`topic` = "Mastering Neural Networks") | 5 sections, real headings: Foundations of Neural Networks · The Forward Propagation Process · Learning and Error Correction · Real-World Application: Image Classification · Practical Implementation Insight (`lesson-en.json`) |
+| Lesson AR | `AIGeneration` 106/105 | Topic "إتقان الشبكات العصبية…", 5 sections, body text is Arabic (`lesson-ar.json`) |
+| Quiz → published exam | `Quiz` 149 "Neural Networks Master Assessment" | 5 questions, 4 options each, `is_exam=True`, `is_published=True`, `session_id=19` (`quiz.json`, `quiz-exam.json`) |
+| Flashcards | `AIGeneration` 108 | **8 of 8 in one call** (`rounds=1`, `counts=[8]`) — every front is a distinct on-topic NN question (`flashcards.json`) |
+| KB Q&A 1 (normal) | `kb-q1-normal.json` | 644-char grounded answer, 5 sources incl. pages 55, 1, 51, 5, 96 of `ECU-ITAI-3-04.pdf` |
+| KB Q&A 2 (pasted passage) | `kb-q2-passage.json` | 1865-char answer explaining the Alibi Detect drift pipeline, 5 sources (pages 54, 5, 44, 41, 1) |
+| KB Q&A 3 ("page 58") | `kb-q3-page.json` | **RED** — the scope guardrail refuses: "Page numbers in documents are not typically considered part of the educational content." Sources 57/58/59 were retrieved, so retrieval works and the guardrail blocks the answer |
+| Web-chat answer | `webchat.json` | 904 chars on backpropagation, `mode=online_web_only`, `web_results_used=3`, provider `ollama`/`llama3.2:latest` — but **`sources=[]` and no `[n]` markers in the answer**, so the numbered-citation requirement is **not met** |
+
+**Exam visibility was broken and is now proven working.** Publishing to session 3 returned 200 but the student never saw the exam: the student has no `SessionRegistration` for session 3, and `/api/sessions/3/join` answers 400 "no longer open for registration" (session is ended). Republishing the same quiz to session 19 — where the student is genuinely registered — made it appear: `student/exams` → `[(149, 'Neural Networks Master Assessment', 19, 'Task 9 Quantum Computing'), (147, 'Midterm: Quantum Gates', 19, …)]`. **Lesson for the demo: publish the exam to a session the student is enrolled in, not just to "a session".**
+
+### 2. Flashcard count — GREEN
+
+The API returned 8 cards for `count=8` in a single round with no duplicates; `scripts/demo_pack.py` only refills when a response under-delivers (it asks for `missing + 2` and deduplicates by front text). The fabricated `PEDAGOGICAL_DIMENSIONS` padding path still exists for `real_sources_only=False` and is **never reached** when the model delivers, but it should be deleted: `backend/app/api/ai.py:552` does not pass the flag.
+
+### 3. Video — NOT DONE
+
+`scripts/mk-demo-video.py` (60-minute-fresh, duration 60 s, Gemini disabled) produced no output in `logs/demo-video.log` and no new `.mp4` in `backend/` within the window; the request was still blocked when the window closed. **No new video exists, no ffprobe, no contact sheet.** The 6-scene change remains proven only by `tests/test_addendum13_video_scenes.py`.
+
+### 4. Emotion — RED
+
+`backend/tests/fixtures/faces/` did not exist; three fixtures were created (`smile-generated.jpg` — a generated frontal smiling portrait, `too-dark.jpg` — the same frame at 7 % brightness, `no-face-wall.jpg` — a blank wall gradient) and `scripts/emotion_fixture_check.py` posts them to the real `POST /api/emotions/analyze-trial` as the demo student after granting `emotion_detection` consent:
+
+```
+consent: 200
+smile-generated.jpg    200 79.86s {"emotion": null, "confidence": 0.0, "face_detected": false, "hint": "timeout", "backend": "fallback"}
+too-dark.jpg           200  6.02s {"emotion": null, "confidence": 0.0, "face_detected": false, "hint": "timeout", "backend": "fallback"}
+no-face-wall.jpg       200  2.82s {"emotion": null, "confidence": 0.0, "face_detected": false, "hint": "no_face",  "backend": "fallback"}
+garbage-bytes          200       {"emotion": null, "confidence": 0.0, "face_detected": false, "hint": "bad_image","backend": "fallback"}
+```
+
+A smiling face returns **no emotion at all** — the detector times out and reports `backend: "fallback"`. The "3-second guard" inside the endpoint also did not bound the request: the smiling frame took 79.86 s wall-clock. The four hints (`timeout`, `timeout`, `no_face`, `bad_image`) are at least distinct, but "too dark" cannot be distinguished from "detector too slow", and no confidence badge can be shown because nothing is ever detected. **Do not demo emotion detection.**
+
+### 5. Lesson exports — NOT DONE
+
+`POST /api/ai/lessons/export-pptx` / `export-word` call `lessons.generate()` a second time, so the exported deck is a *different* generation from the lesson on screen. The consistent path (`POST /api/ai/export/{pptx,docx,pdf}` with a stored `content` dict) exists but the UI does not use it. No LibreOffice render was produced.
+
+### 6. YELLOW sweep — NOT DONE
+
+Sessions modal, Sources, Reports + CSV BOM, Feedback Loop Select All, student Upcoming/History and the llama3.2-only offline chat were not exercised in a browser in this window.
+
+### 7. Ollama — measured, and the 1.3 tok/s question answered
+
+`ollama ps` while generating shows `llama3.2:latest` with `size_vram=2 397 600 481` of `size=3 409 014 946` — i.e. **the GPU is used**, about 70 % of the model in VRAM on a Quadro P2000 with **4 096 MiB** total. `llama3.1` (4.9 GB) and `qwen2.5` (4.4 GB) do not fit in 4 GB, so they run on CPU, which is exactly why they measure 1.2–1.5 tok/s while llama3.2 reaches 13 tok/s. Config defaults still point lessons at `mistral` and quizzes at `llama3.1` (`backend/app/core/config.py:108-109`) — those must be switched to `llama3.2` before any offline demo, or a quiz will take minutes.
+
+### 8. Rehearsal — NOT DONE
+
+No timed rehearsal, no `.webm`.
+
+### 9. Gate / tag / push
+
+`logs/demo-gate3.log` holds the gate run of this final tree. Tag `demo-final` and the push are reported in the final message, not assumed here.

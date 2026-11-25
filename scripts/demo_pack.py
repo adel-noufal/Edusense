@@ -25,7 +25,7 @@ SESSION_ID = 3  # instructor session the demo student is enrolled in ("Ai")
 KB_FILE = "ECU-ITAI-3-04.pdf"
 
 
-def call(path: str, payload=None, token=None, method="POST", timeout=600):
+def call(path: str, payload=None, token=None, method="POST", timeout=300):
     data = None if payload is None else json.dumps(payload).encode()
     req = urllib.request.Request(
         BASE + path, data=data,
@@ -43,7 +43,7 @@ def call(path: str, payload=None, token=None, method="POST", timeout=600):
         return 0, str(e).encode(), time.time() - started
 
 
-def jcall(path, payload=None, token=None, method="POST", timeout=600):
+def jcall(path, payload=None, token=None, method="POST", timeout=300):
     status, raw, secs = call(path, payload, token, method, timeout)
     try:
         body = json.loads(raw.decode())
@@ -149,7 +149,7 @@ def main() -> int:
 
     jobs = [lesson_en, lesson_ar, quiz, cards, kb_normal, kb_passage, kb_page, chat]
     results = {}
-    with cf.ThreadPoolExecutor(max_workers=8) as pool:
+    with cf.ThreadPoolExecutor(max_workers=3) as pool:
         futures = {pool.submit(fn): fn.__name__ for fn in jobs}
         for fut in cf.as_completed(futures):
             name, status_, body, secs = fut.result()

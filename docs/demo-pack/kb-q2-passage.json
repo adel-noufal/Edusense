@@ -1,0 +1,52 @@
+{
+  "question": "Explain this passage from the document: \"Statistical tests for detecting drift ... Relying solely\"",
+  "answer": "The passage from the document explains how the Alibi Detect tool detects data drift. The process involves two phases: the Training Phase and the Detection Phase.\n\nIn the Training Phase, the tool uses the original training data to establish a baseline distribution. This baseline distribution serves as a reference point for comparing new data that arrives later.\n\nIn the Detection Phase, the tool compares the new data's distribution against the baseline using statistical methods, specifically the Kolmogorov-Smirnov (K-S) test. The K-S test evaluates whether two sets of data are derived from the same distribution. If the test indicates a significant difference, it flags the presence of drift.\n\nThe passage also explains that the p-value and distance measure are used to quantify the level of drift. The p-value is 0.0, indicating strong evidence against the null hypothesis that the distributions are the same. The distance measure is 0.08136964, indicating a moderate level of dissimilarity between the distributions. Since the p-value is less than the threshold of 0.05, drift is detected.\n\nData drift refers to the phenomenon where the statistical properties of the input data change over time, leading to deviations from the original data distribution. This can occur when a machine learning model operates in a real-world setting, confronting data instances that diverge from its original training dataset or previous production data.\n\nModel drift, on the other hand, denotes a phenomenon wherein the model's intended task evolves. This can lead to a deterioration in the model's performance over time, independent of changes in the underlying data distribution.\n\nThe passage also mentions that drift detection is a critical component of maintaining AI systems, ensuring that models continue to perform accurately as the underlying data changes over time.",
+  "sources": [
+    {
+      "source_file": "ECU-ITAI-3-04.pdf",
+      "page": 54,
+      "subject": "Computer Science",
+      "grade_level": "12",
+      "topic": "Ai",
+      "score": 0.5629
+    },
+    {
+      "source_file": "ECU-ITAI-3-04.pdf",
+      "page": 5,
+      "subject": "Computer Science",
+      "grade_level": "12",
+      "topic": "Ai",
+      "score": 0.5332
+    },
+    {
+      "source_file": "ECU-ITAI-3-04.pdf",
+      "page": 44,
+      "subject": "Computer Science",
+      "grade_level": "12",
+      "topic": "Ai",
+      "score": 0.515
+    },
+    {
+      "source_file": "ECU-ITAI-3-04.pdf",
+      "page": 41,
+      "subject": "Computer Science",
+      "grade_level": "12",
+      "topic": "Ai",
+      "score": 0.5057
+    },
+    {
+      "source_file": "ECU-ITAI-3-04.pdf",
+      "page": 1,
+      "subject": "",
+      "grade_level": "",
+      "topic": "Ai",
+      "score": 0.4965
+    }
+  ],
+  "chunks_used": 5,
+  "subject": null,
+  "grade_level": null,
+  "unverified": false,
+  "scoped_to": null,
+  "conversation_id": "kb:8cb713e9-a8f7-4a96-a47f-a4277aea5cd8"
+}
