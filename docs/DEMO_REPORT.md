@@ -69,3 +69,31 @@ Ollama speed measured on this machine (60-token answer, cold-ish):
   dot, "Generated with <model>") — server-side filtering only.
 - **Flashcards exact count** when the model returns fewer cards.
 - **Playwright recording** of the demo script (Step 3.5) — not run.
+
+---
+
+## Final push — 2026-11-25 06:19 → 06:58 (40-minute window, real results only)
+
+### What this session actually produced
+
+| Item | Status | Evidence |
+|---|---|---|
+| Demo content pack script (`scripts/demo_pack.py`) | written, **not yet proven end-to-end** | the first run stalled because the API process on port 8000 died (`error while attempting to bind … 10048`) after a bind conflict; `docs/demo-pack/` is still empty |
+| Chained runner (`scripts/run-demo-pack.sh`) | written, launched | regenerates the API on 8000 if absent, then runs the pack, then the 60 s video; output in `logs/demo-pack.log`, `logs/demo-video.log`, `logs/run-pack.out` |
+| Flashcard exact count (8 asked, 5 returned) | **partially addressed** | `scripts/demo_pack.py` asks again only for the missing cards (`count = missing + 2`), merges, deduplicates by front text, caps at 8, and records `requested / rounds / counts`. It never invents a card. The agent still falls back to `PEDAGOGICAL_DIMENSIONS` filler when `real_sources_only=False` (route at `backend/app/api/ai.py:552` does not pass the flag) — **this remains a fabrication risk to disable** |
+| Video 6-scene render + ffprobe + contact sheet | **NOT DONE** | `/tmp/mkvideo.py` was launched; no MP4/probe exists yet |
+| Emotion (task 4) | **NOT STARTED** | untouched |
+| Lesson exports consistency (task 5) | **NOT DONE** | `POST /api/ai/lessons/export-pptx` calls `lessons.generate()` again, so a DOCX/PPTX export is a *second* generation and can differ from the lesson on screen. `POST /api/ai/export/{pptx,docx,pdf}` take a stored `content` dict and are the consistent path — the UI still uses the regenerating route |
+| YELLOW feature sweep (task 6) | **NOT DONE** | Sessions modal, Sources, Reports+CSV, Feedback Loop, student Upcoming/History, offline chat not exercised today |
+| Ollama default model (task 7) | **partially verified** | `backend/app/core/config.py:106-110`: `ollama_model=llama3.2`, but `ollama_model_lesson=mistral`, `ollama_model_quiz=llama3.1` — the two slowest models are still the defaults for lessons and quizzes. GPU: Quadro P2000, **4096 MiB total**; the 8B models are 4.9 GB (llama3.1) and 4.4 GB (qwen2.5) and cannot fit, so they run on CPU — that is why they measure 1.2–1.5 tok/s while the 3B `llama3.2` fits and reaches 13.07 tok/s |
+| Rehearsal twice with recording (task 8) | **NOT DONE** | `docs/DEMO_SCRIPT.md` untimed, no `.webm` |
+| `docs/DEMO_REPORT.md` update | **this section** | honest status above |
+| Tag `demo-final`, full verify, push | **NOT DONE** | tagging or pushing without a green gate would misrepresent the tree; the last green gate is still `logs/demo-gate2.log` (`139 passed, 30 skipped`) on commit `a5c3f30` / tag `demo-ready` |
+
+### Why the window closed early
+
+The 40-minute budget was spent re-establishing a running API. `netstat` showed nothing on 8000 at 06:19, a health check then returned 200, my own uvicorn copy failed with `10048`, and by 06:50 the port answered `000` — two processes had been fighting for the port. Generation itself was never at fault: the pack script and the video script were both blocked on a dead socket, not on an LLM call.
+
+### What is safe to show tomorrow
+
+Only what was proven before this window: login, dashboard, KB library, KB chat, lesson/quiz/flashcard generation with Gemini disabled (`logs/f1-acceptance2.log`), exam-violation contract, video-scene density by unit test, and the gate at `a5c3f30`. Everything in the list marked NOT DONE above must be presented as "not shown" rather than demonstrated live.
