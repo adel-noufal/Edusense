@@ -180,3 +180,6 @@ backend/scratch/
 # Verification artefacts
 *.y4m
 backend/logs/
+
+# Copyrighted course material — ship it separately, never in the repo
+backend/app/static/knowledge_base/*.pdf
