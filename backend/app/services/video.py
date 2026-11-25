@@ -895,13 +895,32 @@ def _try_ffmpeg(
 
         list_file = project_dir / "ffmpeg-list.txt"
         list_file.write_text("".join(concat_lines), encoding="utf-8")
-        subprocess.run(
+        # Stream copy is fastest but fails when segments disagree on codec
+        # parameters; fall back to a real re-encode and keep ffmpeg's message so
+        # the user sees a reason instead of a generic "MP4 was not produced".
+        attempts = (
             [ffmpeg_bin, "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
              "-c", "copy", str(output)],
-            check=True, capture_output=True,
+            [ffmpeg_bin, "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
+             "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+             "-c:a", "aac", "-b:a", "128k", str(output)],
         )
-        return str(output)
-    except Exception:
+        errors = []
+        for command in attempts:
+            try:
+                subprocess.run(command, check=True, capture_output=True)
+            except Exception as exc:  # noqa: BLE001
+                detail = getattr(exc, "stderr", b"") or b""
+                errors.append(f"{type(exc).__name__}: "
+                              f"{detail.decode('utf-8', 'ignore')[-800:] if detail else exc}")
+                continue
+            if output.exists() and output.stat().st_size >= 1024:
+                return str(output)
+            errors.append("ffmpeg exited 0 but produced no usable MP4")
+        (project_dir / "concat-error.txt").write_text("\n---\n".join(errors), encoding="utf-8")
+        return None
+    except Exception as exc:  # noqa: BLE001
+        (project_dir / "concat-error.txt").write_text(repr(exc), encoding="utf-8")
         return None
 
 
@@ -919,7 +938,15 @@ def validate_video_artifacts(project_id: int) -> tuple[bool, str]:
                 "MP4 was not produced because ffmpeg was not found. Install it "
                 "(winget install Gyan.FFmpeg) or set EDUSENSE_FFMPEG_PATH."
             )
-        return False, "MP4 was not produced by the encoder. Check the backend log for the ffmpeg error."
+        detail = ""
+        try:
+            detail = (project_dir / "concat-error.txt").read_text(encoding="utf-8")[-400:].strip()
+        except Exception:  # noqa: BLE001
+            detail = ""
+        return False, (
+            "The video encoder could not stitch the MP4."
+            + (f" ffmpeg said: {detail}" if detail else " Check the backend log for the ffmpeg error.")
+        )
     ffprobe = find_ffprobe()
     if ffprobe:
         try:

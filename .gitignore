@@ -183,3 +183,6 @@ backend/logs/
 
 # Offline switch file (created on the target PC, never committed)
 /OFFLINE
+
+# Copyrighted course material — ship it separately, never in the repo
+backend/app/static/knowledge_base/*.pdf

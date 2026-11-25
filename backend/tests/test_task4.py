@@ -179,6 +179,7 @@ def test_03_rag_context_builder_lesson():
         fail("Lesson RAG context builder failed", exc)
 
 
+@pytest.mark.live_provider
 def test_04_lesson_agent_sources_key():
     print("\n[T4-04] LessonGenerationAgent.generate() returns 'sources' key")
     try:
@@ -197,6 +198,7 @@ def test_04_lesson_agent_sources_key():
         fail("Lesson agent sources key test failed", exc)
 
 
+@pytest.mark.live_provider
 def test_05_quiz_agent_sources_key():
     print("\n[T4-05] QuizGenerationAgent.generate() returns 'sources' key")
     try:
@@ -218,6 +220,7 @@ def test_05_quiz_agent_sources_key():
         fail("Quiz agent sources key test failed", exc)
 
 
+@pytest.mark.live_provider
 def test_06_flashcard_agent_sources_key():
     print("\n[T4-06] FlashcardGenerationAgent.generate() returns 'sources' key")
     try:
@@ -239,6 +242,7 @@ def test_06_flashcard_agent_sources_key():
         fail("Flashcard agent sources key test failed", exc)
 
 
+@pytest.mark.live_provider
 def test_07_no_rag_fallback():
     print("\n[T4-07] Agents work without RAG (no subject/grade_level specified)")
     try:
