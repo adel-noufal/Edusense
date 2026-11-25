@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 /** Smooth enter animation on every route change. */
-export default function PageTransition({ children }) {
+export default function PageTransition({ children, className = '' }) {
   const location = useLocation()
   const [visible, setVisible] = useState(false)
 
@@ -14,7 +14,7 @@ export default function PageTransition({ children }) {
   }, [location.pathname])
 
   return (
-    <div key={location.pathname} className={`route-enter ${visible ? 'route-enter-visible' : ''}`}>
+    <div key={location.pathname} className={`route-enter ${visible ? 'route-enter-visible' : ''} ${className}`}>
       {children}
     </div>
   )

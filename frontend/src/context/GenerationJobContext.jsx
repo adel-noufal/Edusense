@@ -4,8 +4,11 @@ import { useToast } from './ToastContext'
 import { useAuth } from './AuthContext'
 
 const STORAGE_KEY = 'edusense_generation_jobs'
-const POLL_MS = 2000
-const MAX_POLLS = 180
+// Exponential-ish backoff: 1s -> 2s -> 5s, then steady 5s. Stops on terminal
+// state so a finished job never keeps hitting the API.
+const POLL_SCHEDULE_MS = [1000, 2000, 5000]
+const STEADY_POLL_MS = 5000
+const MAX_POLLS = 240  // ~20 min ceiling at steady state
 
 const GenerationJobContext = createContext(null)
 
@@ -13,7 +16,15 @@ function loadStoredJobs() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed.filter((job) => job?.jobId && job?.type) : []
+    if (!Array.isArray(parsed)) return []
+    const now = Date.now()
+    // Discard stale jobs: >10 min old, or error/done status >2 min old
+    return parsed.filter((job) => {
+      if (!job?.jobId || !job?.type) return false
+      if (job.startedAt && (now - job.startedAt > 10 * 60 * 1000)) return false
+      if ((job.status === 'error' || job.status === 'done') && job.startedAt && (now - job.startedAt > 2 * 60 * 1000)) return false
+      return true
+    })
   } catch {
     return []
   }
@@ -63,22 +74,32 @@ export function GenerationJobProvider({ children }) {
     pollingRef.current.add(jobId)
 
     for (let attempt = 0; attempt < MAX_POLLS; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+      const delay = attempt < POLL_SCHEDULE_MS.length ? POLL_SCHEDULE_MS[attempt] : STEADY_POLL_MS
+      await new Promise((resolve) => setTimeout(resolve, delay))
       try {
         const status = await api(`/ai/job/${jobId}`)
+        if (status.progress != null || status.message) {
+          updateJob(jobId, { progress: status.progress ?? 0, stage: status.message || '' })
+        }
         if (status.status === 'done') {
           updateJob(jobId, { status: 'done', result: status.result, error: '' })
           notifyComplete(jobId, label, 'done')
           pollingRef.current.delete(jobId)
           return
         }
-        if (status.status === 'error') {
+        // Terminal failures include the server reaper's "failed" status;
+        // treating only "error" left the sidebar counting a dead job forever.
+        if (['error', 'failed', 'cancelled'].includes(status.status)) {
           updateJob(jobId, { status: 'error', error: status.error || 'Generation failed' })
           notifyComplete(jobId, label, 'error', status.error)
           pollingRef.current.delete(jobId)
           return
         }
       } catch (err) {
+        if (err.status === 404 || String(err.message).includes('404')) {
+          removeJob(jobId)
+          return
+        }
         updateJob(jobId, { status: 'error', error: err.message || 'Could not check job status' })
         notifyComplete(jobId, label, 'error', err.message)
         pollingRef.current.delete(jobId)
@@ -89,10 +110,10 @@ export function GenerationJobProvider({ children }) {
     updateJob(jobId, { status: 'error', error: 'Generation timed out after 6 minutes' })
     notifyComplete(jobId, label, 'error', 'Generation timed out')
     pollingRef.current.delete(jobId)
-  }, [updateJob, notifyComplete])
+  }, [updateJob, notifyComplete, removeJob])
 
   const startJob = useCallback(async ({ type, endpoint, payload, label }) => {
-    const { job_id } = await api(endpoint, { method: 'POST', body: JSON.stringify(payload) })
+    const { job_id } = await api(endpoint, { method: 'POST', body: payload })
     const job = {
       jobId: job_id,
       type,
@@ -116,10 +137,17 @@ export function GenerationJobProvider({ children }) {
     if (!user || user.role === 'student') return
     api('/ai/jobs/pending')
       .then((pending) => {
-        if (!Array.isArray(pending) || !pending.length) return
+        const alive = Array.isArray(pending) ? pending : []
+        const aliveIds = new Set(alive.map((item) => item.job_id))
+        // A stored "pending" job the server no longer knows about is dead:
+        // drop it instead of showing "1 AI job running" forever.
+        setJobs((current) => current.filter(
+          (job) => job.status !== 'pending' || aliveIds.has(job.jobId)
+        ))
+        if (!alive.length) return
         setJobs((current) => {
           const merged = [...current]
-          pending.forEach((item) => {
+          alive.forEach((item) => {
             if (!merged.some((j) => j.jobId === item.job_id)) {
               merged.push({
                 jobId: item.job_id,
@@ -135,7 +163,7 @@ export function GenerationJobProvider({ children }) {
           saveStoredJobs(merged.filter((j) => j.status === 'pending'))
           return merged
         })
-        pending.forEach((item) => pollJob(item.job_id, item.label))
+        alive.forEach((item) => pollJob(item.job_id, item.label))
       })
       .catch(() => {})
   }, [user, pollJob])

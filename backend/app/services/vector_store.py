@@ -1,4 +1,5 @@
 import os
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
 from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
@@ -7,11 +8,52 @@ from chromadb.utils import embedding_functions
 
 from app.core.config import get_settings
 
-DEFAULT_COLLECTION_NAME = "edusense_knowledge"
+# Tests export EDUSENSE_RAG_COLLECTION so their fixtures never land in the live
+# Knowledge Base collection (U7). Production keeps the pinned name.
+DEFAULT_COLLECTION_NAME = os.environ.get("EDUSENSE_RAG_COLLECTION", "edusense_knowledge")
 
 _client_instance: Optional[chromadb.PersistentClient] = None
 _embedding_function = None
 _active_collection: Optional[chromadb.Collection] = None
+
+
+def _embedding_name(embedding_fn) -> str:
+    """Best-effort embedding function identifier used in conflict messages."""
+    try:
+        return str(embedding_fn.name())
+    except Exception:  # noqa: BLE001
+        return type(embedding_fn).__name__
+
+
+def _persisted_embedding_name(collection) -> Optional[str]:
+    """Read the embedding function name stored in the Chroma collection config."""
+    # Chroma exposes the persisted config in a few shapes depending on version.
+    candidates = []
+    raw = getattr(collection, "configuration_json", None)
+    if isinstance(raw, str) and raw:
+        try:
+            candidates.append(json.loads(raw))
+        except Exception:  # noqa: BLE001
+            pass
+    elif isinstance(raw, dict):
+        candidates.append(raw)
+    model = getattr(collection, "_model", None)
+    if model is not None and isinstance(getattr(model, "configuration_json", None), dict):
+        candidates.append(model.configuration_json)
+
+    for config in candidates:
+        ef = config.get("embedding_function")
+        if isinstance(ef, dict) and ef.get("name"):
+            return str(ef["name"])
+    configuration = getattr(collection, "configuration", None) or {}
+    ef = configuration.get("embedding_function") if isinstance(configuration, dict) else None
+    if ef is not None:
+        type_name = type(ef).__name__
+        if type_name.startswith("SentenceTransformer"):
+            return "sentence_transformer"
+        if type_name.startswith("ONNX"):
+            return "onnx_mini_lm_l6_v2"
+    return None
 
 
 class ChunkMetadata(BaseModel):
@@ -84,9 +126,15 @@ def get_client(persist_directory: Optional[str] = None) -> chromadb.PersistentCl
 def get_embedding_function(model_name: Optional[str] = None):
     """
     Returns the local SentenceTransformerEmbeddingFunction for all-MiniLM-L6-v2.
-    If PyTorch DLL initialization encounters WinError 1114 on Windows (missing VC++ runtime),
-    automatically falls back to Chroma's native ONNX implementation of all-MiniLM-L6-v2,
-    guaranteeing offline embedding generation without crashing.
+
+    The persisted Chroma collection was built with `sentence_transformer`.
+    Silently switching to Chroma's ONNX implementation changes the embedding
+    space, so Chroma refuses to open the collection and the Knowledge Base
+    appears empty. Therefore this function NEVER falls back on its own: if
+    sentence-transformers cannot be imported it raises a readable error that
+    explains how to fix the venv. A deliberate fallback is only possible by
+    setting EDUSENSE_ALLOW_ONNX_EMBEDDING=1, and even then the persisted
+    collection must be re-indexed separately.
     """
     global _embedding_function
     if _embedding_function is None or model_name is not None:
@@ -96,7 +144,16 @@ def get_embedding_function(model_name: Optional[str] = None):
             embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
                 model_name=selected_model
             )
-        except (Exception, OSError):
+        except Exception as exc:  # noqa: BLE001 - re-raised with guidance
+            if os.environ.get("EDUSENSE_ALLOW_ONNX_EMBEDDING", "0") != "1":
+                raise RuntimeError(
+                    "The sentence-transformers embedding function could not be loaded "
+                    f"({type(exc).__name__}: {exc}). The Knowledge Base collection was index"
+                    "ed with sentence_transformer, so switching embedding models would "
+                    "produce invalid results. Fix the backend venv ("
+                    '`pip install --force-reinstall -r requirements.txt`) and restart. '
+                    "Set EDUSENSE_ALLOW_ONNX_EMBEDDING=1 only to start a brand-new collection."
+                ) from exc
             embedding_fn = embedding_functions.ONNXMiniLM_L6_V2()
 
         if model_name is None:
@@ -117,11 +174,28 @@ def init_collection(name: str = DEFAULT_COLLECTION_NAME) -> chromadb.Collection:
     global _active_collection
     client = get_client()
     embedding_fn = get_embedding_function()
-    collection = client.get_or_create_collection(
-        name=name,
-        embedding_function=embedding_fn,
-        metadata={"hnsw:space": "cosine"}
-    )
+
+    # Open an existing collection with the embedding function it was persisted
+    # with. Passing a different function makes Chroma raise
+    # "Embedding function conflict: new: onnx_mini_lm_l6_v2 vs persisted:
+    # sentence_transformer", which used to surface as an empty Knowledge Base.
+    existing = {c.name if hasattr(c, "name") else str(c) for c in client.list_collections()}
+    if name in existing:
+        collection = client.get_collection(name)
+        persisted = _persisted_embedding_name(collection)
+        if persisted and persisted != _embedding_name(embedding_fn):
+            raise RuntimeError(
+                f"Embedding function conflict for collection '{name}': persisted "
+                f"'{persisted}' but the active function is '{_embedding_name(embedding_fn)}'. "
+                "Refusing to mix embedding spaces. Fix the venv so the same model loads "
+                "(pip install --force-reinstall -r requirements.txt)."
+            )
+    else:
+        collection = client.create_collection(
+            name=name,
+            embedding_function=embedding_fn,
+            metadata={"hnsw:space": "cosine"},
+        )
     _active_collection = collection
     return collection
 
@@ -151,11 +225,14 @@ def add_chunks(
         documents.append(chunk.text)
         metadatas.append(_normalize_metadata(chunk.metadata))
 
-    collection.upsert(
-        ids=ids,
-        documents=documents,
-        metadatas=metadatas
-    )
+    # Batch upsert to support large files with thousands of chunks without exceeding ChromaDB/SQLite limits
+    BATCH_SIZE = 200
+    for i in range(0, len(ids), BATCH_SIZE):
+        collection.upsert(
+            ids=ids[i:i + BATCH_SIZE],
+            documents=documents[i:i + BATCH_SIZE],
+            metadatas=metadatas[i:i + BATCH_SIZE]
+        )
 
 
 def query(
@@ -204,6 +281,38 @@ def query(
             })
 
     return results
+
+
+def get_by_source(
+    source_id: str,
+    collection_name: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Return all indexed chunks for a document source without vector ranking."""
+    collection = (
+        init_collection(collection_name)
+        if collection_name
+        else (_active_collection or init_collection())
+    )
+
+    for metadata_key in ("source_file", "source_id"):
+        raw_results = collection.get(
+            where={metadata_key: source_id},
+            include=["documents", "metadatas"],
+        )
+        ids = raw_results.get("ids", [])
+        if ids:
+            documents = raw_results.get("documents") or []
+            metadatas = raw_results.get("metadatas") or []
+            return [
+                {
+                    "id": chunk_id,
+                    "text": documents[index] if index < len(documents) else "",
+                    "metadata": metadatas[index] if index < len(metadatas) else {},
+                    "distance": None,
+                }
+                for index, chunk_id in enumerate(ids)
+            ]
+    return []
 
 
 def delete_by_source(

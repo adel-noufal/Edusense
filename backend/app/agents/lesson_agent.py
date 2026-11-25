@@ -8,6 +8,8 @@ from app.agents.logging_utils import LLMAuditContext
 from app.agents.prompts.scope_guardrail import build_guardrail_prompt, get_refusal_message
 from app.core.config import get_settings
 from app.services.gemini import generate_json_any
+from app.services.content_pipeline import format_strict_text, validate_quality, critique_output
+from app.core.errors import ContentGenerationUnavailable
 
 ADK_AGENT = adk_agent("lesson_generation_agent", "Generate lesson outlines, scripts, slides, images, and diagrams.")
 
@@ -52,6 +54,39 @@ def _build_rag_context(topic: str, subject: Optional[str], grade_level: Optional
     return context_block, sources
 
 
+def _build_web_context(topic: str, max_results: int = 3) -> tuple[str, list[dict], list[str]]:
+    """
+    Calls Web_Search_Tool and returns:
+      - formatted context block string
+      - raw results list
+      - list of source labels ("[Web: Title](URL)")
+    Returns ("", [], []) if Web_Search_Tool is unavailable or returns no results.
+    """
+    try:
+        from app.agents.tools import Web_Search_Tool
+        results = Web_Search_Tool(query=topic, max_results=max_results)
+    except Exception as exc:
+        print(f"[Web Search] Lesson web lookup failed ({exc}); continuing without web material.")
+        return "", [], []
+
+    if not results:
+        return "", [], []
+
+    lines = []
+    sources: list[str] = []
+    for i, item in enumerate(results):
+        title = item.get("title", "")
+        url = item.get("url", "")
+        content = item.get("content", "")
+        label = f"[Web: {title}]({url})" if url else f"[Web: {title}]"
+        if label not in sources:
+            sources.append(label)
+        lines.append(f"[Web {i+1}: {title}]({url})\n{content}")
+
+    context_block = "\n\n".join(lines)
+    return context_block, results, sources
+
+
 # ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
@@ -63,19 +98,39 @@ class LessonGenerationAgent:
         topic = request.topic
         settings = get_settings()
 
-        # ── RAG retrieval ───────────────────────────────────────────────────
+        # ── RAG retrieval (curriculum first) ────────────────────────────────
         subject = getattr(request, "subject", None)
         grade_level = getattr(request, "grade_level", None)
         rag_context, rag_sources = _build_rag_context(topic, subject, grade_level)
 
+        # ── Web retrieval (if curriculum is insufficient or topic needs current info) ─
+        web_context = ""
+        web_results = []
+        web_sources = []
+        if not rag_sources:
+            web_context, web_results, web_sources = _build_web_context(topic)
+
+        source_blocks = []
         if rag_context:
-            source_instruction = (
-                "\n\nIMPORTANT: Use ONLY the following source material as your factual basis. "
-                "Do NOT invent facts not present in the sources. "
-                "If the sources are insufficient for a section, state so explicitly.\n\n"
-                "=== SOURCE MATERIAL ===\n"
+            source_blocks.append(
+                "=== CURRICULUM SOURCE MATERIAL (RAG) ===\n"
                 f"{rag_context}\n"
-                "=== END SOURCE MATERIAL ===\n"
+                "=== END CURRICULUM SOURCE MATERIAL ==="
+            )
+        if web_context:
+            source_blocks.append(
+                "=== WEB SEARCH RESULTS ===\n"
+                f"{web_context}\n"
+                "=== END WEB SEARCH RESULTS ==="
+            )
+
+        if source_blocks:
+            source_instruction = (
+                "\n\nIMPORTANT: Use the following source material as your factual basis. "
+                "Prioritize curriculum sources when available; use web search results for recent or external context. "
+                "Cite curriculum sources as [Source: label] and web sources as [Web N: title]. "
+                "Do NOT invent facts not present in the sources.\n\n"
+                + "\n\n".join(source_blocks) + "\n"
             )
         else:
             source_instruction = ""
@@ -87,8 +142,25 @@ class LessonGenerationAgent:
                 subject=subject,
                 grade_level=grade_level,
                 agent_name="LessonGenerationAgent",
-                has_rag_sources=bool(rag_context),
+                has_rag_sources=bool(rag_sources),
+                has_web_sources=bool(web_sources),
             )
+
+            # A lesson request used to ask for overview + 3 sections + 4 slides +
+            # script + summary, roughly 1,600 output tokens. On this host Ollama
+            # writes ~2.8 tokens/s, so the call always hit its timeout and the
+            # template fallback answered instead (U3 root cause). The model now
+            # produces the lesson core only, within a section/word budget, and the
+            # slides + lecture script are derived from those sections below.
+            detail_level = getattr(request, "detail_level", "Standard")
+            section_count, word_range = {
+                "Brief": (4, "90-110"),
+                "Standard": (5, "90-120"),
+                "Detailed": (8, "90-130"),
+            }.get(detail_level, (5, "90-120"))
+            # Local generation budget (num_predict / timeout). Cloud providers are
+            # not capped: a 1,270-token cap truncated their JSON mid-object.
+            output_budget = 500 + section_count * 300
 
             prompt = f"""
 {guardrail}
@@ -98,77 +170,37 @@ Create an EXPERT-LEVEL, highly comprehensive, and masterfully structured lesson 
 
 Teaching style: {request.teaching_style}
 Language: {request.language}
-Duration: {request.duration} minutes
+Detail level: {getattr(request, 'detail_level', 'Standard')} (Brief = concise overview; Standard = balanced depth; Detailed = deep dive with examples and case studies)
 Instructor notes: {request.additional_notes or "None"}
 Extra guidance: {request.prompt}
 {source_instruction}
 Instructions:
 1. Provide deep, rigorous, and practical explanations. Avoid generic filler words.
-2. Structure slides like a senior presentation designer with clear titles, bullet points, visual diagram descriptions, and instructor speaking notes.
+2. Write each section like a senior instructor's notes: a precise heading, a real explanation, and a worked example.
 3. Include real-world industrial case studies, step-by-step mechanisms, and practical code/math examples.
 4. If source material is provided above, ground every claim in those sources and cite them using [Source: label] format.
 
 Return ONLY valid JSON matching this structure:
 {{
   "title": "Mastering {topic}",
-  "overview": "Comprehensive 3-paragraph executive introduction to {topic}, covering core theory, architectural mechanics, and industry significance.",
+  "overview": "Two-sentence introduction to {topic} (at most 70 words).",
   "learning_objectives": [
     "Synthesize the foundational principles of {topic}.",
-    "Analyze the structural workflow and mathematical/algorithmic mechanisms.",
-    "Implement real-world solutions and evaluate efficiency tradeoffs."
+    "Analyze the structural workflow and mechanisms.",
+    "Apply {topic} to a real problem and evaluate tradeoffs."
   ],
-  "outline": ["1. Architectural Foundations", "2. Core Mechanics & Formulas", "3. Industry Case Studies", "4. Practical Implementation", "5. Strategic Synthesis"],
+  "outline": ["1. Foundations", "2. Mechanics", "3. Case study", "4. Practice", "5. Synthesis"],
   "sections": [
     {{
-      "heading": "1. Architectural Foundations of {topic}",
-      "content": "Detailed, highly articulate multi-paragraph explanation of core principles...",
-      "example": "Real-world production case study detailing practical application..."
-    }},
-    {{
-      "heading": "2. Core Mechanics & Technical Pipeline",
-      "content": "Step-by-step breakdown of how {topic} operates under the hood...",
-      "example": "Concrete code snippet or mathematical formulation..."
-    }},
-    {{
-      "heading": "3. Advanced Strategies & Performance Tradeoffs",
-      "content": "Deep dive into performance optimization, edge cases, and best practices...",
-      "example": "Comparative evaluation matrix showing performance gains..."
+      "heading": "1. Foundations of {topic}",
+      "content": "{word_range} words of precise explanation, no filler and no repetition.",
+      "example": "A concrete example, code snippet or worked calculation for this section."
     }}
   ],
-  "slides": [
-    {{
-      "title": "1. Introduction to {topic}",
-      "content": "• Core Definition: Foundational concept breakdown\\n• Industry Value: Why leading organizations adopt this approach\\n• Key Objective: What learners will master by the end of this module",
-      "diagram": "Concept Architecture Diagram: Input -> Processing Core -> Output State",
-      "notes": "Welcome class! Start by highlighting the real-world impact of {topic} before diving into technical details."
-    }},
-    {{
-      "title": "2. Underlying Mechanics & Pipeline",
-      "content": "• Step 1: Initialization and feature preparation\\n• Step 2: Core processing pipeline & state transformation\\n• Step 3: Validation, error checking, and result delivery",
-      "diagram": "Flowchart: [Raw Data] -> [Preprocessing] -> [Core Engine] -> [Validated Output]",
-      "notes": "Focus on step 2 here—make sure students understand how the transformation happens under the hood."
-    }},
-    {{
-      "title": "3. Practical Case Study & Implementation",
-      "content": "• Real-World Scenario: Solving enterprise scaling challenges\\n• Key Implementation Details: Critical parameters & configurations\\n• Best Practices: Avoid common pitfalls and anti-patterns",
-      "diagram": "System Blueprint: Microservice Architecture & API Integration",
-      "notes": "Use this slide to connect theory to practice. Walk through the code/configuration line by line."
-    }},
-    {{
-      "title": "4. Summary & Strategic Takeaways",
-      "content": "• Foundational Insight: Core theoretical takeaway\\n• Operational Strategy: How to apply this immediately\\n• Next Steps: Advanced topics and practical exercises",
-      "diagram": "Summary Matrix: Strengths vs. Considerations",
-      "notes": "Wrap up by asking 2-3 quick questions to check student comprehension."
-    }}
-  ],
-  "script": "Professional, engaging, word-for-word lecture script for the instructor...",
-  "summary": "Master executive summary synthesizing all core learnings of {topic}.",
-  "key_points": [
-    "Foundational understanding of {topic} architecture.",
-    "Mastery of operational workflows and implementation steps.",
-    "Ability to evaluate tradeoffs and optimize performance."
-  ]
+  "summary": "What the learner can now do, at most 60 words.",
+  "key_points": ["point 1", "point 2", "point 3"]
 }}
+Return exactly {section_count} sections, each about {word_range} words in "content", covering different aspects of {topic} with no overlap. Do not add "slides", "script" or "images": they are derived from the sections.
 """
 
             # Audit logging for LLM call
@@ -178,14 +210,23 @@ Return ONLY valid JSON matching this structure:
                 subject=subject,
                 grade_level=grade_level,
                 topic=topic,
-                has_rag_sources=bool(rag_context),
+                has_rag_sources=bool(rag_sources),
                 rag_source_count=len(rag_sources),
+                has_web_sources=bool(web_sources),
+                web_source_count=len(web_sources),
             ) as audit_ctx:
                 audit_ctx.set_prompt(prompt)
-                data = generate_json_any(prompt, task_type="lesson")
+                data = generate_json_any(prompt, task_type="lesson",
+                                          max_output_tokens=output_budget, timeout=90)
                 audit_ctx.set_response(str(data), model_used="gemini", fallback_used=False)
 
             if isinstance(data, dict):
+                data = format_strict_text(data)
+                from app.services.contract import expand_lesson_sections
+                data["sections"] = expand_lesson_sections(
+                    data.get("sections") or [], getattr(request, "detail_level", "Standard"),
+                    request.language)
+                rubric = critique_output(data, topic)
                 slides = data.get("slides") or [
                     {
                         "title": section.get("heading", f"Section {index + 1}"),
@@ -199,7 +240,6 @@ Return ONLY valid JSON matching this structure:
                     "topic": data.get("title") or f"Mastering {topic}",
                     "language": request.language,
                     "style": request.teaching_style,
-                    "duration": request.duration,
                     "overview": data.get("overview", f"An expert masterclass on {topic}."),
                     "learning_objectives": data.get("learning_objectives") or [
                         f"Master the core theoretical foundation of {topic}.",
@@ -208,83 +248,20 @@ Return ONLY valid JSON matching this structure:
                     ],
                     "outline": data.get("outline") or [slide["title"] for slide in slides],
                     "sections": data.get("sections") or [],
-                    "script": data.get("script") or data.get("overview") or "",
+                    "script": data.get("script") or "\n\n".join(
+                        str(section.get("content", "")) for section in (data.get("sections") or [])),
                     "slides": slides,
                     "summary": data.get("summary", ""),
                     "key_points": data.get("key_points") or [],
                     "images": [],
-                    "sources": rag_sources,
-                    "unverified": len(rag_sources) == 0,
+                    "sources": rag_sources + web_sources,
+                    "unverified": len(rag_sources + web_sources) == 0,
+                    "web_sources": web_results,
+                    "quality": rubric,
+                    "quality_issues": validate_quality(data, source_attached=bool(rag_sources)),
                 })
-        except Exception:
-            pass
-
-        # Expert Fallback Template
-        objectives = [
-            f"Understand the core architecture and mathematical principles of {topic}.",
-            f"Evaluate real-world case studies and practical implementation steps.",
-            f"Analyze performance tradeoffs, common pitfalls, and optimization strategies."
-        ]
-        slides = [
-            {
-                "title": f"1. Executive Overview: {topic}",
-                "content": f"• Foundational Definition: Core principles of {topic}\n• Industry Significance: Why top organizations leverage this concept\n• Primary Goal: Achieving structural mastery and analytical clarity",
-                "diagram": f"High-Level Architecture: [Input Context] ➔ [{topic} Engine] ➔ [Optimized Outcome]",
-                "notes": f"Begin the session by connecting {topic} to real-world industrial applications."
-            },
-            {
-                "title": f"2. Core Mechanics & Technical Pipeline",
-                "content": "• Phase 1: Data preparation & initialization\n• Phase 2: Algorithmic transformation & optimization loop\n• Phase 3: Validation, metric evaluation, and deployment",
-                "diagram": "Process Pipeline: [Data Source] ➔ [Transformation Core] ➔ [Validation Check]",
-                "notes": "Emphasize Phase 2 during lecture—this is where the primary computational transformation occurs."
-            },
-            {
-                "title": f"3. Production Case Study & Implementation",
-                "content": "• Enterprise Context: Solving real-world scale challenges\n• Critical Parameters: Essential configuration patterns\n• Tradeoff Analysis: Balancing performance vs. system complexity",
-                "diagram": "System Blueprint: Component Interaction & Data Flow",
-                "notes": "Walk through the configuration step-by-step so students can reproduce the setup."
-            },
-            {
-                "title": "4. Synthesis & Key Takeaways",
-                "content": "• Theoretical Mastery: Core principles internalized\n• Operational Blueprint: Practical roadmap for implementation\n• Next Steps: Advanced topics and hands-on laboratory exercises",
-                "diagram": "Mastery Matrix: Core Competencies Checklist",
-                "notes": "Conclude with an interactive knowledge check."
-            }
-        ]
-        return AgentResult(self.name, {
-            "topic": f"Mastering {topic}",
-            "language": request.language,
-            "style": request.teaching_style,
-            "duration": request.duration,
-            "overview": f"A comprehensive masterclass on {topic}, detailing theoretical foundations, architectural mechanisms, real-world case studies, and performance optimization strategies.",
-            "learning_objectives": objectives,
-            "outline": [slide["title"] for slide in slides],
-            "sections": [
-                {
-                    "heading": f"1. Architectural Principles of {topic}",
-                    "content": f"The foundational core of {topic} relies on clear architectural abstractions and structured domain mechanics. By decoupling system components into modular layers, practitioners achieve optimal efficiency and maintainability.",
-                    "example": f"Enterprise Case Study: Implementing {topic} to streamline data processing pipelines."
-                },
-                {
-                    "heading": f"2. Operational Mechanics & Technical Pipeline",
-                    "content": f"Under the hood, {topic} executes a multi-stage transformation process. Stage 1 initializes boundary parameters, Stage 2 applies domain-specific transformations, and Stage 3 verifies correctness through automated validation matrices.",
-                    "example": f"Code Implementation: Production configuration pattern for {topic}."
-                },
-                {
-                    "heading": "3. Optimization Strategies & Best Practices",
-                    "content": f"To maximize efficiency when deploying {topic}, engineers prioritize resource allocation, bottleneck reduction, and proactive error handling. Adhering to these industry standards minimizes latency and enhances robustness.",
-                    "example": "Benchmarking results comparing legacy approaches against optimized architectures."
-                }
-            ],
-            "script": f"Welcome everyone to today's deep dive into {topic}. We will start with the high-level architecture before examining the underlying code and deployment best practices...",
-            "slides": slides,
-            "summary": f"Learners now possess a thorough understanding of {topic}, spanning theoretical fundamentals, hands-on implementation steps, and production optimization techniques.",
-            "key_points": objectives,
-            "images": [],
-            "sources": rag_sources,
-            "unverified": len(rag_sources) == 0,
-        })
-
+        except Exception as exc:
+            raise ContentGenerationUnavailable("lesson", exc) from exc
     def simplify_from_recommendation(self, topic: str, recommendations: list[str]) -> AgentResult:
         return AgentResult(self.name, {
             "topic": topic,

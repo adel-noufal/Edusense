@@ -188,7 +188,7 @@ export function lessonToHtml(lesson) {
   <div class="header-box">
     <p style="text-transform: uppercase; tracking: 0.15em; font-size: 0.8em; font-weight: 800; color: #99f6e4;">EduSense Master Lesson Resource</p>
     <h1>${lesson.topic || 'Lesson Plan'}</h1>
-    <p>${lesson.duration || 60} Minutes &middot; ${lesson.style || 'Interactive Masterclass'} &middot; ${lesson.language || 'English'}</p>
+    <p>${lesson.style || 'Interactive Masterclass'} &middot; ${lesson.language || 'English'}</p>
   </div>
 
   ${lesson.overview ? `
@@ -196,13 +196,13 @@ export function lessonToHtml(lesson) {
       <h2 style="margin-top: 0; color: #0f766e; font-size: 1.2em; font-weight: 800;">Executive Overview</h2>
       <p style="font-size: 1.05em; line-height: 1.8; color: #334155; margin: 0;">${lesson.overview}</p>
     </div>` : ''}
-  
+
   ${objectives ? `<h2 class="section-title">Learning Objectives</h2><ul style="background: #f0fdf4; padding: 20px; border-radius: 12px; border: 1px solid #bbf7d0;">${objectives}</ul>` : ''}
-  
+
   ${sections ? `<h2 class="section-title">Core Curriculum Sections</h2>${sections}` : ''}
-  
+
   ${slides ? `<h2 class="section-title">Presentation Slide Outline</h2>${slides}` : ''}
-  
+
   ${lesson.summary ? `
     <h2 class="section-title">Executive Summary & Key Synthesis</h2>
     <div style="background: #e0f2fe; padding: 20px; border-radius: 12px; border: 1px solid #bae6fd;">
@@ -406,5 +406,3 @@ export function downloadFlashcardsAsPdf(data, filename) {
     downloadText(html, `${filename || 'flashcards'}.html`, 'text/html')
   }
 }
-
-

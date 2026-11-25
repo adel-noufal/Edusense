@@ -1,0 +1,661 @@
+{
+  "providers": {
+    "gemini": {
+      "name": "gemini",
+      "kind": "gemini",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "auth_style": "query_param",
+      "default_models": []
+    },
+    "groq": {
+      "name": "groq",
+      "kind": "openai",
+      "base_url": "https://api.groq.com/openai/v1",
+      "auth_style": "bearer",
+      "default_models": [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant"
+      ]
+    },
+    "cerebras": {
+      "name": "cerebras",
+      "kind": "openai",
+      "base_url": "https://api.cerebras.ai/v1",
+      "auth_style": "bearer",
+      "default_models": [
+        "llama-3.3-70b",
+        "llama3.1-8b"
+      ]
+    },
+    "openrouter": {
+      "name": "openrouter",
+      "kind": "openai",
+      "base_url": "https://openrouter.ai/api/v1",
+      "auth_style": "bearer",
+      "default_models": [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemini-2.0-flash-exp:free",
+        "deepseek/deepseek-r1:free",
+        "qwen/qwen-2.5-72b-instruct:free"
+      ]
+    },
+    "nvidia": {
+      "name": "nvidia",
+      "kind": "openai",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "auth_style": "bearer",
+      "default_models": [
+        "meta/llama-3.3-70b-instruct",
+        "deepseek-ai/deepseek-r1",
+        "qwen/qwen2.5-72b-instruct",
+        "deepseek-ai/deepseek-v3.1"
+      ]
+    },
+    "deepinfra": {
+      "name": "deepinfra",
+      "kind": "openai",
+      "base_url": "https://api.deepinfra.com/v1/openai",
+      "auth_style": "bearer",
+      "default_models": [
+        "meta-llama/Meta-Llama-3.1-70B-Instruct",
+        "Qwen/Qwen2.5-72B-Instruct",
+        "deepseek-ai/DeepSeek-V3"
+      ]
+    },
+    "ollama": {
+      "name": "ollama",
+      "kind": "openai",
+      "base_url": "http://localhost:11434/v1",
+      "auth_style": "none",
+      "default_models": [
+        "llama3.1:latest",
+        "qwen2.5:latest",
+        "mistral:latest",
+        "llama3.2:latest"
+      ]
+    }
+  },
+  "model_profiles": {
+    "gemini": {
+      "gemini-flash-latest": {
+        "context_window": 1048576,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 15,
+        "free_rpd": 1500,
+        "free_tpm": 1000000,
+        "cost": "experiencing_spikes",
+        "may_train_on_data": false,
+        "free_tier": false
+      }
+    },
+    "groq": {
+      "llama-3.3-70b-versatile": {
+        "context_window": 128000,
+        "max_output_tokens": 32768,
+        "speed": "ultra",
+        "arabic_quality": "medium-high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 6000,
+        "cost": "free_rate_limited",
+        "may_train_on_data": false,
+        "free_tier": true,
+        "badge": "Free - rate limited"
+      },
+      "llama-3.1-8b-instant": {
+        "context_window": 128000,
+        "max_output_tokens": 8192,
+        "speed": "ultra",
+        "arabic_quality": "medium",
+        "json_reliability": "medium-high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 20000,
+        "cost": "free_rate_limited",
+        "may_train_on_data": false,
+        "free_tier": true,
+        "badge": "Free - rate limited"
+      },
+      "openai/gpt-oss-120b": {
+        "context_window": 8192,
+        "max_output_tokens": 4096,
+        "speed": "ultra",
+        "arabic_quality": "medium",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 10000,
+        "cost": "free",
+        "may_train_on_data": false,
+        "free_tier": true,
+        "badge": "Free - rate limited"
+      },
+      "qwen/qwen3.8-27b": {
+        "context_window": 32768,
+        "max_output_tokens": 4096,
+        "speed": "ultra",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 10000,
+        "cost": "free",
+        "may_train_on_data": false,
+        "free_tier": true,
+        "badge": "Free - rate limited"
+      },
+      "openai/gpt-oss-20b": {
+        "context_window": 8192,
+        "max_output_tokens": 2048,
+        "speed": "ultra",
+        "arabic_quality": "medium",
+        "json_reliability": "medium",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 10000,
+        "cost": "free",
+        "may_train_on_data": false,
+        "free_tier": true,
+        "badge": "Free - rate limited"
+      }
+    },
+    "cerebras": {
+      "llama-3.3-70b": {
+        "context_window": 8192,
+        "max_output_tokens": 8192,
+        "speed": "ultra",
+        "arabic_quality": "medium-high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 60000,
+        "cost": "free",
+        "may_train_on_data": false,
+        "free_tier": true
+      },
+      "llama3.1-8b": {
+        "context_window": 8192,
+        "max_output_tokens": 8192,
+        "speed": "ultra",
+        "arabic_quality": "medium",
+        "json_reliability": "medium-high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 14400,
+        "free_tpm": 60000,
+        "cost": "free",
+        "may_train_on_data": false,
+        "free_tier": true
+      }
+    },
+    "nvidia": {
+      "meta/llama-3.3-70b-instruct": {
+        "context_window": 128000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "medium-high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 5000,
+        "free_tpm": 20000,
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited",
+        "task": "quizzes/verification"
+      },
+      "deepseek-ai/deepseek-v3.1": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 5000,
+        "free_tpm": 20000,
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited",
+        "task": "lessons/JSON"
+      },
+      "qwen/qwen2.5-72b-instruct": {
+        "context_window": 32768,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 5000,
+        "free_tpm": 20000,
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited",
+        "task": "Arabic/verification"
+      },
+      "deepseek-ai/deepseek-r1": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "medium",
+        "arabic_quality": "high",
+        "json_reliability": "medium-high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 5000,
+        "free_tpm": 20000,
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited",
+        "task": "reasoning/verification"
+      }
+    },
+    "openrouter": {
+      "meta-llama/llama-3.3-70b-instruct": {
+        "context_window": 131072,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "medium-high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 1000,
+        "free_tpm": 15000,
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
+      },
+      "google/gemini-2.0-flash-001": {
+        "context_window": 1048576,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 1000,
+        "free_tpm": 15000,
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
+      },
+      "deepseek/deepseek-chat": {
+        "context_window": 64000,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 1000,
+        "free_tpm": 15000,
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
+      },
+      "openai/gpt-4o-mini": {
+        "context_window": 128000,
+        "max_output_tokens": 16384,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 1000,
+        "free_tpm": 15000,
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
+      },
+      "qwen/qwen-2.5-72b-instruct": {
+        "context_window": 32768,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 1000,
+        "free_tpm": 15000,
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
+      },
+      "meta-llama/llama-3.3-70b-instruct:free": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 200,
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited"
+      },
+      "google/gemini-2.0-flash-exp:free": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 200,
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited"
+      },
+      "deepseek/deepseek-r1:free": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 200,
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited"
+      },
+      "qwen/qwen-2.5-72b-instruct:free": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 20,
+        "free_rpd": 200,
+        "cost": "free_rate_limited",
+        "free_tier": true,
+        "may_train_on_data": false,
+        "badge": "Free - rate limited"
+      }
+    },
+    "deepinfra": {
+      "meta-llama/Meta-Llama-3.1-70B-Instruct": {
+        "context_window": 128000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "medium-high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 3000,
+        "free_tpm": 20000,
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
+      },
+      "Qwen/Qwen2.5-72B-Instruct": {
+        "context_window": 32768,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 3000,
+        "free_tpm": 20000,
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
+      },
+      "deepseek-ai/DeepSeek-V3": {
+        "context_window": 64000,
+        "max_output_tokens": 4096,
+        "speed": "high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "free_rpm": 30,
+        "free_rpd": 3000,
+        "free_tpm": 20000,
+        "cost": "paid",
+        "may_train_on_data": false,
+        "free_tier": false
+      }
+    },
+    "ollama": {
+      "llama3.1:latest": {
+        "context_window": 32768,
+        "max_output_tokens": 8192,
+        "speed": "medium-high",
+        "arabic_quality": "medium",
+        "json_reliability": "high",
+        "streaming": true,
+        "cost": "free",
+        "is_local": true,
+        "offline": true,
+        "may_train_on_data": false,
+        "free_tier": true,
+        "task": "quizzes/assessments"
+      },
+      "qwen2.5:latest": {
+        "context_window": 32768,
+        "max_output_tokens": 8192,
+        "speed": "medium-high",
+        "arabic_quality": "high",
+        "json_reliability": "high",
+        "streaming": true,
+        "cost": "free",
+        "is_local": true,
+        "offline": true,
+        "may_train_on_data": false,
+        "free_tier": true,
+        "task": "translation/Arabic"
+      },
+      "mistral:latest": {
+        "context_window": 32768,
+        "max_output_tokens": 8192,
+        "speed": "medium-high",
+        "arabic_quality": "medium",
+        "json_reliability": "high",
+        "streaming": true,
+        "cost": "free",
+        "is_local": true,
+        "offline": true,
+        "may_train_on_data": false,
+        "free_tier": true,
+        "task": "lessons/scripts"
+      },
+      "llama3.2:latest": {
+        "context_window": 32768,
+        "max_output_tokens": 8192,
+        "speed": "high",
+        "arabic_quality": "medium",
+        "json_reliability": "high",
+        "streaming": true,
+        "cost": "free",
+        "is_local": true,
+        "offline": true,
+        "may_train_on_data": false,
+        "free_tier": true,
+        "task": "flashcards/general"
+      }
+    }
+  },
+  "feature_requirements": {
+    "video_script": {
+      "min_context": 16000,
+      "min_output": 2500,
+      "min_arabic_quality": "high",
+      "coherence_needed": true,
+      "strict_json": false,
+      "provider_affinity": [
+        "gemini",
+        "openrouter",
+        "nvidia"
+      ],
+      "description": "Long output + long context + high Arabic quality + coherence"
+    },
+    "kb_chat": {
+      "min_context": 8000,
+      "min_output": 1000,
+      "min_arabic_quality": "medium",
+      "speed_priority": "high",
+      "streaming_preferred": true,
+      "strict_json": false,
+      "provider_affinity": [
+        "groq",
+        "gemini",
+        "openrouter",
+        "nvidia"
+      ],
+      "description": "Low latency + streaming + good Arabic + moderate context"
+    },
+    "chatbot": {
+      "min_context": 8000,
+      "min_output": 1000,
+      "min_arabic_quality": "medium",
+      "speed_priority": "high",
+      "streaming_preferred": true,
+      "strict_json": false,
+      "provider_affinity": [
+        "groq",
+        "gemini",
+        "openrouter",
+        "nvidia"
+      ],
+      "description": "Low latency + streaming + good Arabic + moderate context"
+    },
+    "quizzes": {
+      "min_context": 4000,
+      "min_output": 1500,
+      "strict_json": true,
+      "throughput_priority": "high",
+      "provider_affinity": [
+        "nvidia",
+        "openrouter",
+        "deepinfra",
+        "groq",
+        "gemini"
+      ],
+      "description": "Reliable strict JSON, short outputs, high throughput"
+    },
+    "flashcards": {
+      "min_context": 4000,
+      "min_output": 1500,
+      "strict_json": true,
+      "throughput_priority": "high",
+      "provider_affinity": [
+        "nvidia",
+        "openrouter",
+        "deepinfra",
+        "groq",
+        "gemini"
+      ],
+      "description": "Reliable strict JSON, short outputs, high throughput"
+    },
+    "exams": {
+      "min_context": 8000,
+      "min_output": 2500,
+      "strict_json": true,
+      "throughput_priority": "high",
+      "provider_affinity": [
+        "nvidia",
+        "openrouter",
+        "deepinfra",
+        "groq",
+        "gemini"
+      ],
+      "description": "Reliable strict JSON, structured schema, high throughput"
+    },
+    "reports": {
+      "min_context": 8000,
+      "min_output": 2000,
+      "strict_json": true,
+      "analytical_reasoning": true,
+      "deterministic": true,
+      "default_temperature": 0.2,
+      "provider_affinity": [
+        "gemini",
+        "groq",
+        "nvidia"
+      ],
+      "description": "Strict JSON + analytical reasoning, deterministic (low temp)"
+    },
+    "recommendations": {
+      "min_context": 8000,
+      "min_output": 2000,
+      "strict_json": true,
+      "analytical_reasoning": true,
+      "deterministic": true,
+      "default_temperature": 0.2,
+      "provider_affinity": [
+        "gemini",
+        "groq",
+        "nvidia"
+      ],
+      "description": "Strict JSON + analytical reasoning, deterministic"
+    },
+    "question_bank": {
+      "min_context": 12000,
+      "min_output": 2000,
+      "bulk_volume": true,
+      "strict_json": true,
+      "min_arabic_quality": "high",
+      "answer_verification": true,
+      "provider_affinity": [
+        "groq",
+        "cerebras",
+        "gemini"
+      ],
+      "verification_provider_affinity": [
+        "gemini",
+        "nvidia",
+        "openrouter"
+      ],
+      "description": "Bulk volume + JSON reliability + Arabic/English/Mixed + answer verification"
+    },
+    "prompt_enhance": {
+      "min_context": 4000,
+      "min_output": 1000,
+      "strict_json": false,
+      "speed_priority": true,
+      "min_arabic_quality": "high",
+      "provider_affinity": [
+        "groq",
+        "gemini",
+        "nvidia",
+        "openrouter"
+      ],
+      "description": "Fast low-latency prompt rewriting preserving language, duration and counts"
+    },
+    "general": {
+      "min_context": 4000,
+      "min_output": 1000,
+      "strict_json": false,
+      "provider_affinity": [
+        "gemini",
+        "groq",
+        "openrouter",
+        "nvidia",
+        "deepinfra",
+        "cerebras"
+      ],
+      "description": "General task fallback"
+    }
+  }
+}

@@ -1,16 +1,21 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookOpen, CheckCircle2, FileDown, FolderOpen, Link2, PlayCircle, Plus, RefreshCw, Trash2, Upload, Users, X } from 'lucide-react'
-import { api } from '../services/api'
+import { api, staticUrl, token } from '../services/api'
+import { formatDate } from '../services/time'
+import Modal from '../components/Modal'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
+
+const ENDED_PAGE_SIZE = 20
 
 const initialForm = {
   title: '',
   description: '',
   date: new Date().toISOString().slice(0, 10),
   start_time: '10:00',
-  duration: 60,
+  duration: '',
+  no_limit: true,
   max_students: '',
 }
 
@@ -18,6 +23,7 @@ export default function Sessions() {
   const { t } = useLanguage()
   const navigate = useNavigate()
   const [sessions, setSessions] = useState([])
+  const [activeTab, setActiveTab] = useState('upcoming') // 'upcoming' | 'ended'
   const [form, setForm] = useState(initialForm)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -34,6 +40,10 @@ export default function Sessions() {
   const [linkingId, setLinkingId] = useState(null)
   const [availableGenerations, setAvailableGenerations] = useState([])
   const [selectedGenerationId, setSelectedGenerationId] = useState('')
+  const [endedQuery, setEndedQuery] = useState('')
+  const [endedFrom, setEndedFrom] = useState('')
+  const [endedTo, setEndedTo] = useState('')
+  const [endedPage, setEndedPage] = useState(1)
   const toast = useToast()
 
   async function load() {
@@ -45,7 +55,17 @@ export default function Sessions() {
         api('/ai/generations'),
       ])
       setSessions(Array.isArray(sessionData) ? sessionData : [])
-      setAvailableGenerations(Array.isArray(generationsData) ? generationsData : [])
+      // The generations endpoint can repeat the same id; duplicated <option>
+      // keys made React warn and could drop options from the dropdown.
+      const seenGenerations = new Set()
+      const uniqueGenerations = []
+      for (const gen of (Array.isArray(generationsData) ? generationsData : [])) {
+        if (gen && !seenGenerations.has(gen.id)) {
+          seenGenerations.add(gen.id)
+          uniqueGenerations.push(gen)
+        }
+      }
+      setAvailableGenerations(uniqueGenerations)
     } catch (err) {
       setError(err.message)
       setSessions([])
@@ -63,18 +83,19 @@ export default function Sessions() {
     try {
       const payload = {
         ...form,
+        duration: form.no_limit || !form.duration ? null : Number(form.duration),
         max_students: form.max_students ? Number(form.max_students) : null
       }
-      const created = await api('/sessions', { method: 'POST', body: JSON.stringify(payload) })
+      const created = await api('/sessions', { method: 'POST', body: payload })
       if (pendingCreateFile && created?.id) {
         setUploadingResource(true)
         try {
           const formData = new FormData()
           formData.append('file', pendingCreateFile)
-          const token = localStorage.getItem('token')
+          const authToken = token()
           const res = await fetch(`/api/sessions/${created.id}/resources`, {
             method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
+            headers: { Authorization: `Bearer ${authToken}` },
             body: formData,
           })
           if (!res.ok) throw new Error(await res.text())
@@ -96,11 +117,50 @@ export default function Sessions() {
       }
       setSelectedGenerationId('')
       if (createFileRef.current) createFileRef.current.value = ''
+      setActiveTab('upcoming')
       await load()
     } catch (err) {
       setError(err.message)
     }
   }
+
+  const upcomingSessions = useMemo(() => {
+    return sessions.filter((s) => {
+      const st = (s.effective_status || s.status || '').toLowerCase()
+      return st === 'upcoming' || st === 'live' || st === 'pending' || st === 'ongoing' || st === 'preparing'
+    })
+  }, [sessions])
+
+  const endedSessions = useMemo(() => {
+    return sessions.filter((s) => {
+      const st = (s.effective_status || s.status || '').toLowerCase()
+      return st === 'ended' || st === 'missed' || st === 'completed' || st === 'finished' || st === 'cancelled' || st === 'canceled'
+    })
+  }, [sessions])
+
+  const filteredEnded = useMemo(() => {
+    const query = endedQuery.trim().toLowerCase()
+    return [...endedSessions]
+      .filter((session) => {
+        if (query && !`${session.title || ''} ${session.description || ''}`.toLowerCase().includes(query)) return false
+        const day = String(session.date || '').slice(0, 10)
+        if (endedFrom && day && day < endedFrom) return false
+        if (endedTo && day && day > endedTo) return false
+        return true
+      })
+      .sort((a, b) => (
+        `${b.date || ''}${String(b.start_time || '').slice(0, 8)}`
+          .localeCompare(`${a.date || ''}${String(a.start_time || '').slice(0, 8)}`)
+      ))
+  }, [endedSessions, endedQuery, endedFrom, endedTo])
+
+  const endedPageCount = Math.max(1, Math.ceil(filteredEnded.length / ENDED_PAGE_SIZE))
+  const safeEndedPage = Math.min(endedPage, endedPageCount)
+  const visibleEnded = filteredEnded.slice(
+    (safeEndedPage - 1) * ENDED_PAGE_SIZE,
+    safeEndedPage * ENDED_PAGE_SIZE,
+  )
+  const listedSessions = activeTab === 'upcoming' ? upcomingSessions : visibleEnded
 
   function startEdit(session) {
     setEditingSession(session)
@@ -109,9 +169,12 @@ export default function Sessions() {
       description: session.description || '',
       date: session.date,
       start_time: session.start_time,
-      duration: session.duration,
+      duration: session.duration ?? '',
+      no_limit: session.duration == null,
       max_students: session.max_students || '',
     })
+    const currentlyLinked = session.linked_content?.[0]
+    setSelectedGenerationId(currentlyLinked ? String(currentlyLinked.id) : '')
   }
 
   async function saveEdit(e) {
@@ -119,9 +182,10 @@ export default function Sessions() {
     try {
       const payload = {
         ...editForm,
+        duration: editForm.no_limit || !editForm.duration ? null : Number(editForm.duration),
         max_students: editForm.max_students ? Number(editForm.max_students) : null
       }
-      await api(`/sessions/${editingSession.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+      await api(`/sessions/${editingSession.id}`, { method: 'PUT', body: payload })
       if (selectedGenerationId) {
         try {
           await api(`/sessions/${editingSession.id}/link-generation/${selectedGenerationId}`, { method: 'POST' })
@@ -166,13 +230,13 @@ export default function Sessions() {
     }
   }
 
-  async function openResourcePanel(session) {
-    setResourcePanel({ session, resources: [], loading: true })
+  async function openResourcePanel(session, readOnly = false) {
+    setResourcePanel({ session, resources: [], loading: true, readOnly })
     try {
       const list = await api(`/sessions/${session.id}/resources`)
-      setResourcePanel({ session, resources: Array.isArray(list) ? list : [], loading: false })
+      setResourcePanel({ session, resources: Array.isArray(list) ? list : [], loading: false, readOnly })
     } catch {
-      setResourcePanel({ session, resources: [], loading: false })
+      setResourcePanel({ session, resources: [], loading: false, readOnly })
     }
   }
 
@@ -183,10 +247,10 @@ export default function Sessions() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const token = localStorage.getItem('token')
+      const authToken = token()
       const res = await fetch(`/api/sessions/${resourcePanel.session.id}/resources`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       })
       if (!res.ok) throw new Error(await res.text())
@@ -227,14 +291,42 @@ export default function Sessions() {
     }
   }
 
-  async function linkGeneration(genId) {
+  async function linkGeneration(genId, type) {
     if (!linkPanel) return
     setLinkingId(genId)
     try {
-      await api(`/sessions/${linkPanel.session.id}/link-generation/${genId}`, { method: 'POST' })
+      const query = type ? `?type=${type}` : ''
+      await api(`/sessions/${linkPanel.session.id}/link-generation/${genId}${query}`, { method: 'POST' })
       toast.success('Content linked to session — students can access it after enrolling.')
+      setLinkPanel((prev) => ({
+        ...prev,
+        generations: prev.generations.map((g) => (g.id === genId ? { ...g, session_id: prev.session.id } : g)),
+      }))
+      await load()
     } catch (err) {
       setError(err.message || 'Could not link content')
+    } finally {
+      setLinkingId(null)
+    }
+  }
+
+  async function unlinkGeneration(genId, sessionId, type) {
+    const targetSessionId = sessionId || linkPanel?.session?.id
+    if (!targetSessionId) return
+    setLinkingId(genId)
+    try {
+      const query = type ? `?type=${type}` : ''
+      await api(`/sessions/${targetSessionId}/unlink-generation/${genId}${query}`, { method: 'POST' })
+      toast.success('Content unlinked from session.')
+      if (linkPanel) {
+        setLinkPanel((prev) => ({
+          ...prev,
+          generations: prev.generations.map((g) => (g.id === genId ? { ...g, session_id: null } : g)),
+        }))
+      }
+      await load()
+    } catch (err) {
+      setError(err.message || 'Could not unlink content')
     } finally {
       setLinkingId(null)
     }
@@ -253,7 +345,21 @@ export default function Sessions() {
         <input className="input" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
         <input className="input" type="time" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} />
         <div className="grid grid-cols-2 gap-3">
-          <input className="input" type="number" min="5" max="480" value={form.duration} onChange={(e) => setForm({ ...form, duration: Number(e.target.value) })} />
+          <div className="space-y-1">
+            <input
+              className="input"
+              type="number"
+              min="1"
+              placeholder="Duration (min)"
+              disabled={form.no_limit}
+              value={form.duration}
+              onChange={(e) => setForm({ ...form, duration: e.target.value })}
+            />
+            <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <input type="checkbox" checked={form.no_limit} onChange={(e) => setForm({ ...form, no_limit: e.target.checked })} />
+              No time limit
+            </label>
+          </div>
           <input className="input" type="number" min="1" max="500" placeholder="Seats (Optional)" value={form.max_students} onChange={(e) => setForm({ ...form, max_students: e.target.value })} />
         </div>
         <label className="block space-y-2">
@@ -285,72 +391,238 @@ export default function Sessions() {
       </form>
 
       <div className="panel space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-black">{t('sessions.scheduled')}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3 dark:border-slate-700">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('upcoming')}
+              className={`px-4 py-2 text-sm font-bold rounded-xl transition ${activeTab === 'upcoming' ? 'bg-ocean text-white shadow dark:bg-mint dark:text-slate-950' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'}`}
+            >
+              Upcoming ({upcomingSessions.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('ended')}
+              className={`px-4 py-2 text-sm font-bold rounded-xl transition ${activeTab === 'ended' ? 'bg-ocean text-white shadow dark:bg-mint dark:text-slate-950' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'}`}
+            >
+              Ended ({endedSessions.length})
+            </button>
+          </div>
           <button className="btn-soft" type="button" onClick={load}><RefreshCw size={18} />{t('sessions.refresh')}</button>
         </div>
         {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">{error}</p>}
         {loading && <p className="text-sm text-slate-500">{t('sessions.loading')}</p>}
-        {!loading && sessions.length === 0 && !error && <p className="text-sm text-slate-500">{t('sessions.empty')}</p>}
-        <div className="space-y-3">
-          {sessions.map((session) => (
-            <div className="rounded-2xl border border-slate-200 p-4 transition hover:shadow-md dark:border-slate-700" key={session.id}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-lg font-bold">{session.title}</p>
-                  <p className="text-sm text-slate-500">{session.date} | {session.start_time} | {session.status}</p>
-                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{session.description || t('sessions.noDescription')}</p>
+        {activeTab === 'ended' && !loading && (
+          <div className="flex flex-wrap items-end gap-2 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
+            <label className="flex-1 min-w-[180px] space-y-1">
+              <span className="text-xs font-semibold text-slate-500">Search ended sessions</span>
+              <input
+                className="input"
+                data-testid="ended-search"
+                placeholder="Title or description"
+                value={endedQuery}
+                onChange={(e) => { setEndedQuery(e.target.value); setEndedPage(1) }}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-semibold text-slate-500">From</span>
+              <input
+                className="input"
+                data-testid="ended-from"
+                type="date"
+                value={endedFrom}
+                onChange={(e) => { setEndedFrom(e.target.value); setEndedPage(1) }}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-semibold text-slate-500">To</span>
+              <input
+                className="input"
+                data-testid="ended-to"
+                type="date"
+                value={endedTo}
+                onChange={(e) => { setEndedTo(e.target.value); setEndedPage(1) }}
+              />
+            </label>
+            <p className="ml-auto text-xs font-semibold text-slate-500" data-testid="ended-count">
+              {filteredEnded.length} matching · page {safeEndedPage}/{endedPageCount}
+            </p>
+          </div>
+        )}
+        {!loading && listedSessions.length === 0 && !error && (
+          <p className="text-sm text-slate-500">
+            {activeTab === 'upcoming' ? 'No upcoming sessions scheduled.' : 'No ended sessions match this filter.'}
+          </p>
+        )}
+        <div className="space-y-3" data-testid="session-list">
+          {listedSessions.map((session) => {
+            const isEnded = activeTab === 'ended'
+            const eff = (session.effective_status || session.status || '').toLowerCase()
+            const isMissed = eff === 'missed'
+            return (
+              <div
+                className="rounded-2xl border border-slate-200 p-4 transition hover:shadow-md dark:border-slate-700 cursor-pointer"
+                key={session.id}
+                data-testid="session-row"
+                data-session-id={session.id}
+                onClick={() => navigate(`/instructor/reports?session_id=${session.id}`)}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-lg font-bold">{session.title}</p>
+                    <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
+                      <span>{session.date}{session.start_time ? ` · ${String(session.start_time).slice(0, 5)}` : ''}</span>
+                      {isMissed ? (
+                        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">Missed</span>
+                      ) : isEnded ? (
+                        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">Ended</span>
+                      ) : (
+                        <span className="capitalize font-semibold text-ocean dark:text-mint">{eff}</span>
+                      )}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{session.description || t('sessions.noDescription')}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    {session.max_students != null && Number(session.max_students) > 0 && (
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase dark:bg-slate-800">{session.max_students} {t('sessions.seats')}</span>
+                    )}
+                    <button
+                      className="flex items-center gap-1.5 rounded-full bg-ocean/10 px-3 py-1 text-xs font-semibold text-ocean transition hover:bg-ocean/20 dark:bg-mint/10 dark:text-mint dark:hover:bg-mint/20"
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); viewAttendees(session); }}
+                    >
+                      <Users size={13} />
+                      Enrolled students
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-col items-end gap-2 shrink-0">
-                  {session.max_students != null && Number(session.max_students) > 0 && (
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase dark:bg-slate-800">{session.max_students} {t('sessions.seats')}</span>
+                {session.linked_content && session.linked_content.length > 0 && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-teal-50/60 p-2.5 dark:bg-slate-800/50">
+                    <span className="text-xs font-bold text-teal-800 dark:text-mint flex items-center gap-1">
+                      <Link2 size={13} /> Linked AI Content:
+                    </span>
+                    {session.linked_content.map((item) => (
+                      <span
+                        key={`${item.type}-${item.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      >
+                        <span className="capitalize text-teal-600 dark:text-mint text-[11px] font-bold">[{item.type}]</span>
+                        <span className="max-w-[180px] truncate">{item.topic}</span>
+                        {!isEnded && (
+                          <button
+                            type="button"
+                            title="Unlink"
+                            onClick={(e) => { e.stopPropagation(); unlinkGeneration(item.id, session.id, item.type); }}
+                            className="text-slate-400 hover:text-red-600 transition"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {!isEnded ? (
+                    <>
+                      <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); startEdit(session); }}>Edit</button>
+                      <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); startSession(session.id); }}><PlayCircle size={18} />{t('sessions.start')}</button>
+                      <button className="btn-soft" type="button" onClick={(e) => { e.stopPropagation(); endSession(session.id); }}>{t('sessions.end')}</button>
+                      <button
+                        className="btn-soft text-purple-600 hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-950/20"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openResourcePanel(session, false); }}
+                      >
+                        <FolderOpen size={18} />Manage Resources
+                      </button>
+                      <button
+                        className="btn-soft text-teal-700 hover:bg-teal-50 dark:text-mint dark:hover:bg-teal-950/20"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openLinkPanel(session); }}
+                      >
+                        <Link2 size={18} />Link AI Content
+                      </button>
+                      <button className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={(e) => { e.stopPropagation(); remove(session.id); }}><Trash2 size={18} />{t('sessions.delete')}</button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="btn-soft text-ocean dark:text-mint"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/instructor/reports?session_id=${session.id}`); }}
+                      >
+                        <BookOpen size={16} />View Report & Analytics
+                      </button>
+                      <button
+                        className="btn-soft text-purple-600 hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-950/20"
+                        type="button"
+                        data-testid="view-resources"
+                        onClick={(e) => { e.stopPropagation(); openResourcePanel(session, true); }}
+                      >
+                        <FolderOpen size={16} />View Resources
+                      </button>
+                    </>
                   )}
-                  <button
-                    className="flex items-center gap-1.5 rounded-full bg-ocean/10 px-3 py-1 text-xs font-semibold text-ocean transition hover:bg-ocean/20 dark:bg-mint/10 dark:text-mint dark:hover:bg-mint/20"
-                    type="button"
-                    onClick={() => viewAttendees(session)}
-                  >
-                    <Users size={13} />
-                    Enrolled students
-                  </button>
                 </div>
               </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button className="btn-soft" type="button" onClick={() => startEdit(session)}>Edit</button>
-                <button className="btn-soft" type="button" onClick={() => startSession(session.id)}><PlayCircle size={18} />{t('sessions.start')}</button>
-                <button className="btn-soft" type="button" onClick={() => endSession(session.id)}>{t('sessions.end')}</button>
-                <button
-                  className="btn-soft text-purple-600 hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-950/20"
-                  type="button"
-                  onClick={() => openResourcePanel(session)}
-                >
-                  <FolderOpen size={18} />Manage Resources
-                </button>
-                <button
-                  className="btn-soft text-teal-700 hover:bg-teal-50 dark:text-mint dark:hover:bg-teal-950/20"
-                  type="button"
-                  onClick={() => openLinkPanel(session)}
-                >
-                  <Link2 size={18} />Link AI Content
-                </button>
-                <button className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20" type="button" onClick={() => remove(session.id)}><Trash2 size={18} />{t('sessions.delete')}</button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
+        {activeTab === 'ended' && endedPageCount > 1 && (
+          <div className="flex items-center justify-between gap-2 border-t border-slate-200 pt-3 dark:border-slate-700">
+            <button
+              className="btn-soft"
+              type="button"
+              data-testid="ended-prev"
+              disabled={safeEndedPage <= 1}
+              onClick={() => setEndedPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </button>
+            <span className="text-xs font-semibold text-slate-500">Page {safeEndedPage} of {endedPageCount}</span>
+            <button
+              className="btn-soft"
+              type="button"
+              data-testid="ended-next"
+              disabled={safeEndedPage >= endedPageCount}
+              onClick={() => setEndedPage((p) => Math.min(endedPageCount, p + 1))}
+            >
+              Next
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Edit modal */}
       {editingSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setEditingSession(null)}>
-          <form className="modal-panel w-full max-w-md space-y-3 rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 dark:text-slate-100" onSubmit={saveEdit} onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl font-bold">Edit Session</h3>
+        <Modal
+          open
+          onClose={() => setEditingSession(null)}
+          title="Edit Session"
+          subtitle={editingSession.title}
+          maxWidth="max-w-md"
+        >
+          <form className="space-y-3" onSubmit={saveEdit}>
             <input className="input dark:bg-slate-800 dark:border-slate-700" placeholder="Title" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} required />
             <textarea className="input min-h-24 dark:bg-slate-800 dark:border-slate-700" placeholder="Description" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
             <input className="input dark:bg-slate-800 dark:border-slate-700" type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} required />
             <input className="input dark:bg-slate-800 dark:border-slate-700" type="time" value={editForm.start_time} onChange={(e) => setEditForm({ ...editForm, start_time: e.target.value })} required />
             <div className="grid grid-cols-2 gap-3">
-              <input className="input dark:bg-slate-800 dark:border-slate-700" type="number" min="5" max="480" placeholder="Duration (min)" value={editForm.duration} onChange={(e) => setEditForm({ ...editForm, duration: Number(e.target.value) })} />
+              <div className="space-y-1">
+                <input
+                  className="input dark:bg-slate-800 dark:border-slate-700"
+                  type="number"
+                  min="1"
+                  placeholder="Duration (min)"
+                  disabled={editForm.no_limit}
+                  value={editForm.duration}
+                  onChange={(e) => setEditForm({ ...editForm, duration: e.target.value })}
+                />
+                <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  <input type="checkbox" checked={!!editForm.no_limit} onChange={(e) => setEditForm({ ...editForm, no_limit: e.target.checked })} />
+                  No time limit
+                </label>
+              </div>
               <input className="input dark:bg-slate-800 dark:border-slate-700" type="number" min="1" max="500" placeholder="Seats (Optional)" value={editForm.max_students} onChange={(e) => setEditForm({ ...editForm, max_students: e.target.value })} />
             </div>
             <label className="block space-y-2">
@@ -367,18 +639,19 @@ export default function Sessions() {
               <button className="btn-soft flex-1" type="button" onClick={() => setEditingSession(null)}>Cancel</button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
 
       {/* Enrolled students modal */}
       {attendeesModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="modal-panel w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold">Enrolled Students</h3>
-              <button className="btn-soft p-1.5" type="button" onClick={() => setAttendeesModal(null)}><X size={18} /></button>
-            </div>
-            <p className="text-xs text-slate-500 -mt-2">{attendeesModal.session.title}</p>
+        <Modal
+          open
+          onClose={() => setAttendeesModal(null)}
+          title="Enrolled Students"
+          subtitle={attendeesModal.session.title}
+          maxWidth="max-w-md"
+        >
+          <div className="space-y-4">
             {loadingAttendees ? (
               <p className="text-sm text-slate-500">Loading students...</p>
             ) : attendeesModal.list.length === 0 ? (
@@ -399,40 +672,39 @@ export default function Sessions() {
               </ul>
             )}
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Resource Management Modal */}
       {resourcePanel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-slate-900 dark:text-slate-100 flex flex-col max-h-[85vh]">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 px-6 py-4">
-              <div>
-                <h3 className="text-lg font-bold flex items-center gap-2"><FolderOpen size={20} className="text-purple-500" />Session Resources</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{resourcePanel.session.title}</p>
-              </div>
-              <button className="btn-soft p-1.5" type="button" onClick={() => setResourcePanel(null)}><X size={18} /></button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1 space-y-4">
+        <Modal
+          open
+          onClose={() => setResourcePanel(null)}
+          title="Session Resources"
+          subtitle={resourcePanel.session.title}
+        >
+            <div className="space-y-4">
               {/* Upload area */}
-              <div
-                className="border-2 border-dashed border-purple-300 dark:border-purple-700 rounded-xl p-6 text-center cursor-pointer hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/20 transition"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.mp4,.zip" onChange={uploadResource} />
-                {uploadingResource ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="h-8 w-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
-                    <p className="text-sm text-purple-600 font-semibold">Uploading...</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-2">
-                    <Upload size={28} className="text-purple-400" />
-                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Click to upload a resource</p>
-                    <p className="text-xs text-slate-400">PDF, PPTX, DOC, DOCX, XLSX, Images, MP4, ZIP</p>
-                  </div>
-                )}
-              </div>
+              {!resourcePanel.readOnly && (
+                <div
+                  className="border-2 border-dashed border-purple-300 dark:border-purple-700 rounded-xl p-6 text-center cursor-pointer hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/20 transition"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.pptx,.ppt,.doc,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.mp4,.zip" onChange={uploadResource} />
+                  {uploadingResource ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="h-8 w-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
+                      <p className="text-sm text-purple-600 font-semibold">Uploading...</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2">
+                      <Upload size={28} className="text-purple-400" />
+                      <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Click to upload a resource</p>
+                      <p className="text-xs text-slate-400">PDF, PPTX, DOC, DOCX, XLSX, Images, MP4, ZIP</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Resources list */}
               {resourcePanel.loading ? (
@@ -451,26 +723,34 @@ export default function Sessions() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-sm truncate">{r.name}</p>
-                        <p className="text-xs text-slate-500">{formatBytes(r.file_size)} · {new Date(r.uploaded_at).toLocaleDateString()}</p>
+                        <p className="text-xs text-slate-500">{formatBytes(r.file_size)} · {formatDate(r.uploaded_at)}</p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <a
-                          href={`http://localhost:8000${r.url}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn-soft p-1.5 text-ocean dark:text-mint"
-                          title="Download"
-                        >
-                          <FileDown size={16} />
-                        </a>
-                        <button
-                          type="button"
-                          className="btn-soft p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20"
-                          onClick={() => deleteResource(r.id)}
-                          title="Delete"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {r.available ? (
+                          <a
+                            href={staticUrl(r.url)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn-soft p-1.5 text-ocean dark:text-mint"
+                            title="Download"
+                          >
+                            <FileDown size={16} />
+                          </a>
+                        ) : (
+                          <span className="text-xs font-medium text-red-600 dark:text-red-400" role="status">
+                            File unavailable
+                          </span>
+                        )}
+                        {!resourcePanel.readOnly && (
+                          <button
+                            type="button"
+                            className="btn-soft p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20"
+                            onClick={() => deleteResource(r.id)}
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </li>
                   ))}
@@ -478,22 +758,18 @@ export default function Sessions() {
               )}
               <p className="text-xs text-slate-400 text-center">Students enrolled in this session can download these resources from their session history.</p>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Link AI content modal */}
       {linkPanel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="modal-panel w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-slate-900 dark:text-slate-100 flex flex-col max-h-[85vh]">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 px-6 py-4">
-              <div>
-                <h3 className="text-lg font-bold flex items-center gap-2"><Link2 size={20} className="text-teal-600" />Link AI Content</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{linkPanel.session.title}</p>
-              </div>
-              <button className="btn-soft p-1.5" type="button" onClick={() => setLinkPanel(null)}><X size={18} /></button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1 space-y-3">
+        <Modal
+          open
+          onClose={() => setLinkPanel(null)}
+          title="Link AI Content"
+          subtitle={linkPanel.session.title}
+        >
+            <div className="space-y-3">
               <p className="text-sm text-slate-600 dark:text-slate-300">
                 Pick a lesson, flashcard deck, or video to share with students enrolled in this session.
               </p>
@@ -503,27 +779,57 @@ export default function Sessions() {
                 <p className="text-sm text-slate-500">No AI content generated yet. Create lessons, flashcards, or videos first.</p>
               ) : (
                 <ul className="space-y-2">
-                  {linkPanel.generations.map((gen) => (
-                    <li key={gen.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
-                      <div className="min-w-0">
-                        <p className="font-semibold text-sm truncate">{gen.topic}</p>
-                        <p className="text-xs text-slate-500 capitalize">{gen.type} · {new Date(gen.created_at).toLocaleDateString()}</p>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn-soft shrink-0 text-teal-700 dark:text-mint"
-                        disabled={linkingId === gen.id}
-                        onClick={() => linkGeneration(gen.id)}
-                      >
-                        {linkingId === gen.id ? 'Linking...' : 'Link'}
-                      </button>
-                    </li>
-                  ))}
+                  {linkPanel.generations.map((gen) => {
+                    const isLinkedHere = gen.session_id === linkPanel.session.id
+                    return (
+                      <li key={`${gen.type}-${gen.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-teal-800 dark:bg-slate-800 dark:text-mint">
+                              {gen.type}
+                            </span>
+                            <p className="font-semibold text-sm truncate">{gen.topic}</p>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {gen.created_at ? formatDate(gen.created_at) : 'Ready'}
+                            {isLinkedHere && (
+                              <span className="ms-2 font-bold text-emerald-600 dark:text-emerald-400">
+                                • Currently attached to this session
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                        {isLinkedHere ? (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                              <CheckCircle2 size={12} /> Linked
+                            </span>
+                            <button
+                              type="button"
+                              className="btn-soft text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 text-xs py-1 px-2.5 font-semibold"
+                              disabled={linkingId === gen.id}
+                              onClick={() => unlinkGeneration(gen.id, linkPanel.session.id, gen.type)}
+                            >
+                              {linkingId === gen.id ? 'Unlinking...' : 'Unlink'}
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn-soft shrink-0 text-teal-700 dark:text-mint text-xs py-1 px-3 font-semibold"
+                            disabled={linkingId === gen.id}
+                            onClick={() => linkGeneration(gen.id, gen.type)}
+                          >
+                            {linkingId === gen.id ? 'Linking...' : 'Link'}
+                          </button>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   )

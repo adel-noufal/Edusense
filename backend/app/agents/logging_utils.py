@@ -12,9 +12,11 @@ import json
 import logging
 import time
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+from app.services.timefmt import iso_z
 
 # Configure logger
 logger = logging.getLogger("edusense.llm_audit")
@@ -88,7 +90,7 @@ def log_llm_call(
         prompt: Full prompt sent to LLM
         response: Full response from LLM
         duration_ms: Call duration in milliseconds
-        model_used: Model identifier (e.g., "gemini-2.5-flash", "ollama:mistral", "template")
+        model_used: Model identifier (e.g., "llama3.2", "ollama:mistral", "template")
         subject: Academic subject context
         grade_level: Grade level context
         topic: Topic being processed
@@ -100,7 +102,7 @@ def log_llm_call(
         fallback_used: Whether a fallback (template/Ollama) was used
     """
     entry = LLMAuditEntry(
-        timestamp=datetime.utcnow().isoformat() + "Z",
+        timestamp=iso_z(datetime.now(timezone.utc)),
         agent_name=agent_name,
         method_name=method_name,
         prompt_hash=_hash_prompt(prompt),
@@ -128,7 +130,7 @@ class LLMAuditContext:
     Usage:
         with LLMAuditContext("LessonGenerationAgent", "generate", subject="Biology", grade_level="10") as ctx:
             response = llm.generate(prompt)
-            ctx.set_response(response, model_used="gemini-2.5-flash")
+            ctx.set_response(response, model_used="provider-default")
     """
 
     def __init__(

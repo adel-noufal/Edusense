@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, HTTPException, Request
 from app.api.deps import require_role
 from app.core.audit import log_audit_event
+from app.services.timefmt import iso_z
 from app.db.session import engine, get_db
 from app.models.models import User, Session as AppSession, SessionRegistration, EmotionLog, Report, Feedback, VideoProject, Quiz, SessionNote, AIGeneration
 
@@ -26,7 +27,7 @@ ALLOWED_TABLES = {
 
 def serialize_cell(val):
     if isinstance(val, (datetime, date)):
-        return val.isoformat()
+        return iso_z(val)
     if isinstance(val, bytes):
         return "<binary data>"
     return val
@@ -81,3 +82,42 @@ def reset_platform_data(db: Session = Depends(get_db), _: User = Depends(require
     db.commit()
     return {"message": "All created sessions, logs, and generated content have been successfully cleared. Admin and user accounts remain active."}
 
+
+
+@router.get("/llm-status")
+def llm_status(_: User = Depends(require_role("admin", "instructor"))):
+    """Multi-provider LLM diagnostics: masked keys, quota groups, per-model
+    cooldown/disable state, requests today, and the effective task chains."""
+    from app.services import llm
+    return llm.status()
+
+
+@router.get("/llm-discovery")
+def llm_discovery(_: User = Depends(require_role("admin", "instructor"))):
+    """Live model catalogs per provider/key plus 1-token probe results."""
+    from app.services import model_discovery
+    cached = model_discovery.load_cache()
+    if cached and model_discovery.cache_age_seconds(cached) < model_discovery.REFRESH_AFTER_SECONDS:
+        cached["cached"] = True
+        return cached
+    return model_discovery.discover()
+
+
+@router.post("/llm-discovery/refresh")
+def llm_discovery_refresh(_: User = Depends(require_role("admin", "instructor"))):
+    """Force a fresh live discovery run (probes every candidate model)."""
+    from app.services import model_discovery
+    return model_discovery.discover()
+
+
+@router.post("/llm-test")
+def llm_test(_: User = Depends(require_role("admin", "instructor"))):
+    """Trigger on-demand live probe testing of all configured LLM keys."""
+    from app.services import llm
+    results = llm.router.validate_all_keys(probe=True)
+    return {
+        "status": "ok",
+        "keys_tested": len(results),
+        "results": results,
+        "llm_status": llm.status(),
+    }

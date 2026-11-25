@@ -1,5 +1,6 @@
 from datetime import date, datetime, time
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, field_serializer, field_validator
+from app.services.timefmt import iso_z
 
 
 class UserCreate(BaseModel):
@@ -58,7 +59,9 @@ class SessionIn(BaseModel):
     description: str = ""
     date: date
     start_time: time
-    duration: int = Field(ge=5, le=480)
+    # Optional session time limit in minutes. None/omitted = "No time limit".
+    # Positive values only; no arbitrary upper bound (hours/days allowed).
+    duration: int | None = Field(default=None, ge=1)
     max_students: int | None = Field(default=None, ge=1, le=500)
 
 
@@ -66,10 +69,16 @@ class SessionOut(SessionIn):
     id: int
     instructor_id: int
     status: str
+    effective_status: str | None = None
     prep_start_time: datetime | None = None
     instructor_name: str | None = None
+    linked_content: list[dict] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("prep_start_time")
+    def _prep_start_time_utc(self, value, _info):
+        return iso_z(value)
 
 
 class EmotionFrameIn(BaseModel):
@@ -85,14 +94,20 @@ class EmotionLogIn(BaseModel):
 
 
 class LessonRequest(BaseModel):
+    # Lessons have no runtime: only VideoRequest carries a duration (U14).
+    # extra="ignore" keeps an older client that still posts `duration` working
+    # while the value is dropped and never reaches the lesson output.
+    model_config = ConfigDict(extra="ignore")
+
     topic: str
     prompt: str
     language: str = "English"
     teaching_style: str = "Friendly"
-    duration: int = Field(default=5, ge=1, le=60)
+    detail_level: str = "Standard"                       # Brief | Standard | Detailed
     additional_notes: str | None = None
     session_id: int | None = None
     source_session_id: int | None = None
+    source_resource_ids: list[int] | None = None
     # RAG context filters (optional; when provided, RAG chunks are retrieved)
     subject: str | None = None
     grade_level: str | None = None
@@ -101,10 +116,12 @@ class LessonRequest(BaseModel):
 class QuizRequest(BaseModel):
     session_id: int | None = None
     source_session_id: int | None = None
+    source_resource_ids: list[int] | None = None
     topic: str
     prompt: str = ""
     difficulty: str = "Medium"
     count: int = Field(default=8, ge=3, le=30)
+    teaching_style: str = "Interactive"
     # Optional saved config to apply
     config_id: int | None = None
     # RAG context filters
@@ -125,6 +142,22 @@ class VideoRequest(BaseModel):
     notes: str | None = None
     session_id: int | None = None
     source_session_id: int | None = None
+    source_resource_ids: list[int] | None = None
+
+
+class VideoSceneInput(BaseModel):
+    title: str
+    narration: str
+    content: str | None = None
+    highlight: str | None = None
+    bullets: list[str] = Field(default_factory=list)
+    duration_seconds: int = Field(default=8, ge=2, le=300)
+
+
+class VideoScenesUpdateRequest(BaseModel):
+    title: str | None = None
+    language: str | None = "English"
+    scenes: list[VideoSceneInput]
 
 
 class FlashcardRequest(BaseModel):
@@ -132,14 +165,71 @@ class FlashcardRequest(BaseModel):
     prompt: str = ""
     count: int = Field(default=10, ge=3, le=40)
     language: str = "English"
+    teaching_style: str = "Interactive"
     session_id: int | None = None
     source_session_id: int | None = None
+    source_resource_ids: list[int] | None = None
     # RAG context filters
     subject: str | None = None
     grade_level: str | None = None
 
 
 # Task 10 & 11 & Quiz Anti-Cheat: Quiz schemas
+class PublishExamRequest(BaseModel):
+    session_id: int | None = None
+    time_limit_seconds: int | None = None
+    time_limit_per_question_seconds: int | None = None
+    lock_back_navigation: bool = False
+    fullscreen_lock: bool = True
+    camera_monitoring: bool = False
+    due_date: datetime | None = None
+    available_from: datetime | None = None
+    is_published: bool = True
+    reveal_answers: bool | None = None
+
+
+class QuizQuestionInput(BaseModel):
+    question: str
+    type: str = "multiple_choice"
+    options: list[str] | None = None
+    answer: str
+    explanation: str | None = None
+
+
+class QuizCreateManual(BaseModel):
+    title: str = Field(min_length=1, max_length=180)
+    difficulty: str = "Medium"
+    session_id: int | None = None
+    questions: list[QuizQuestionInput] = Field(min_length=1)
+    is_exam: bool = False
+    is_published: bool = True
+    time_limit_seconds: int | None = None
+    time_limit_per_question_seconds: int | None = None
+    lock_back_navigation: bool = False
+    fullscreen_lock: bool | None = None
+    camera_monitoring: bool = False
+    due_date: datetime | None = None
+    available_from: datetime | None = None
+    reveal_answers: bool = True
+
+
+class QuizUpdateSettings(BaseModel):
+    title: str | None = None
+    difficulty: str | None = None
+    session_id: int | None = None
+    questions: list[QuizQuestionInput] | None = None
+    is_exam: bool | None = None
+    is_published: bool | None = None
+    time_limit_seconds: int | None = None
+    time_limit_per_question_seconds: int | None = None
+    lock_back_navigation: bool | None = None
+    fullscreen_lock: bool | None = None
+    camera_monitoring: bool | None = None
+    due_date: datetime | None = None
+    available_from: datetime | None = None
+    reveal_answers: bool | None = None
+
+
 class QuizOut(BaseModel):
     id: int
     session_id: int | None = None
@@ -153,6 +243,16 @@ class QuizOut(BaseModel):
     # Anti-cheat settings
     fullscreen_lock: bool = False
     camera_monitoring: bool = False
+    # Section 3 / Section 5: Exam publishing fields
+    is_published: bool = True
+    is_exam: bool = False
+    lock_back_navigation: bool = False
+    due_date: datetime | None = None
+    available_from: datetime | None = None
+    reveal_answers: bool = True
+    session_title: str | None = None
+    # B4.3: publish visibility
+    enrolled_student_count: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -189,6 +289,17 @@ class QuizSubmitResponse(BaseModel):
     percentage: float
     details: list[dict]  # Per-question breakdown: {question_index, correct, student_answer, correct_answer, explanation}
     passed: bool
+
+
+class QuizViolationCreate(BaseModel):
+    """Body the exam page actually sends (F5: it was a query-string-only endpoint).
+
+    `event_type` stays optional so older callers can keep sending it in the query
+    string while the body carries only `details`.
+    """
+
+    event_type: str | None = None
+    details: dict | None = None
 
 
 class QuizViolationOut(BaseModel):
@@ -299,3 +410,40 @@ class ConsentCheckResponse(BaseModel):
     consent_type: str
     version: str | None = None
     timestamp: datetime | None = None
+
+
+# ─── Section 3: Assignment schemas ───────────────────────────────────────────
+
+class AssignmentIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    due_date: datetime | None = None
+    max_points: float = Field(default=100.0, ge=0)
+    session_id: int
+
+
+class AssignmentOut(BaseModel):
+    id: int
+    session_id: int
+    instructor_id: int
+    title: str
+    description: str | None = None
+    due_date: datetime | None = None
+    max_points: float
+    created_at: datetime
+    session_title: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class AssignmentSubmissionOut(BaseModel):
+    id: int
+    assignment_id: int
+    student_id: int
+    file_name: str
+    file_size: int
+    submitted_at: datetime
+    score: float | None = None
+    feedback: str | None = None
+
+    model_config = {"from_attributes": True}

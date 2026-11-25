@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, Time, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -37,13 +38,15 @@ class Session(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     date: Mapped[datetime] = mapped_column(Date)
     start_time: Mapped[datetime] = mapped_column(Time)
-    duration: Mapped[int] = mapped_column(Integer)
+    duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = no time limit
     max_students: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     prep_start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reminder_sent: Mapped[bool] = mapped_column(Boolean, default=False)
     # Comma-separated list of minutes for which reminders have been sent (e.g. "15,10,5")
     reminders_sent: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Reversibly hidden test/QA rows: set to a UTC timestamp instead of deleting.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     registrations: Mapped[list["SessionRegistration"]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
 
@@ -54,6 +57,8 @@ class SessionRegistration(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     attended: Mapped[bool] = mapped_column(Boolean, default=False)
+    joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     session: Mapped["Session"] = relationship(back_populates="registrations")
 
 
@@ -111,8 +116,20 @@ class Quiz(Base):
     time_limit_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Per-quiz time limit
     time_limit_per_question_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Per-question time limit
     # Quiz Anti-Cheat / Fullscreen Lockdown settings
-    fullscreen_lock: Mapped[bool] = mapped_column(Boolean, default=False)
+    fullscreen_lock: Mapped[bool] = mapped_column(Boolean, default=True)
     camera_monitoring: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Section 3 & 5: Exam publishing and question navigation lock
+    is_published: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_exam: Mapped[bool] = mapped_column(Boolean, default=False)
+    lock_back_navigation: Mapped[bool] = mapped_column(Boolean, default=False)
+    due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Exam availability window start (UTC). None = available immediately.
+    available_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Instructor policy: whether students see correct answers/explanations after submit
+    reveal_answers: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Owning instructor — used for "all my students" visibility when the exam
+    # is not linked to a specific session.
+    instructor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
 
 class QuizAttempt(Base):
@@ -150,6 +167,17 @@ class QuizViolation(Base):
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     re_entry_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    @property
+    def details(self) -> dict | None:
+        """Parsed `details_json`, so API responses return the real payload (F5)."""
+        if not self.details_json:
+            return None
+        try:
+            parsed = json.loads(self.details_json)
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
 
 class QuizAgentConfig(Base):
@@ -265,3 +293,28 @@ class ConsentRecord(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+
+
+class Assignment(Base):
+    __tablename__ = "assignments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
+    instructor_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    max_points: Mapped[float] = mapped_column(Float, default=100.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AssignmentSubmission(Base):
+    __tablename__ = "assignment_submissions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    assignment_id: Mapped[int] = mapped_column(ForeignKey("assignments.id", ondelete="CASCADE"), index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    file_name: Mapped[str] = mapped_column(String(255))
+    file_path: Mapped[str] = mapped_column(String(500))
+    file_size: Mapped[int] = mapped_column(Integer, default=0)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)

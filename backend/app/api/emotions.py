@@ -1,86 +1,109 @@
 from collections import defaultdict
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from app.agents.emotion_agent import EmotionAnalysisAgent
+
+from app.agents.emotion_agent import SUPPORTED_EMOTIONS, EmotionAnalysisAgent
 from app.api.deps import get_current_user, require_consent, _check_consent
 from app.db.session import get_db
 from app.models.models import EmotionLog, User, ConsentRecord, utcnow
-from app.schemas.schemas import EmotionFrameIn, EmotionLogIn, ConsentRecordOut, ConsentGiveRequest, ConsentCheckResponse
+from app.schemas.schemas import EmotionLogIn, ConsentRecordOut, ConsentGiveRequest, ConsentCheckResponse
 from app.core.audit import log_audit_event
-import time
 
 router = APIRouter(prefix="/emotions", tags=["emotions"])
-agent = EmotionAnalysisAgent()
+_agent = EmotionAnalysisAgent()
 
-# --- Simple in-memory rate limiter (per user, max 1 frame per 1.5 seconds) ---
+# --- Simple in-memory rate limiter (per user, max ~1 event per 0.9 s) ---
 _last_call: dict[int, float] = defaultdict(float)
-_RATE_LIMIT_SECONDS = 1.5
+_RATE_LIMIT_SECONDS = 0.9
+
+
+class EmotionEventIn(BaseModel):
+    """One label produced by the browser face model. No image, ever."""
+
+    session_id: int
+    emotion: str | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    timestamp: datetime | None = None
+    face_detected: bool = True
+    quiz_monitoring: bool = False
+    attempt_id: int | None = None
 
 
 def _check_rate_limit(user_id: int):
+    import time
+
     now = time.monotonic()
     if now - _last_call[user_id] < _RATE_LIMIT_SECONDS:
         raise HTTPException(
             status_code=429,
-            detail=f"Emotion frame rate limited — wait {_RATE_LIMIT_SECONDS}s between frames."
+            detail=f"Emotion event rate limited — wait {_RATE_LIMIT_SECONDS}s between events.",
         )
     _last_call[user_id] = now
 
 
-@router.post("/analyze")
-def analyze_frame(
-    payload: EmotionFrameIn,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_consent("emotion_detection"))
-):
-    _check_rate_limit(user.id)
-    return agent.analyze_frame(db, payload.session_id, user.id, payload.image).data
+def _validate_emotion(emotion: str | None, face_detected: bool) -> str:
+    if not face_detected:
+        return ""
+    label = (emotion or "").strip().lower()
+    if label not in SUPPORTED_EMOTIONS:
+        raise HTTPException(
+            422,
+            detail=(
+                "emotion must be one of " + ", ".join(SUPPORTED_EMOTIONS)
+                + " (or face_detected=false when no face was found)"
+            ),
+        )
+    return label
 
 
-@router.post("/frame")
-def receive_frame(
-    payload: dict,
+@router.post("/event")
+def emotion_event(
+    payload: EmotionEventIn,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
-    """
-    Receive a camera frame for quiz monitoring (second device detection).
-    Reuses the emotion analysis pipeline.
-    Consent is checked based on quiz_monitoring flag:
-    - quiz_monitoring=true: requires quiz_anti_cheat consent
-    - quiz_monitoring=false: requires emotion_detection consent
-    """
-    session_id = payload.get('session_id')
-    image = payload.get('image')
-    quiz_monitoring = payload.get('quiz_monitoring', False)
-    attempt_id = payload.get('attempt_id')
+    """Receive a browser-computed emotion label for session analytics.
 
-    if not session_id or not image:
-        raise HTTPException(400, "session_id and image are required")
-
-    # Check appropriate consent using shared function
-    consent_type = "quiz_anti_cheat" if quiz_monitoring else "emotion_detection"
+    Consent required: ``quiz_anti_cheat`` for proctored-quiz monitoring,
+    ``emotion_detection`` for classroom emotion analytics.
+    """
+    consent_type = "quiz_anti_cheat" if payload.quiz_monitoring else "emotion_detection"
     _check_consent(db, user.id, consent_type)
-
-    # For quiz monitoring, we analyze but don't rate limit as strictly
-    if quiz_monitoring:
-        try:
-            result = agent.analyze_frame(db, session_id, user.id, image).data
-            # Log audit for quiz monitoring
-            log_audit_event(db, action="quiz_camera_frame", user=user, resource_type="quiz_attempt", resource_id=str(attempt_id), request=request, details={
-                "session_id": session_id,
-                "attempt_id": attempt_id,
-                "emotion": result.get("emotion"),
-                "confidence": result.get("confidence"),
-            })
-            return result
-        except Exception as exc:
-            return {"emotion": "unknown", "confidence": 0.0, "error": str(exc)}
-
-    # Standard rate-limited analysis
     _check_rate_limit(user.id)
-    return agent.analyze_frame(db, session_id, user.id, image).data
+
+    emotion = _validate_emotion(payload.emotion, payload.face_detected)
+
+    if payload.quiz_monitoring:
+        log_audit_event(
+            db,
+            action="quiz_camera_frame",
+            user=user,
+            resource_type="quiz_attempt",
+            resource_id=str(payload.attempt_id or ""),
+            request=request,
+            details={
+                "session_id": payload.session_id,
+                "face_detected": payload.face_detected,
+                "emotion": emotion or None,
+                "confidence": payload.confidence,
+            },
+        )
+
+    if not emotion:
+        return {"stored": False, "face_detected": False}
+
+    result = _agent.record(
+        db,
+        payload.session_id,
+        user.id,
+        emotion,
+        payload.confidence,
+        payload.timestamp,
+    )
+    return {"stored": True, "face_detected": True, **result.data}
 
 
 @router.post("")
@@ -99,7 +122,7 @@ def session_emotions(session_id: int, db: Session = Depends(get_db), _: User = D
 
 @router.get("/session/{session_id}/distribution")
 def distribution(session_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return agent.distributions(db, session_id).data
+    return _agent.distributions(db, session_id).data
 
 
 # ─── Consent Endpoints ────────────────────────────────────────────────────────

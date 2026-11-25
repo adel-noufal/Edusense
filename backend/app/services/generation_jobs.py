@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session as DbSession
 from app.models.models import GenerationJob
+from app.services.timefmt import iso_z
 
 
 def utcnow():
@@ -51,10 +52,75 @@ def get_job_payload(db: DbSession, job_id: str, instructor_id: int | None = None
 
 
 def list_pending_jobs(db: DbSession, instructor_id: int) -> list[dict]:
+    # Run a quick reap before listing
+    reap_stale_jobs(db, max_age_seconds=300)
     jobs = (
         db.query(GenerationJob)
-        .filter_by(instructor_id=instructor_id, status="pending")
+        .filter(
+            GenerationJob.instructor_id == instructor_id,
+            GenerationJob.status.in_(["pending", "processing"]),
+        )
         .order_by(GenerationJob.created_at.desc())
         .all()
     )
-    return [{"job_id": j.id, "type": j.job_type, "label": j.label, "status": j.status, "startedAt": j.created_at.isoformat()} for j in jobs]
+    return [{"job_id": j.id, "type": j.job_type, "label": j.label, "status": j.status, "startedAt": iso_z(j.created_at)} for j in jobs]
+
+
+def reap_stale_jobs(db: DbSession, max_age_seconds: int = 300) -> int:
+    """Mark any pending/processing jobs older than max_age_seconds as failed."""
+    from app.models.models import VideoProject
+    now = utcnow()
+    reaped = 0
+    try:
+        # 1. Generation jobs
+        stale_jobs = db.query(GenerationJob).filter(GenerationJob.status.in_(["pending", "processing"])).all()
+        for j in stale_jobs:
+            ref_time = j.updated_at or j.created_at
+            if ref_time and ref_time.tzinfo is None:
+                ref_time = ref_time.replace(tzinfo=timezone.utc)
+            if ref_time and (now - ref_time).total_seconds() > max_age_seconds:
+                j.status = "failed"
+                j.error = f"Job timed out (no progress for {max_age_seconds//60} minutes) - marked failed by reaper"
+                j.updated_at = now
+                reaped += 1
+
+        # 2. Video projects stuck on processing
+        stale_videos = db.query(VideoProject).filter_by(status="processing").all()
+        for v in stale_videos:
+            ref_time = v.created_at
+            if ref_time and ref_time.tzinfo is None:
+                ref_time = ref_time.replace(tzinfo=timezone.utc)
+            if ref_time and (now - ref_time).total_seconds() > max_age_seconds:
+                v.status = "failed"
+                reaped += 1
+
+        if reaped > 0:
+            db.commit()
+    except Exception:
+        db.rollback()
+    return reaped
+
+
+def cleanup_stuck_jobs_on_startup(db: DbSession) -> int:
+    """Clear all stuck pending/processing jobs and video projects on server boot."""
+    from app.models.models import VideoProject
+    now = utcnow()
+    count = 0
+    try:
+        jobs = db.query(GenerationJob).filter(GenerationJob.status.in_(["pending", "processing"])).all()
+        for j in jobs:
+            j.status = "failed"
+            j.error = "Server restarted while job was in progress"
+            j.updated_at = now
+            count += 1
+
+        videos = db.query(VideoProject).filter_by(status="processing").all()
+        for v in videos:
+            v.status = "failed"
+            count += 1
+
+        if count > 0:
+            db.commit()
+    except Exception:
+        db.rollback()
+    return count

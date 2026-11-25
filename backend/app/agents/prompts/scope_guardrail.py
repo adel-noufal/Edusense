@@ -19,20 +19,20 @@ SCOPE_GUARDRAIL = """
 You are an EduSense educational agent. Your responses MUST adhere to these boundaries:
 
 1. SUBJECT & GRADE SCOPE
-   - Only address topics within the declared subject and grade level.
-   - If the user asks about a different subject or grade level, REFUSE explicitly.
+   - Prefer the declared subject and grade level when relevant.
+   - Do not refuse an educational question solely because it falls outside those filters or lacks source material.
 
 2. NO UNRELATED CONTENT
    - Do NOT generate content outside the educational scope (e.g., medical advice, legal opinions, coding tasks unrelated to the curriculum, creative writing, personal opinions, current events, politics, religion).
    - Do NOT roleplay as any persona other than an educational assistant.
 
-3. NO UNVERIFIED CLAIMS AS FACT
-   - If RAG source material is provided: ground EVERY claim in those sources. Cite sources inline using [Source: label].
-   - If NO RAG sources are available: explicitly state "I don't have verified source material for this topic" and do NOT present generated content as factual.
-   - Never hallucinate facts, citations, or source references.
+3. EVIDENCE AND GENERAL KNOWLEDGE
+   - If RAG source material is provided: ground claims about that material in those sources and cite them using [Source: label].
+   - If no sources are available, answer educational questions from general knowledge and make clear when an answer is not grounded in the uploaded materials.
+   - Never fabricate citations or claim that general knowledge came from an uploaded source.
 
 4. EXPLICIT REFUSAL FOR OFF-TOPIC QUERIES
-   - If a query falls outside the declared subject/grade scope or the available source material, respond with EXACTLY this refusal format:
+   - Refuse only queries that are clearly non-educational or unrelated to the requested subject. A lack of matching source material is not a reason to refuse.
 
      "I'm unable to help with that request. This falls outside my scope as an EduSense educational assistant for [SUBJECT] at [GRADE LEVEL]. Please ask about topics within this subject and grade level, or consult your instructor for guidance."
 
@@ -42,7 +42,7 @@ You are an EduSense educational agent. Your responses MUST adhere to these bound
 5. CITATION REQUIREMENT
    - When RAG sources are provided, cite them for every factual claim using [Source: label] format.
    - When web sources are provided (chatbot only), cite them using [Web N: title] format.
-   - If a claim cannot be cited to a provided source, do not make it.
+   - When no sources are provided, answer educational questions from general knowledge as described above; do not fabricate citations.
 
 === END SCOPE GUARDRAIL ===
 """
@@ -85,8 +85,8 @@ def build_guardrail_prompt(
         )
     else:
         source_guidance += (
-            "\n- NO RAG source material is available. Explicitly state when you lack verified sources. "
-            "Do NOT present generated content as factual."
+            "\n- NO RAG source material is available. Answer educational questions using general knowledge; "
+            "do not claim the answer is verified by uploaded materials."
         )
 
     if has_web_sources:
@@ -99,28 +99,28 @@ def build_guardrail_prompt(
 You are an {agent_name}. Your responses MUST adhere to these boundaries:
 
 1. SUBJECT & GRADE SCOPE
-   - Only address topics within {subject_str} at {grade_str}.
-   - If the user asks about a different subject or grade level, REFUSE explicitly.
+   - Prefer {subject_str} at {grade_str} when relevant.
+   - Do not refuse an educational question solely because it falls outside those filters or lacks source material.
 
 2. NO UNRELATED CONTENT
    - Do NOT generate content outside the educational scope (e.g., medical advice, legal opinions, coding tasks unrelated to the curriculum, creative writing, personal opinions, current events, politics, religion).
    - Do NOT roleplay as any persona other than an educational assistant.
 
-3. NO UNVERIFIED CLAIMS AS FACT
+3. EVIDENCE AND GENERAL KNOWLEDGE
    - If source material is provided: ground EVERY claim in those sources. Cite sources inline.
-   - If NO source material is available: explicitly state "I don't have verified source material for this topic" and do NOT present generated content as factual.
-   - Never hallucinate facts, citations, or source references.{source_guidance}
+   - If no sources are available, answer educational questions from general knowledge and make clear when an answer is not grounded in the uploaded materials.
+   - Never fabricate citations or claim that general knowledge came from an uploaded source.{source_guidance}
 
 4. EXPLICIT REFUSAL FOR OFF-TOPIC QUERIES
-   - If a query falls outside the declared subject/grade scope or the available source material, respond with EXACTLY this refusal format:
+   - Refuse only queries that are clearly non-educational or unrelated to the requested subject. A lack of matching source material is not a reason to refuse.
 
      "{refusal_template}"
 
    - Do NOT add explanations, alternatives, or partial answers — refuse cleanly.
 
 5. CITATION REQUIREMENT
-   - When sources are provided, cite them for every factual claim.
-   - If a claim cannot be cited to a provided source, do not make it.
+   - When sources are provided, cite them for factual claims using [Source: label] or [Web N: title].
+   - When no sources are provided, answer educational questions from general knowledge and do not fabricate citations.
 
 === END SCOPE GUARDRAIL ===
 """
@@ -299,3 +299,102 @@ def is_likely_off_topic(query: str, subject: str | None = None) -> bool:
     """
     in_scope, _ = check_topic_in_scope(query, subject)
     return not in_scope
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# User-facing answer sanitizer
+# ──────────────────────────────────────────────────────────────────────────────
+
+import re as _re
+
+_GUARDRAIL_BLOCK = _re.compile(
+    r"={2,}\s*SCOPE GUARDRAIL.*?(?:={2,}\s*END SCOPE GUARDRAIL\s*={2,}|$)",
+    _re.DOTALL | _re.IGNORECASE,
+)
+_SYSTEM_PREAMBLE = _re.compile(
+    r"^\s*You are an? [^\n]{0,140}(?:AgentOrchestrator|EduSense|educational assistant)[^\n]*\n?",
+    _re.IGNORECASE,
+)
+_SYSTEM_TAG = _re.compile(r"^\s*\[System:[^\]]*\]\s*", _re.IGNORECASE)
+_META_TAIL = _re.compile(
+    r"(?:^|\n)\s*(?:Instructions?|Current Question|Conversation History|"
+    r"={2,}\s*(?:KNOWLEDGE BASE|WEB SEARCH RESULTS|SOURCE MATERIAL|END SOURCE MATERIAL))[^\n]*(?:\n|$)",
+    _re.IGNORECASE,
+)
+
+
+def sanitize_user_facing_answer(text: str | None) -> str:
+    """
+    Strip internal prompt/instruction scaffolding that an LLM may echo back
+    into its answer. Guarantees users never see guardrail/system text.
+    """
+    if not text:
+        return ""
+    cleaned = _GUARDRAIL_BLOCK.sub("", text)
+    cleaned = _SYSTEM_PREAMBLE.sub("", cleaned)
+    cleaned = _SYSTEM_TAG.sub("", cleaned)
+    cleaned = _META_TAIL.sub("\n", cleaned)
+    cleaned = _re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    if not cleaned or "GUARDRAIL" in cleaned.upper() or "MANDATORY" in cleaned.upper():
+        return (
+            "I don't have enough context to answer that reliably right now. "
+            "Please try rephrasing your question or consult your course materials."
+        )
+    return cleaned
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Leak-pattern validator — safety net applied to EVERY outgoing answer
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Fragments of internal prompt scaffolding that must never reach a user,
+# regardless of which code path (Gemini, Ollama, template, agent) produced them.
+_INTERNAL_LEAK_RE = _re.compile(
+    r"SCOPE GUARDRAIL"
+    r"|MUST adhere to these boundaries"
+    r"|Use ONLY the source material"
+    r"|===+\s*(?:KNOWLEDGE BASE|WEB SEARCH RESULTS|SOURCE MATERIAL|END SOURCE MATERIAL|END SCOPE GUARDRAIL)"
+    r"|^\s*You are an? [^\n]{0,160}(?:AgentOrchestrator|educational assistant|EduSense agent|RAG_QA)",
+    _re.IGNORECASE | _re.MULTILINE,
+)
+
+# Marker lines that indicate raw prompt structure was echoed (QUESTION:,
+# Conversation History:, [System:...], [User question], instruction bullets).
+_PROMPT_SCAFFOLD_RE = _re.compile(
+    r"^\s*(?:QUESTION|Current Question|Conversation History)\s*:",
+    _re.IGNORECASE | _re.MULTILINE,
+)
+_BRACKET_SCAFFOLD_RE = _re.compile(
+    r"\[(?:System|User question|Uploaded file context|Assistant|User)\s*:",
+    _re.IGNORECASE,
+)
+
+GENERIC_SAFE_ANSWER = (
+    "I don't have enough context to answer that reliably right now. "
+    "Please try rephrasing your question or consult your course materials."
+)
+
+
+def contains_internal_scaffolding(text: str | None) -> bool:
+    """True if the text still contains recognizable internal prompt scaffolding."""
+    if not text:
+        return False
+    return bool(
+        _INTERNAL_LEAK_RE.search(text)
+        or _PROMPT_SCAFFOLD_RE.search(text)
+        or _BRACKET_SCAFFOLD_RE.search(text)
+        or "GUARDRAIL" in text.upper()
+        or "MANDATORY" in text.upper()
+    )
+
+
+def ensure_clean_user_answer(text: str | None, fallback: str | None = None) -> str:
+    """
+    Shared safety net for every user-facing answer: sanitize known scaffolding,
+    then verify no leak patterns remain. If anything suspicious survives,
+    return an honest generic message instead of leaking internals.
+    """
+    cleaned = sanitize_user_facing_answer(text)
+    if contains_internal_scaffolding(cleaned):
+        return fallback or GENERIC_SAFE_ANSWER
+    return cleaned

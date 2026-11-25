@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { BellRing, Camera, Eye, Palette, Save, Sparkles, Upload } from 'lucide-react'
-import { api, staticUrl, token } from '../services/api'
+import { BellRing, Camera, Eye, Save, Sparkles, Upload } from 'lucide-react'
+import { api, staticUrl, token, API_URL } from '../services/api'
 import { useLanguage } from '../context/LanguageContext'
 import { useAuth } from '../context/AuthContext'
+import PasswordInput from '../components/PasswordInput'
 
 export default function Profile() {
   const { t, lang, setLang } = useLanguage()
-  const { user } = useAuth()
+  const { user, updateUser } = useAuth()
   const [accountForm, setAccountForm] = useState({ name: '', email: '', current_password: '', new_password: '' })
   const [profileForm, setProfileForm] = useState({ phone: '', university: '', department: '', avatar: '' })
   const [saving, setSaving] = useState(false)
@@ -18,14 +19,13 @@ export default function Profile() {
     emailNotifications: localStorage.getItem('edusense_email_notifications') !== 'false',
     ambientMotion: localStorage.getItem('edusense_ambient_motion') !== 'false',
     compactCards: localStorage.getItem('edusense_compact_cards') === 'true',
-    accent: localStorage.getItem('edusense_accent') || 'teal',
   }))
 
   useEffect(() => {
     localStorage.setItem('edusense_email_notifications', String(prefs.emailNotifications))
     localStorage.setItem('edusense_ambient_motion', String(prefs.ambientMotion))
     localStorage.setItem('edusense_compact_cards', String(prefs.compactCards))
-    localStorage.setItem('edusense_accent', prefs.accent)
+    localStorage.removeItem('edusense_accent') // legacy accent palette removed; theme locked to Teal
     document.documentElement.dataset.compact = prefs.compactCards ? 'true' : 'false'
   }, [prefs])
 
@@ -54,12 +54,13 @@ export default function Profile() {
       }
 
       if (Object.keys(accountPayload).length > 0) {
-        await api('/users/me', { method: 'PUT', body: JSON.stringify(accountPayload) })
+        const updated = await api('/users/me', { method: 'PUT', body: accountPayload })
+        if (updated && updateUser) updateUser(updated)
       }
 
       // 2. Update profile details
-      await api('/users/profile', { method: 'PUT', body: JSON.stringify(profileForm) })
-      
+      await api('/users/profile', { method: 'PUT', body: profileForm })
+
       setMessage('Profile and preference settings updated successfully.')
       setAccountForm((prev) => ({ ...prev, current_password: '', new_password: '' }))
     } catch (err) {
@@ -77,7 +78,7 @@ export default function Profile() {
     try {
       const body = new FormData()
       body.append('file', file)
-      const response = await fetch('http://localhost:8000/api/users/profile/avatar', {
+      const response = await fetch(`${API_URL}/users/profile/avatar`, {
         method: 'POST',
         headers: token() ? { Authorization: `Bearer ${token()}` } : {},
         body,
@@ -124,7 +125,7 @@ export default function Profile() {
         <div className="flex items-center gap-3 text-xl font-black"><Sparkles size={20} />Account & System Settings</div>
         {message && <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{message}</p>}
         {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
-        
+
         {/* Section 1: Account Credentials */}
         <div className="space-y-4">
           <h2 className="text-sm font-bold uppercase tracking-wider text-ocean dark:text-mint">1. Account Information</h2>
@@ -141,11 +142,11 @@ export default function Profile() {
           <div className="grid gap-4 md:grid-cols-2 pt-2">
             <label className="space-y-2">
               <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Current Password (to change password)</span>
-              <input className="input" type="password" placeholder="••••••••" value={accountForm.current_password} onChange={(e) => setAccountForm({ ...accountForm, current_password: e.target.value })} />
+              <PasswordInput placeholder="••••••••" value={accountForm.current_password} onChange={(e) => setAccountForm({ ...accountForm, current_password: e.target.value })} />
             </label>
             <label className="space-y-2">
               <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">New Password</span>
-              <input className="input" type="password" placeholder="Min 6 characters" value={accountForm.new_password} onChange={(e) => setAccountForm({ ...accountForm, new_password: e.target.value })} />
+              <PasswordInput placeholder="Min 6 characters" value={accountForm.new_password} onChange={(e) => setAccountForm({ ...accountForm, new_password: e.target.value })} />
             </label>
           </div>
         </div>
@@ -182,14 +183,6 @@ export default function Profile() {
               <select className="input" value={lang} onChange={(e) => setLang(e.target.value)}>
                 <option value="en">English</option>
                 <option value="ar">العربية</option>
-              </select>
-            </label>
-            <label className="space-y-2">
-              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Accent Palette</span>
-              <select className="input" value={prefs.accent} onChange={(e) => setPrefs({ ...prefs, accent: e.target.value })}>
-                <option value="teal">Teal Ocean</option>
-                <option value="blue">Calm Blue</option>
-                <option value="sunset">Sunset Coral</option>
               </select>
             </label>
           </div>

@@ -1,7 +1,17 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+// Single source of truth for the backend address. VITE_API_URL may override it
+// (frontend/.env.local is written by the launcher with the fixed port).
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace(/\/$/, '')
 
 export function token() {
   return localStorage.getItem('edusense_token')
+}
+
+export function notifyBackendStatus(online, message = '') {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('edusense-backend-status', {
+      detail: { online, message, url: API_URL }
+    }))
+  }
 }
 
 function stringifyValue(value) {
@@ -26,12 +36,17 @@ function formatApiError(data, statusText) {
   return parts.join(' ') || statusText || 'Request failed'
 }
 
+export { API_URL }
+
 export async function api(path, options = {}) {
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
+  const headers = { ...(options.headers || {}) }
   if (token()) headers.Authorization = `Bearer ${token()}`
 
   let body = options.body
   if (body && typeof body === 'object' && !(body instanceof FormData) && !(body instanceof Blob)) {
+    if (!headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json'
+    }
     body = JSON.stringify(body)
   }
 
@@ -48,20 +63,40 @@ export async function api(path, options = {}) {
     }
 
     if (!response.ok) {
-      throw new Error(formatApiError(data, response.statusText))
+      const error = new Error(formatApiError(data, response.statusText))
+      error.status = response.status
+      // An expired/invalid session must land on /login with a clear message,
+      // never leave the user on a broken page. Auth calls themselves are
+      // excluded so wrong-password errors stay on the form.
+      if (
+        response.status === 401 &&
+        !path.startsWith('/auth/') &&
+        !window.location.pathname.startsWith('/login') &&
+        !window.location.pathname.startsWith('/register')
+      ) {
+        localStorage.removeItem('edusense_token')
+        localStorage.removeItem('edusense_user')
+        localStorage.removeItem('edusense_consents')
+        sessionStorage.setItem('edusense_auth_message', 'Your session expired. Please sign in again.')
+        window.location.assign('/login')
+      }
+      throw error
     }
 
+    notifyBackendStatus(true)
     return data
   } catch (error) {
     if (error instanceof TypeError && /Failed to fetch|NetworkError/i.test(error.message)) {
-      throw new Error(`Cannot reach the backend at ${API_URL.replace('/api', '')}. Start the FastAPI server on port 8000.`)
+      const targetDesc = API_URL.startsWith('http') ? API_URL : `${window.location.origin}/api`
+      notifyBackendStatus(false, `Cannot reach backend at ${targetDesc}`)
+      throw new Error(`Cannot reach the backend server at ${targetDesc}. Run start-all.bat.`)
     }
     throw error
   }
 }
 
 export function staticUrl(path) {
-  const base = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace(/\/api\/?$/, '')
+  const base = API_URL.replace(/\/api\/?$/, '')
   return `${base}${path.startsWith('/') ? path : `/${path}`}`
 }
 

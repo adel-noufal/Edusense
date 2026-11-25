@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { AlertCircle, Camera, Clock, Eye, EyeOff, Flag, Home, Loader2, Maximize, Minimize, RefreshCw, Shield, User, X } from 'lucide-react'
+import { AlertCircle, Camera, CheckCircle2, Clock, Eye, EyeOff, Flag, Home, Loader2, Maximize, Minimize, RefreshCw, Shield, User, X } from 'lucide-react'
 import { api } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
 import { ConsentModal } from '../components/ConsentModal'
+import { analyseFrame } from '../services/faceEmotion'
 
 const WATERMARK_OPACITY = 0.08
 const VIOLATION_CHECK_INTERVAL = 500
@@ -25,6 +26,7 @@ export default function Quiz() {
   const [timeRemaining, setTimeRemaining] = useState(null)
   const [timeLimit, setTimeLimit] = useState(null)
   const [perQuestionLimit, setPerQuestionLimit] = useState(null)
+  const [expiredQuestions, setExpiredQuestions] = useState({})
   const [questionStartTime, setQuestionStartTime] = useState(Date.now())
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -33,6 +35,7 @@ export default function Quiz() {
   const [results, setResults] = useState(null)
   const [fullscreen, setFullscreen] = useState(false)
   const [fullscreenLocked, setFullscreenLocked] = useState(false)
+  const [fullscreenError, setFullscreenError] = useState('')
   const [cameraMonitoring, setCameraMonitoring] = useState(false)
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraStream, setCameraStream] = useState(null)
@@ -51,6 +54,15 @@ export default function Quiz() {
   const canvasRef = useRef(null)
   const submittedRef = useRef(false)
   const serverStartTimeRef = useRef(null)
+
+  // Server timestamps are naive UTC ("2026-11-20 12:32:16"). new Date() would
+  // parse them as LOCAL time, inflating elapsed by the UTC offset and zeroing
+  // the timer for anyone east of UTC. Always interpret as UTC.
+  function parseServerTime(value) {
+    if (!value) return Date.now()
+    const s = String(value).trim().replace(' ', 'T')
+    return new Date(/Z$|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z').getTime()
+  }
 
   // Initialize watermark
   useEffect(() => {
@@ -98,17 +110,33 @@ export default function Quiz() {
         setAttempt(attemptData)
 
         // Set server start time for validation
-        serverStartTimeRef.current = new Date(attemptData.started_at).getTime()
+        serverStartTimeRef.current = parseServerTime(attemptData.started_at)
 
-        // Set initial time remaining
+        // Set initial time remaining accounting for elapsed attempt time on resumption,
+        // and capping at the deadline min(timer end, deadline) exactly once (B13)
+        let computedRemaining = null
         if (quizData.time_limit_seconds) {
-          setTimeRemaining(quizData.time_limit_seconds)
+          const serverStart = parseServerTime(attemptData?.started_at)
+          const elapsed = Math.max(0, Math.floor((Date.now() - serverStart) / 1000))
+          computedRemaining = Math.max(0, quizData.time_limit_seconds - elapsed)
+        }
+        if (quizData.due_date) {
+          const deadlineTime = parseServerTime(quizData.due_date)
+          const remainingUntilDeadline = Math.max(0, Math.floor((deadlineTime - Date.now()) / 1000))
+          computedRemaining = computedRemaining != null
+            ? Math.min(computedRemaining, remainingUntilDeadline)
+            : remainingUntilDeadline
+        }
+        if (computedRemaining != null) {
+          setTimeRemaining(computedRemaining)
         }
 
-        // Enable fullscreen lock if required
+        // Enable fullscreen lock if required.
+        // NOTE: requestFullscreen() must be triggered by a user gesture, so we
+        // only flag the lock here — the "Enter fullscreen" overlay button
+        // (a real click) performs the actual request.
         if (quizData.fullscreen_lock) {
           setFullscreenLocked(true)
-          await enterFullscreen()
         }
 
         // Enable camera monitoring if required - check consent first
@@ -151,8 +179,8 @@ export default function Quiz() {
     timerRef.current = setInterval(() => {
       setTimeRemaining(prev => {
         if (prev <= 1) {
-          // Time's up - auto submit
-          handleTimeUp()
+          if (timerRef.current) clearInterval(timerRef.current)
+          setTimeout(() => handleTimeUp(), 0)
           return 0
         }
         return prev - 1
@@ -164,35 +192,48 @@ export default function Quiz() {
     }
   }, [quiz, attempt, showResults, timeLimit])
 
-  // Per-question timer
+  // Per-question timer (locks question permanently once expired)
   useEffect(() => {
-    if (!perQuestionLimit || showResults) return
+    if (!perQuestionLimit || showResults || !quiz) return
 
-    setQuestionStartTime(Date.now())
+    const qStart = Date.now()
+    setQuestionStartTime(qStart)
 
     questionTimerRef.current = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - questionStartTime) / 1000)
+      const elapsed = Math.floor((Date.now() - qStart) / 1000)
       if (elapsed >= perQuestionLimit) {
-        // Auto-advance or flag - for now just flag as violation
+        if (questionTimerRef.current) clearInterval(questionTimerRef.current)
+        toast.warning(`Question ${currentQuestion + 1} time limit reached!`)
         logViolation('per_question_time_exceeded', { questionIndex: currentQuestion, elapsed })
+        setExpiredQuestions(prev => ({ ...prev, [currentQuestion]: true }))
+
+        // Auto-advance or submit if on last question
+        if (currentQuestion < quiz.questions.length - 1) {
+          setCurrentQuestion(prev => prev + 1)
+        } else {
+          handleSubmit()
+        }
       }
     }, 1000)
 
     return () => {
       if (questionTimerRef.current) clearInterval(questionTimerRef.current)
     }
-  }, [currentQuestion, perQuestionLimit, showResults])
+  }, [currentQuestion, perQuestionLimit, showResults, quiz])
 
   // Fullscreen handling
   async function enterFullscreen() {
     try {
       const elem = document.documentElement
-      if (elem.requestFullscreen) {
-        await elem.requestFullscreen()
-        setFullscreen(true)
-      }
+      if (!elem.requestFullscreen) throw new Error('Fullscreen is not supported by this browser.')
+      await elem.requestFullscreen()
+      setFullscreen(true)
+      setFullscreenError('')
+      return true
     } catch (err) {
-      console.warn('Fullscreen request failed:', err)
+      setFullscreen(false)
+      setFullscreenError(err.message || 'Fullscreen could not be activated.')
+      return false
     }
   }
 
@@ -209,12 +250,12 @@ export default function Quiz() {
 
     const handler = () => {
       if (!document.fullscreenElement && attempt && !showResults) {
-        // User exited fullscreen - violation!
+        // User exited fullscreen - violation! Re-entry requires a user
+        // gesture, so the "Enter fullscreen" overlay handles it instead.
         logViolation('fullscreen_exit', { wasFullscreen: true })
-        // Re-enter fullscreen
-        setTimeout(enterFullscreen, 100)
       } else if (document.fullscreenElement) {
         setFullscreen(true)
+        setFullscreenError('')
       } else {
         setFullscreen(false)
       }
@@ -273,30 +314,22 @@ export default function Quiz() {
     if (!cameraMonitoring || !cameraActive) return
 
     const detectFace = async () => {
-      if (!videoRef.current || !canvasRef.current) return
-
-      const video = videoRef.current
-      const canvas = canvasRef.current
-      const ctx = canvas.getContext('2d')
-
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-      // Send frame to backend for emotion/face detection
-      // Reusing the emotion pipeline endpoint
+      if (!videoRef.current) return
       try {
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.5)
-        // Only send periodically to avoid overload
-        if (Math.random() < 0.1) { // ~10% of frames
-          await api('/emotion/frame', {
+        // Face presence is detected in this browser tab; only the verdict and
+        // label are sent, no image.
+        const frame = await analyseFrame(videoRef.current)
+        if (Math.random() < 0.5) { // ~1 report every 4 s
+          await api('/emotions/event', {
             method: 'POST',
-            body: JSON.stringify({
+            body: {
               session_id: quiz.session_id,
-              image: dataUrl,
               quiz_monitoring: true,
-              attempt_id: attempt.id
-            })
+              attempt_id: attempt.id,
+              face_detected: frame.status === 'result',
+              emotion: frame.status === 'result' ? frame.rawEmotion || frame.emotion : null,
+              confidence: frame.status === 'result' ? frame.confidence : 0,
+            }
           })
         }
       } catch (err) {
@@ -334,7 +367,7 @@ export default function Quiz() {
     try {
       await api(`/quizzes/${quizId}/violations`, {
         method: 'POST',
-        body: JSON.stringify({ event_type: eventType, details })
+        body: { event_type: eventType, details }
       })
     } catch (err) {
       console.error('Failed to log violation:', err)
@@ -351,7 +384,6 @@ export default function Quiz() {
   // Handle locked attempt (from another tab or server)
   async function handleLockedAttempt(reason) {
     if (submittedRef.current) return
-    submittedRef.current = true
 
     setError(`Quiz locked: ${reason}`)
     toast.error(`Quiz locked: ${reason}`)
@@ -363,16 +395,15 @@ export default function Quiz() {
   // Handle time up
   async function handleTimeUp() {
     if (submittedRef.current) return
-    submittedRef.current = true
 
     toast.error('Time is up! Auto-submitting...')
     await autoSubmit('time_up', 'time_limit_exceeded')
   }
 
-  // Auto-submit quiz
+  // Auto-submit quiz. submittedRef is set HERE (once) — callers must NOT set it
+  // beforehand, and it is reset on failure so a manual retry can still submit.
   async function autoSubmit(reason, violationType) {
-    if (submittedRef.current && reason !== 'violation') return
-    if (reason === 'violation' && submittedRef.current) return
+    if (submittedRef.current) return
 
     submittedRef.current = true
     setSubmitting(true)
@@ -383,18 +414,21 @@ export default function Quiz() {
 
       const result = await api(`/quizzes/${quizId}/submit`, {
         method: 'POST',
-        body: JSON.stringify({
+        body: {
           answers,
           elapsed_seconds: elapsedSeconds
-        })
+        }
       })
 
       setResults(result)
       setShowResults(true)
       cleanup()
+      toast.success(reason === 'time_up' ? 'Time is up — your quiz was submitted.' : 'Quiz submitted')
     } catch (err) {
       setError(err.message || 'Failed to submit quiz')
       toast.error(err.message || 'Failed to submit quiz')
+      // Allow the manual Submit button to retry after a failed auto-submit.
+      submittedRef.current = false
     } finally {
       setSubmitting(false)
     }
@@ -402,7 +436,7 @@ export default function Quiz() {
 
   // Manual submit
   async function handleSubmit(e) {
-    e.preventDefault()
+    e?.preventDefault()
     if (submittedRef.current) return
 
     submittedRef.current = true
@@ -413,10 +447,10 @@ export default function Quiz() {
 
       const result = await api(`/quizzes/${quizId}/submit`, {
         method: 'POST',
-        body: JSON.stringify({
+        body: {
           answers,
           elapsed_seconds: elapsedSeconds
-        })
+        }
       })
 
       setResults(result)
@@ -598,12 +632,29 @@ export default function Quiz() {
   if (!quiz || !attempt) return null
 
   const question = quiz.questions[currentQuestion]
+  // Generated questions may lack `type` — infer it from the payload shape.
+  const questionType = question.type || (question.options?.length ? 'multiple_choice' : 'short_answer')
   const questionAnswered = answers[currentQuestion] !== undefined
   const progress = ((currentQuestion + 1) / quiz.questions.length) * 100
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 relative">
       {renderWatermark()}
+      {fullscreenLocked && !fullscreen && !loading && !showResults && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/90 p-6 text-center">
+          <div className="max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-8 text-white shadow-2xl">
+            <Shield className="mx-auto h-10 w-10 text-amber-400" />
+            <h2 className="mt-4 text-xl font-bold">Fullscreen is required for this exam</h2>
+            <p className="mt-2 text-sm text-slate-300">
+              Enter fullscreen to continue. Leaving fullscreen during the exam is recorded as a security violation.
+            </p>
+            {fullscreenError && <p className="mt-3 text-sm text-amber-300" role="alert">{fullscreenError}</p>}
+            <button type="button" className="btn-primary mt-5 gap-2" onClick={enterFullscreen}>
+              <Maximize className="h-4 w-4" /> Enter fullscreen
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Fullscreen/Camera indicator bar */}
       {(fullscreenLocked || cameraMonitoring) && (
@@ -614,6 +665,15 @@ export default function Quiz() {
                 <Shield className="w-4 h-4" />
                 <span>Fullscreen Locked</span>
               </span>
+            )}
+            {fullscreenLocked && !fullscreen && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-2 py-1 font-semibold text-slate-950"
+                onClick={enterFullscreen}
+              >
+                <Maximize className="h-4 w-4" /> Enter fullscreen
+              </button>
             )}
             {cameraMonitoring && (
               <span className="flex items-center gap-1">
@@ -667,6 +727,25 @@ export default function Quiz() {
             <span className="flex items-center gap-1"><Flag className="w-4 h-4" />{quiz.questions.length} questions</span>
             {timeLimit && <span className="flex items-center gap-1"><Clock className="w-4 h-4" />{formatTime(timeLimit)} total</span>}
           </div>
+          {quiz.is_exam && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-semibold text-slate-600 dark:text-slate-300">Exam security:</span>
+              <span className={`rounded-full px-2.5 py-1 ${quiz.fullscreen_lock ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                {quiz.fullscreen_lock ? 'Fullscreen required' : 'Fullscreen not enabled'}
+              </span>
+              <span className={`rounded-full px-2.5 py-1 ${quiz.camera_monitoring ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                {quiz.camera_monitoring ? 'Camera monitoring enabled' : 'Camera monitoring off'}
+              </span>
+              <span className={`rounded-full px-2.5 py-1 ${quiz.lock_back_navigation ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                {quiz.lock_back_navigation ? 'Back navigation locked' : 'Back navigation allowed'}
+              </span>
+            </div>
+          )}
+          {fullscreenError && (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200" role="alert">
+              {fullscreenError} Use the “Enter fullscreen” button to retry.
+            </p>
+          )}
 
           {/* Progress bar */}
           <div className="mt-4 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -696,14 +775,14 @@ export default function Quiz() {
             <p className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2">
               Q{currentQuestion + 1}. {question.question}
             </p>
-            {question.type === 'multiple_choice' && (
+            {questionType === 'multiple_choice' && (
               <div className="space-y-3">
                 {question.options?.map((option, optIdx) => (
                   <button
                     key={optIdx}
-                    onClick={() => handleAnswer(currentQuestion, option.charAt(0).toUpperCase())}
+                    onClick={() => handleAnswer(currentQuestion, String(optIdx))}
                     className={`w-full text-left rounded-xl border-2 p-4 transition-all ${
-                      answers[currentQuestion] === option.charAt(0).toUpperCase()
+                      answers[currentQuestion] === String(optIdx)
                         ? 'border-ocean bg-ocean/10 dark:bg-ocean/20'
                         : 'border-slate-200 dark:border-slate-700 hover:border-ocean/50 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}
@@ -713,14 +792,14 @@ export default function Quiz() {
                 ))}
               </div>
             )}
-            {question.type === 'true_false' && (
+            {questionType === 'true_false' && (
               <div className="flex gap-4">
                 {['True', 'False'].map(opt => (
                   <button
                     key={opt}
-                    onClick={() => handleAnswer(currentQuestion, opt.charAt(0).toUpperCase())}
+                    onClick={() => handleAnswer(currentQuestion, opt)}
                     className={`flex-1 rounded-xl border-2 py-4 px-6 text-center font-medium transition-all ${
-                      answers[currentQuestion] === opt.charAt(0).toUpperCase()
+                      answers[currentQuestion] === opt
                         ? 'border-ocean bg-ocean/10 dark:bg-ocean/20 text-ocean'
                         : 'border-slate-200 dark:border-slate-700 hover:border-ocean/50 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}
@@ -730,7 +809,7 @@ export default function Quiz() {
                 ))}
               </div>
             )}
-            {question.type === 'short_answer' && (
+            {questionType === 'short_answer' && (
               <textarea
                 value={answers[currentQuestion] || ''}
                 onChange={(e) => handleAnswer(currentQuestion, e.target.value)}
@@ -744,7 +823,7 @@ export default function Quiz() {
           {/* Navigation */}
           <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-700">
             <div className="flex gap-2">
-              {currentQuestion > 0 && (
+              {currentQuestion > 0 && !quiz?.lock_back_navigation && (
                 <button
                   onClick={prevQuestion}
                   className="btn-soft flex items-center gap-2"
@@ -759,22 +838,30 @@ export default function Quiz() {
             <div className="flex items-center gap-3">
               {/* Question indicators */}
               <div className="hidden md:flex gap-1">
-                {quiz.questions.map((_, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => { setCurrentQuestion(idx); setQuestionStartTime(Date.now()) }}
-                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-all ${
-                      idx === currentQuestion
-                        ? 'bg-ocean text-white'
-                        : answers[idx] !== undefined
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
-                    }`}
-                    disabled={submitting}
-                  >
-                    {idx + 1}
-                  </button>
-                ))}
+                {quiz.questions.map((_, idx) => {
+                  const isBlockedBack = quiz?.lock_back_navigation && idx < currentQuestion
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        if (isBlockedBack) return
+                        setCurrentQuestion(idx)
+                        setQuestionStartTime(Date.now())
+                      }}
+                      className={`w-8 h-8 rounded-lg text-xs font-medium transition-all ${
+                        idx === currentQuestion
+                          ? 'bg-ocean text-white'
+                          : answers[idx] !== undefined
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
+                      } ${isBlockedBack ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      disabled={submitting || isBlockedBack}
+                      title={isBlockedBack ? 'Back navigation is locked for this exam' : `Question ${idx + 1}`}
+                    >
+                      {idx + 1}
+                    </button>
+                  )
+                })}
               </div>
 
               {currentQuestion < quiz.questions.length - 1 ? (

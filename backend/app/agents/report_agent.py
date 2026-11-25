@@ -36,6 +36,11 @@ class ReportGenerationAgent:
         instructor_name: str = "Instructor",
         session_title: str = "Session",
         has_students: bool = True,
+        attended_duration: float | int | None = None,
+        scheduled_duration: int | None = None,
+        sufficient_data: bool = True,
+        insufficient_message: str = "Not enough data yet.",
+        duration_capped: bool = False,
     ) -> AgentResult:
         """
         Build a session report.
@@ -66,33 +71,77 @@ class ReportGenerationAgent:
                 },
             )
 
-        engagement_pct = engagement.get("engagement_percentage", 0)
+        # Insufficient data: honest empty state instead of fabricated scores
+        if not sufficient_data:
+            duration_note = ""
+            if attended_duration is not None:
+                duration_note = f"Attended duration: {attended_duration} min. "
+                if duration_capped:
+                    duration_note += "(capped at the configured maximum) "
+            summary = (
+                f"Session '{session_title}' does not have enough data for AI insights yet, "
+                f"{instructor_name}. {duration_note}{insufficient_message}"
+            )
+            pdf_path = self._pdf_insufficient(session_id, instructor_name, session_title,
+                                              insufficient_message, attended_duration, scheduled_duration)
+            return AgentResult(
+                self.name,
+                {
+                    "summary": summary,
+                    "pdf_path": pdf_path,
+                    "has_students": True,
+                    "sufficient_data": False,
+                    "insufficient_message": insufficient_message,
+                    "attended_duration": attended_duration,
+                    "scheduled_duration": scheduled_duration,
+                    "duration_capped": duration_capped,
+                },
+            )
+
+        emotion_labels: list[str] = []
+        engagement_pct = engagement.get("engagement_percentage")
         dominant_emotions = recommendations.get("dominant_emotions", [])
         recs = recommendations.get("recommendations", ["Review pacing"])
 
-        # Personalised engagement verdict
-        if engagement_pct >= 80:
-            verdict = f"Excellent engagement in '{session_title}', {instructor_name}!"
-        elif engagement_pct >= 60:
-            verdict = (
-                f"Moderate engagement in '{session_title}', {instructor_name}. "
-                "A few improvements are recommended below."
+        if engagement_pct is None:
+            verdict = f"No emotion or engagement data was recorded for '{session_title}', {instructor_name}."
+            summary = (
+                f"{verdict} Students did not activate their webcams or no frames were captured during the session."
             )
         else:
-            verdict = (
-                f"Low engagement detected in '{session_title}', {instructor_name}. "
-                "Immediate instructional adjustments are advised."
+            # Personalised engagement verdict
+            if engagement_pct >= 80:
+                verdict = f"Excellent engagement in '{session_title}', {instructor_name}!"
+            elif engagement_pct >= 60:
+                verdict = (
+                    f"Moderate engagement in '{session_title}', {instructor_name}. "
+                    "A few improvements are recommended below."
+                )
+            else:
+                verdict = (
+                    f"Low engagement detected in '{session_title}', {instructor_name}. "
+                    "Immediate instructional adjustments are advised."
+                )
+
+            # Human-readable dominant emotions
+            emotion_labels = []
+            for item in dominant_emotions:
+                e_name = item[0] if isinstance(item, (tuple, list)) else item
+                e_str = str(e_name)
+                emotion_labels.append(EMOTION_LABELS.get(e_str, e_str.capitalize()))
+
+            duration_note = ""
+            if attended_duration is not None:
+                duration_note = f"Attended duration: {attended_duration} min. "
+            if duration_capped:
+                duration_note += "(capped at the configured maximum — the session may have been left open) "
+            summary = (
+                f"{verdict} "
+                f"{duration_note}"
+                f"Overall engagement: {engagement_pct}%. "
+                f"Dominant emotions observed: {', '.join(emotion_labels) if emotion_labels else 'None recorded'}. "
+                f"Top recommendation: {recs[0]}."
             )
-
-        # Human-readable dominant emotions
-        emotion_labels = [EMOTION_LABELS.get(e, e.capitalize()) for e in dominant_emotions]
-
-        summary = (
-            f"{verdict} "
-            f"Overall engagement: {engagement_pct}%. "
-            f"Dominant emotions observed: {', '.join(emotion_labels) if emotion_labels else 'None recorded'}. "
-            f"Top recommendation: {recs[0]}."
-        )
 
         pdf_path = self._pdf(
             session_id,
@@ -101,6 +150,8 @@ class ReportGenerationAgent:
             engagement_pct,
             emotion_labels,
             recs,
+            attended_duration=attended_duration,
+            scheduled_duration=scheduled_duration,
         )
         return AgentResult(
             self.name,
@@ -108,6 +159,10 @@ class ReportGenerationAgent:
                 "summary": summary,
                 "pdf_path": pdf_path,
                 "has_students": True,
+                "attended_duration": attended_duration,
+                "scheduled_duration": scheduled_duration,
+                "duration_capped": duration_capped,
+                "sufficient_data": True,
             },
         )
 
@@ -123,6 +178,8 @@ class ReportGenerationAgent:
         engagement_pct: float,
         emotion_labels: list[str],
         recommendations: list[str],
+        attended_duration: float | int | None = None,
+        scheduled_duration: int | None = None,
     ) -> str:
         path = self._out_path(session_id)
         c = canvas.Canvas(str(path), pagesize=letter)
@@ -137,7 +194,12 @@ class ReportGenerationAgent:
         c.drawString(72, y, f"Session: {session_title}")
         y -= 18
         c.drawString(72, y, f"Instructor: {instructor_name}")
-        y -= 30
+        y -= 18
+        if attended_duration is not None:
+            sched_str = f" (Scheduled: {scheduled_duration} min)" if scheduled_duration else ""
+            c.drawString(72, y, f"Attended Duration: {attended_duration} min{sched_str}")
+            y -= 18
+        y -= 12
 
         c.setFont("Helvetica-Bold", 13)
         c.drawString(72, y, f"Overall Engagement: {engagement_pct}%")
@@ -163,6 +225,36 @@ class ReportGenerationAgent:
                 c.showPage()
                 y = 740
 
+        c.save()
+        return str(path)
+
+    def _pdf_insufficient(
+        self,
+        session_id: int,
+        instructor_name: str,
+        session_title: str,
+        insufficient_message: str,
+        attended_duration: float | int | None = None,
+        scheduled_duration: int | None = None,
+    ) -> str:
+        path = self._out_path(session_id)
+        c = canvas.Canvas(str(path), pagesize=letter)
+        c.setTitle("EduSense Session Report")
+        c.setFont("Helvetica-Bold", 18)
+        c.drawString(72, 740, "EduSense Session Report")
+        c.setFont("Helvetica", 11)
+        c.drawString(72, 710, f"Session: {session_title}")
+        c.drawString(72, 690, f"Instructor: {instructor_name}")
+        if attended_duration is not None:
+            c.drawString(72, 670, f"Attended Duration: {attended_duration} min"
+                         + (f" (Scheduled: {scheduled_duration} min)" if scheduled_duration else ""))
+        c.setFont("Helvetica-Bold", 13)
+        c.drawString(72, 630, "Not enough data yet")
+        c.setFont("Helvetica", 11)
+        for i, line in enumerate(insufficient_message.split(". ")):
+            if i > 6:
+                break
+            c.drawString(90, 600 - i * 18, (line + ".")[:110])
         c.save()
         return str(path)
 

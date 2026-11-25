@@ -1,28 +1,37 @@
 import json
+import urllib.error
+import urllib.request
 import uuid
 import threading
 import time
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.agents.engagement_agent import StudentEngagementAgent
 from app.agents.flashcard_agent import FlashcardGenerationAgent
 from app.agents.lesson_agent import LessonGenerationAgent
-from app.agents.quiz_agent import QuizGenerationAgent
+from app.agents.quiz_agent import QuizGenerationAgent, normalize_difficulty
 from app.agents.recommendation_agent import RecommendationAgent
 from app.agents.workflow import EduSenseAgentWorkflow
 from app.agents.orchestrator import AgentOrchestrator
 from app.api.deps import get_current_user, require_role
 from app.db.session import get_db, SessionLocal
-from app.models.models import AIGeneration, ChatMessage as ChatMessageModel, Quiz, QuizAgentConfig, Report, SessionResource, User, VideoProject
-from app.schemas.schemas import FlashcardRequest, LessonRequest, QuizRequest, QuizAgentConfigCreate, QuizAgentConfigUpdate, QuizAgentConfigOut, RecommendationDecision, VideoRequest
+from app.models.models import AIGeneration, ChatMessage as ChatMessageModel, Quiz, QuizAgentConfig, Report, Session as ClassSession, SessionResource, User, VideoProject, SessionRegistration
+from app.schemas.schemas import FlashcardRequest, LessonRequest, QuizRequest, QuizAgentConfigCreate, QuizAgentConfigUpdate, QuizAgentConfigOut, RecommendationDecision, VideoRequest, VideoScenesUpdateRequest
 from app.services.export import build_json_bytes, build_video_zip, build_word_document_bytes, lesson_to_markdown, build_true_docx_bytes, build_pptx_bytes
+from app.services.session_archive import visible_sessions
 from app.services.generation_jobs import create_job, get_job_payload, list_pending_jobs, set_job_status
 from app.services.source_extractor import build_session_source_context
-from app.services.video import generate_educational_video
+from app.services.timefmt import iso_z
+from app.services.video import (
+    generate_educational_video,
+    rebuild_video_from_scenes,
+    validate_video_artifacts,
+)
+from app.core.audit import log_audit_event
 
 VIDEO_STATIC_DIR = Path(__file__).resolve().parents[1] / "static" / "videos"
 
@@ -77,6 +86,13 @@ class ChatMessageItem(BaseModel):
     content: str
 
 
+# Conversation kinds (addendum #11 §2). Knowledge Base chats live under the
+# "kb:" prefix (app/api/rag.py); AI Chatbot conversations use "web:". Legacy
+# unprefixed chatbot conversations are migrated on startup — deleting the
+# prefix reverses the migration.
+WEB_PREFIX = "web:"
+
+
 class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[str] = None
@@ -84,11 +100,39 @@ class ChatRequest(BaseModel):
     subject: Optional[str] = None
     grade_level: Optional[str] = None
     stream: bool = False
+    # Ad-hoc file attached to THIS chat only (from /api/chat/upload)
+    file_context: Optional[str] = None
+    # Chatbot is web+general knowledge only; these fields are accepted for
+    # backward compatibility and deliberately ignored.
+    source_id: Optional[str] = None
+    source_ids: List[str] = []
+    kind: str = "web"
 
 
-def _cache_job(job_id: str, status: str, result=None, error: str | None = None):
+class EnhancePromptRequest(BaseModel):
+    prompt: str
+    context: dict = {}
+
+
+_analytics_cache: dict[str, dict] = {}
+
+
+def _cache_job(job_id: str, status: str, result=None, error: str | None = None, progress: int = 0, message: str = ""):
     with _jobs_lock:
-        _jobs[job_id] = {"status": status, "result": result, "error": error}
+        _jobs[job_id] = {
+            "status": status,
+            "result": result,
+            "error": error,
+            "progress": progress,
+            "message": message,
+        }
+
+
+def _update_job_progress(job_id: str, progress: int, message: str):
+    with _jobs_lock:
+        if job_id in _jobs:
+            _jobs[job_id]["progress"] = progress
+            _jobs[job_id]["message"] = message
 
 
 def _persist_job(job_id: str, instructor_id: int, job_type: str, label: str):
@@ -109,18 +153,67 @@ def _finish_job(job_id: str, status: str, result=None, error: str | None = None)
     _cache_job(job_id, status, result=result, error=error)
 
 
-def _get_source_context(db: Session, source_session_id: int | None, instructor_id: int) -> str:
+def _get_source_context(
+    db: Session,
+    source_session_id: int | None,
+    instructor_id: int,
+    source_resource_ids: list[int] | None = None
+) -> str:
+    if source_resource_ids:
+        resources = db.query(SessionResource).filter(
+            SessionResource.id.in_(source_resource_ids),
+            SessionResource.instructor_id == instructor_id
+        ).all()
+        return build_session_source_context(resources)
     if not source_session_id:
         return ""
     resources = db.query(SessionResource).filter_by(session_id=source_session_id, instructor_id=instructor_id).all()
     return build_session_source_context(resources)
 
 
+PREP_MARKER = "Uploaded preparation materials:"
+
+
 def _append_source(notes: str | None, context: str) -> str:
+    """Retrieval context for the prompt only — never the visible Notes field."""
     if not context.strip():
         return notes or ""
-    block = f"\n\nUploaded preparation materials:\n{context.strip()}"
+    block = f"\n\n{PREP_MARKER}\n{context.strip()}"
     return f"{notes or ''}{block}".strip()[:16000]
+
+
+def _strip_legacy_prep_block(text: str | None) -> str:
+    """Remove machine-generated retrieval dumps that older code stored in Notes."""
+    if not text:
+        return ""
+    marker = text.find(PREP_MARKER)
+    if marker == -1:
+        return text.strip()
+    return text[:marker].strip()
+
+
+def reconcile_video_records(db) -> dict:
+    """Clean legacy Notes text and fix records marked completed without files.
+
+    Nothing is deleted: notes lose only the generated prep block, and a project
+    whose artifacts are missing is marked failed instead of claiming success.
+    """
+    cleaned = 0
+    fixed = 0
+    for project in db.query(VideoProject).all():
+        new_notes = _strip_legacy_prep_block(project.notes)
+        if new_notes != (project.notes or ""):
+            project.notes = new_notes
+            cleaned += 1
+        if project.status == "completed":
+            ok, _reason = validate_video_artifacts(project.id)
+            if not ok:
+                project.status = "failed"
+                project.video_path = None
+                fixed += 1
+    if cleaned or fixed:
+        db.commit()
+    return {"notes_cleaned": cleaned, "videos_marked_failed": fixed}
 
 
 def _run_lesson_bg(job_id: str, payload: LessonRequest, instructor_id: int):
@@ -128,7 +221,12 @@ def _run_lesson_bg(job_id: str, payload: LessonRequest, instructor_id: int):
     try:
         db = SessionLocal()
         try:
-            source = _get_source_context(db, payload.source_session_id, instructor_id)
+            source = _get_source_context(
+            db,
+            payload.source_session_id,
+            instructor_id,
+            getattr(payload, "source_resource_ids", None)
+        )
             enriched = payload.model_copy(update={
                 "additional_notes": _append_source(payload.additional_notes, source),
             })
@@ -147,20 +245,39 @@ def _run_lesson_bg(job_id: str, payload: LessonRequest, instructor_id: int):
             result["id"] = gen.id
         finally:
             db.close()
+
+        result["generated_with"] = _generated_with(
+            payload.language, payload.teaching_style, payload.detail_level)
         _finish_job(job_id, "done", result)
     except Exception as exc:
         _finish_job(job_id, "error", error=str(exc))
+
+
+def _generated_with(language: str | None, style: str | None, level: str | None) -> str:
+    """Contract stamp stored with every result and shown in the UI."""
+    from app.services.llm import last_used
+    used = last_used() or {}
+    provider = used.get("provider") or "unknown"
+    model = used.get("model") or "unknown"
+    return (f"Generated with: {language or 'English'} / {style or 'Friendly'} / "
+            f"{level or 'Standard'} / {provider}:{model}")
 
 
 def _run_flashcard_bg(job_id: str, payload: FlashcardRequest, instructor_id: int):
     try:
         db = SessionLocal()
         try:
-            source = _get_source_context(db, payload.source_session_id, instructor_id)
+            source = _get_source_context(
+            db,
+            payload.source_session_id,
+            instructor_id,
+            getattr(payload, "source_resource_ids", None)
+        )
             prompt = _append_source(payload.prompt, source)
             result = flashcards.generate(
                 payload.topic, payload.count, payload.language, prompt,
                 subject=payload.subject, grade_level=payload.grade_level,
+                teaching_style=payload.teaching_style,
             ).data
             gen = AIGeneration(
                 instructor_id=instructor_id,
@@ -176,6 +293,8 @@ def _run_flashcard_bg(job_id: str, payload: FlashcardRequest, instructor_id: int
             result["id"] = gen.id
         finally:
             db.close()
+        result["generated_with"] = _generated_with(
+            payload.language, getattr(payload, "teaching_style", None), "Standard")
         _finish_job(job_id, "done", result)
     except Exception as exc:
         _finish_job(job_id, "error", error=str(exc))
@@ -185,12 +304,18 @@ def _run_quiz_bg(job_id: str, payload: QuizRequest, instructor_id: int):
     try:
         db = SessionLocal()
         try:
-            source = _get_source_context(db, payload.source_session_id, instructor_id)
+            source = _get_source_context(
+            db,
+            payload.source_session_id,
+            instructor_id,
+            getattr(payload, "source_resource_ids", None)
+        )
             prompt = _append_source(payload.prompt, source)
             result = quizzes.generate(
                 payload.topic, payload.difficulty, payload.count, prompt,
                 subject=payload.subject, grade_level=payload.grade_level,
                 config_id=payload.config_id,
+                teaching_style=payload.teaching_style,
             ).data
 
             # Apply config settings to quiz if config_id provided
@@ -204,24 +329,32 @@ def _run_quiz_bg(job_id: str, payload: QuizRequest, instructor_id: int):
                     config_fullscreen_lock = config.fullscreen_lock
                     config_camera_monitoring = config.camera_monitoring
 
-            quiz = Quiz(
-                session_id=payload.session_id,
-                title=result["title"],
-                difficulty=result["difficulty"],
-                questions_json=json.dumps(result["questions"]),
-                time_limit_seconds=config_time_limit,
-                fullscreen_lock=config_fullscreen_lock,
-                camera_monitoring=config_camera_monitoring,
-            )
-            db.add(quiz)
-            db.commit()
-            db.refresh(quiz)
+            # Idempotent: reuse an identical quiz instead of duplicating it
+            quiz = db.query(Quiz).filter_by(
+                session_id=payload.session_id, title=result["title"]
+            ).first()
+            if quiz is None:
+                quiz = Quiz(
+                    session_id=payload.session_id,
+                    title=result["title"],
+                    difficulty=result["difficulty"],
+                    questions_json=json.dumps(result["questions"]),
+                    time_limit_seconds=config_time_limit,
+                    fullscreen_lock=config_fullscreen_lock,
+                    camera_monitoring=config_camera_monitoring,
+                    instructor_id=instructor_id,
+                )
+                db.add(quiz)
+                db.commit()
+                db.refresh(quiz)
             result["id"] = quiz.id
             result["time_limit_seconds"] = config_time_limit
             result["fullscreen_lock"] = config_fullscreen_lock
             result["camera_monitoring"] = config_camera_monitoring
         finally:
             db.close()
+        result["generated_with"] = _generated_with(
+            payload.language, payload.teaching_style, payload.difficulty)
         _finish_job(job_id, "done", result)
     except Exception as exc:
         _finish_job(job_id, "error", error=str(exc))
@@ -248,8 +381,10 @@ def _serialize_video_project(project: VideoProject) -> dict:
         "duration": project.duration,
         "notes": project.notes,
         "status": project.status,
-        "created_at": project.created_at.isoformat() if project.created_at else None,
-        "video_url": project.video_path or f"/static/videos/video-{project.id}/player.html",
+        "created_at": iso_z(project.created_at),
+        "video_url": (f"/static/videos/video-{project.id}/player.html"
+                      if (VIDEO_STATIC_DIR / f"video-{project.id}" / "player.html").exists()
+                      else None),
         "audio_url": f"/static/videos/video-{project.id}/narration.mp3" if audio_path.exists() else None,
         "mp4_url": f"/static/videos/video-{project.id}.mp4" if mp4_path.exists() else None,
         "scenes": scenes,
@@ -257,10 +392,40 @@ def _serialize_video_project(project: VideoProject) -> dict:
     }
 
 
+def _format_video_job_error(exc: Exception) -> str:
+    """Structured error payload for video jobs: {code, stage, message} as JSON."""
+    from app.services.video import VideoStageError
+    from app.services.gemini import GeminiError
+    if isinstance(exc, VideoStageError):
+        return json.dumps(exc.to_dict())
+    if isinstance(exc, GeminiError):
+        return json.dumps({"code": exc.code, "stage": "script_generation", "message": exc.user_message})
+    return json.dumps({"code": "INTERNAL", "stage": "assembly", "message": str(exc)[:500]})
+
+
+def _raise_video_http(exc: Exception):
+    """Convert pipeline exceptions into a 502 with structured detail."""
+    from app.services.video import VideoStageError
+    from app.services.gemini import GeminiError
+    if isinstance(exc, VideoStageError):
+        raise HTTPException(status_code=502, detail=exc.to_dict())
+    if isinstance(exc, GeminiError):
+        raise HTTPException(status_code=502, detail={"code": exc.code, "stage": "script_generation", "message": exc.user_message})
+    raise
+
+
 def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
     db = SessionLocal()
+    project = None
     try:
-        source = _get_source_context(db, payload.source_session_id, instructor_id)
+        source = _get_source_context(
+            db,
+            payload.source_session_id,
+            instructor_id,
+            getattr(payload, "source_resource_ids", None)
+        )
+        # Keep the user's visible Notes clean: retrieved excerpts go to the
+        # prompt only, never into the Notes field shown in the UI.
         notes = _append_source(payload.notes, source)
         project = VideoProject(
             instructor_id=instructor_id,
@@ -268,26 +433,33 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
             prompt=payload.prompt,
             language=payload.language,
             style=payload.style,
-            duration=payload.duration,
-            notes=notes,
+            notes=payload.notes or "",
             status="processing",
         )
         db.add(project)
         db.commit()
         db.refresh(project)
+        _update_job_progress(job_id, progress=10, message="Generating lesson script...")
         lesson = lessons.generate(
             LessonRequest(
                 topic=payload.title,
                 prompt=payload.prompt,
                 language=payload.language,
                 teaching_style=payload.style,
-                duration=payload.duration,
                 additional_notes=notes,
                 session_id=payload.session_id,
                 source_session_id=payload.source_session_id,
             )
         ).data
+        _update_job_progress(job_id, progress=40, message="Building scenes and narration...")
         video = generate_educational_video(project.id, project.title, lesson)
+        _update_job_progress(job_id, progress=85, message="Finalizing video...")
+        ok, reason = validate_video_artifacts(project.id)
+        if not ok:
+            project.status = "failed"
+            db.commit()
+            _finish_job(job_id, "error", error=reason)
+            return
         project.video_path = video["video_url"]
         project.status = "completed"
         if payload.session_id:
@@ -304,10 +476,18 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
         db.refresh(project)
         result = _serialize_video_project(project)
         result["lesson"] = lesson
+        if video.get("warnings"):
+            result["warnings"] = video["warnings"]
         _finish_job(job_id, "done", result)
     except Exception as exc:
         db.rollback()
-        _finish_job(job_id, "error", error=str(exc))
+        if project is not None:
+            try:
+                project.status = "failed"
+                db.commit()
+            except Exception:
+                db.rollback()
+        _finish_job(job_id, "error", error=_format_video_job_error(exc))
     finally:
         db.close()
 
@@ -318,50 +498,65 @@ def _run_video_edit_bg(job_id: str, video_id: int, payload: VideoRequest, instru
         project = db.query(VideoProject).filter_by(id=video_id, instructor_id=instructor_id).first()
         if not project:
             raise HTTPException(404, "Video not found")
-        source = _get_source_context(db, payload.source_session_id, instructor_id)
+        source = _get_source_context(
+            db,
+            payload.source_session_id,
+            instructor_id,
+            getattr(payload, "source_resource_ids", None)
+        )
         notes = _append_source(payload.notes, source)
         project.title = payload.title
         project.prompt = payload.prompt
         project.language = payload.language
         project.style = payload.style
         project.duration = payload.duration
-        project.notes = notes
+        project.notes = payload.notes or ""
         project.status = "processing"
         db.commit()
+        _update_job_progress(job_id, progress=10, message="Generating lesson script...")
         lesson = lessons.generate(
             LessonRequest(
                 topic=payload.title,
                 prompt=payload.prompt,
                 language=payload.language,
                 teaching_style=payload.style,
-                duration=payload.duration,
                 additional_notes=notes,
                 session_id=payload.session_id,
                 source_session_id=payload.source_session_id,
             )
         ).data
+        _update_job_progress(job_id, progress=40, message="Building scenes and narration...")
         video = generate_educational_video(project.id, project.title, lesson)
+        _update_job_progress(job_id, progress=85, message="Finalizing video...")
         project.video_path = video["video_url"]
         project.status = "completed"
         db.commit()
         db.refresh(project)
         result = _serialize_video_project(project)
         result["lesson"] = lesson
+        if video.get("warnings"):
+            result["warnings"] = video["warnings"]
         _finish_job(job_id, "done", result)
     except Exception as exc:
         db.rollback()
-        _finish_job(job_id, "error", error=str(exc))
+        _finish_job(job_id, "error", error=_format_video_job_error(exc))
     finally:
         db.close()
 
 
 @router.post("/flashcards")
 def generate_flashcards(payload: FlashcardRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
-    source = _get_source_context(db, payload.source_session_id, user.id)
+    source = _get_source_context(
+        db,
+        payload.source_session_id,
+        user.id,
+        getattr(payload, "source_resource_ids", None)
+    )
     prompt = _append_source(payload.prompt, source)
     result = flashcards.generate(
         payload.topic, payload.count, payload.language, prompt,
         subject=payload.subject, grade_level=payload.grade_level,
+        teaching_style=payload.teaching_style,
     ).data
 
     # Save to history
@@ -381,7 +576,8 @@ def generate_flashcards(payload: FlashcardRequest, db: Session = Depends(get_db)
 
 @router.post("/flashcards/export-word")
 def export_flashcards_word(payload: FlashcardRequest, _: User = Depends(require_role("instructor"))):
-    data = flashcards.generate(payload.topic, payload.count, payload.language, payload.prompt).data
+    data = flashcards.generate(payload.topic, payload.count, payload.language, payload.prompt,
+                               teaching_style=payload.teaching_style).data
     sections = []
     for index, card in enumerate(data.get("cards") or [], start=1):
         sections.append((f"Flashcard {index}", [f"Front: {card.get('front', '')}", f"Back: {card.get('back', '')}"]))
@@ -423,6 +619,69 @@ def export_lesson_pptx(payload: LessonRequest, _: User = Depends(require_role("i
         build_pptx_bytes(data.get("topic", "Lesson"), data),
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ─── B8: export already-generated content (no regeneration) ──────────────────
+
+class ContentExportRequest(BaseModel):
+    title: str = "Export"
+    content: dict = {}
+    include_answers: bool = True
+
+
+def _safe_filename(title: str, ext: str) -> str:
+    import re as _re
+    return _re.sub(r"[^A-Za-z0-9_-]+", "-", title or "export").strip("-")[:60] + ext
+
+
+@router.post("/export/pptx")
+def export_content_pptx(payload: ContentExportRequest, _: User = Depends(require_role("instructor"))):
+    from app.services.export import build_pptx_bytes
+    return StreamingResponse(
+        build_pptx_bytes(payload.title, payload.content),
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{_safe_filename(payload.title, ".pptx")}"'},
+    )
+
+
+@router.post("/export/pdf")
+def export_content_pdf(payload: ContentExportRequest, _: User = Depends(require_role("instructor"))):
+    from app.services.export import build_lesson_pdf_bytes, build_quiz_pdf_bytes, build_flashcards_pdf_bytes
+    c = payload.content or {}
+    if c.get("cards") is not None:
+        buf = build_flashcards_pdf_bytes(c)
+    elif c.get("questions") is not None:
+        buf = build_quiz_pdf_bytes(c, payload.include_answers)
+    else:
+        buf = build_lesson_pdf_bytes(c)
+    return StreamingResponse(
+        buf, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{_safe_filename(payload.title, ".pdf")}"'},
+    )
+
+
+@router.post("/export/docx")
+def export_content_docx(payload: ContentExportRequest, _: User = Depends(require_role("instructor"))):
+    from app.services.export import build_quiz_docx_bytes, build_true_docx_bytes
+    c = payload.content or {}
+    if c.get("questions") is not None:
+        buf = build_quiz_docx_bytes(c, payload.include_answers)
+    else:
+        buf = build_true_docx_bytes(payload.title, c, "lesson")
+    return StreamingResponse(
+        buf, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{_safe_filename(payload.title, ".docx")}"'},
+    )
+
+
+@router.post("/export/csv")
+def export_content_csv(payload: ContentExportRequest, _: User = Depends(require_role("instructor"))):
+    from app.services.export import build_flashcards_csv_bytes
+    return StreamingResponse(
+        build_flashcards_csv_bytes(payload.content or {}),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{_safe_filename(payload.title, ".csv")}"'},
     )
 
 
@@ -478,9 +737,138 @@ def download_video(video_id: int, db: Session = Depends(get_db), user: User = De
     )
 
 
+@router.get("/videos/{video_id}/script-docx")
+def download_video_script_docx(video_id: int, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
+    from io import BytesIO
+    from docx import Document
+    project = db.query(VideoProject).filter_by(id=video_id, instructor_id=user.id).first()
+    if not project:
+        raise HTTPException(404, "Video not found")
+    project_dir = VIDEO_STATIC_DIR / f"video-{project.id}"
+    scenes_file = project_dir / "scenes.json"
+    scenes = []
+    if scenes_file.exists():
+        try:
+            scenes = json.loads(scenes_file.read_text(encoding="utf-8")).get("scenes", [])
+        except Exception:
+            pass
+    doc = Document()
+    doc.add_heading(f"{project.title} — Video Script", level=0)
+    p_meta = doc.add_paragraph()
+    p_meta.add_run(f"Duration: {project.duration} mins | Style: {project.style} | Language: {project.language}").italic = True
+    doc.add_heading("Script Narration by Scene", level=1)
+    if scenes:
+        for idx, sc in enumerate(scenes, 1):
+            doc.add_heading(f"Scene {idx}: {sc.get('title', f'Scene {idx}')}", level=2)
+            doc.add_paragraph(sc.get("narration") or sc.get("content") or "")
+            if sc.get("bullets"):
+                for b in sc.get("bullets"):
+                    doc.add_paragraph(b, style="List Bullet")
+    else:
+        doc.add_paragraph(project.prompt)
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    safe_title = _safe_filename(project.title + "-script", ".docx")
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{safe_title}"'},
+    )
+
+
+@router.get("/videos/{video_id}/script-pdf")
+def download_video_script_pdf(video_id: int, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
+    from app.services.export import _pdf_doc
+    project = db.query(VideoProject).filter_by(id=video_id, instructor_id=user.id).first()
+    if not project:
+        raise HTTPException(404, "Video not found")
+    project_dir = VIDEO_STATIC_DIR / f"video-{project.id}"
+    scenes_file = project_dir / "scenes.json"
+    scenes = []
+    if scenes_file.exists():
+        try:
+            scenes = json.loads(scenes_file.read_text(encoding="utf-8")).get("scenes", [])
+        except Exception:
+            pass
+    blocks = [
+        ("Metadata", [
+            f"Duration: {project.duration} minutes",
+            f"Language: {project.language}",
+            f"Style: {project.style}",
+        ])
+    ]
+    if scenes:
+        for idx, sc in enumerate(scenes, 1):
+            lines = [sc.get("narration") or sc.get("content") or ""]
+            if sc.get("bullets"):
+                lines += [f"• {b}" for b in sc.get("bullets")]
+            blocks.append((f"Scene {idx}: {sc.get('title', '')}", lines))
+    else:
+        blocks.append(("Script", [project.prompt]))
+    buf = _pdf_doc(f"{project.title} — Script", blocks)
+    safe_title = _safe_filename(project.title + "-script", ".pdf")
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe_title}"'},
+    )
+
+
+@router.get("/videos/{video_id}/subtitles-srt")
+def download_video_subtitles_srt(video_id: int, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
+    import io
+    project = db.query(VideoProject).filter_by(id=video_id, instructor_id=user.id).first()
+    if not project:
+        raise HTTPException(404, "Video not found")
+    project_dir = VIDEO_STATIC_DIR / f"video-{project.id}"
+    srt_file = project_dir / "subtitles.srt"
+    if srt_file.exists():
+        srt_content = srt_file.read_text(encoding="utf-8")
+    else:
+        scenes_file = project_dir / "scenes.json"
+        scenes = []
+        if scenes_file.exists():
+            try:
+                scenes = json.loads(scenes_file.read_text(encoding="utf-8")).get("scenes", [])
+            except Exception:
+                pass
+        lines = []
+        current_s = 0.0
+        for idx, sc in enumerate(scenes, 1):
+            dur = float(sc.get("duration_seconds") or 8.0)
+            start_s = current_s
+            end_s = current_s + dur
+            current_s = end_s
+
+            def _fmt(s):
+                hrs = int(s // 3600)
+                mins = int((s % 3600) // 60)
+                secs = int(s % 60)
+                millis = int((s - int(s)) * 1000)
+                return f"{hrs:02d}:{mins:02d}:{secs:02d},{millis:03d}"
+
+            text = (sc.get("narration") or sc.get("content") or "").strip()
+            lines.append(f"{idx}\n{_fmt(start_s)} --> {_fmt(end_s)}\n{text}\n")
+        srt_content = "\n".join(lines) if lines else f"1\n00:00:00,000 --> 00:00:05,000\n{project.title}\n"
+
+    buf = io.BytesIO(srt_content.encode("utf-8"))
+    safe_title = _safe_filename(project.title + "-subtitles", ".srt")
+    return StreamingResponse(
+        buf,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_title}"'},
+    )
+
+
 @router.post("/lessons")
 def generate_lesson(payload: LessonRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
-    source = _get_source_context(db, payload.source_session_id, user.id)
+    source = _get_source_context(
+        db,
+        payload.source_session_id,
+        user.id,
+        getattr(payload, "source_resource_ids", None)
+    )
     enriched = payload.model_copy(update={
         "additional_notes": _append_source(payload.additional_notes, source),
     })
@@ -503,7 +891,12 @@ def generate_lesson(payload: LessonRequest, db: Session = Depends(get_db), user:
 
 @router.post("/quizzes")
 def generate_quiz(payload: QuizRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
-    source = _get_source_context(db, payload.source_session_id, user.id)
+    source = _get_source_context(
+        db,
+        payload.source_session_id,
+        user.id,
+        getattr(payload, "source_resource_ids", None)
+    )
     prompt = _append_source(payload.prompt, source)
     result = quizzes.generate(
         payload.topic, payload.difficulty, payload.count, prompt,
@@ -522,17 +915,22 @@ def generate_quiz(payload: QuizRequest, db: Session = Depends(get_db), user: Use
             config_fullscreen_lock = config.fullscreen_lock
             config_camera_monitoring = config.camera_monitoring
 
-    quiz = Quiz(
-        session_id=payload.session_id,
-        title=result["title"],
-        difficulty=result["difficulty"],
-        questions_json=json.dumps(result["questions"]),
-        time_limit_seconds=config_time_limit,
-        fullscreen_lock=config_fullscreen_lock,
-        camera_monitoring=config_camera_monitoring,
-    )
-    db.add(quiz)
-    db.commit()
+    quiz = db.query(Quiz).filter_by(
+        session_id=payload.session_id, title=result["title"]
+    ).first()
+    if quiz is None:
+        quiz = Quiz(
+            session_id=payload.session_id,
+            title=result["title"],
+            difficulty=result["difficulty"],
+            questions_json=json.dumps(result["questions"]),
+            time_limit_seconds=config_time_limit,
+            fullscreen_lock=config_fullscreen_lock,
+            camera_monitoring=config_camera_monitoring,
+            instructor_id=user.id,
+        )
+        db.add(quiz)
+        db.commit()
     result["id"] = quiz.id
     result["time_limit_seconds"] = config_time_limit
     result["fullscreen_lock"] = config_fullscreen_lock
@@ -543,17 +941,36 @@ def generate_quiz(payload: QuizRequest, db: Session = Depends(get_db), user: Use
 @router.get("/quizzes")
 def list_quizzes(db: Session = Depends(get_db), _: User = Depends(require_role("instructor"))):
     quizzes_list = db.query(Quiz).order_by(Quiz.created_at.desc()).all()
-    return [
-        {
+    result = []
+    for q in quizzes_list:
+        session_name = None
+        enrolled_count = None
+        if q.session_id:
+            sess = db.query(ClassSession).filter_by(id=q.session_id).first()
+            if sess:
+                session_name = sess.title
+                enrolled_count = db.query(SessionRegistration).filter_by(session_id=q.session_id).count()
+        result.append({
             "id": q.id,
             "session_id": q.session_id,
+            "session_title": session_name,
             "title": q.title,
-            "difficulty": q.difficulty,
+            "difficulty": normalize_difficulty(q.difficulty),
             "created_at": q.created_at,
-            "questions": json.loads(q.questions_json)
-        }
-        for q in quizzes_list
-    ]
+            "questions": json.loads(q.questions_json),
+            "is_published": getattr(q, "is_published", True),
+            "is_exam": getattr(q, "is_exam", False),
+            "lock_back_navigation": getattr(q, "lock_back_navigation", False),
+            "fullscreen_lock": getattr(q, "fullscreen_lock", False),
+            "camera_monitoring": getattr(q, "camera_monitoring", False),
+            "time_limit_seconds": q.time_limit_seconds,
+            "time_limit_per_question_seconds": q.time_limit_per_question_seconds,
+            "due_date": q.due_date,
+            "available_from": q.available_from,
+            # B4.3: publish visibility
+            "enrolled_student_count": enrolled_count,
+        })
+    return result
 
 
 @router.delete("/quizzes/{quiz_id}")
@@ -597,7 +1014,6 @@ def create_quiz_config(
     db.refresh(config)
 
     # Audit
-    from app.core.audit import log_audit_event
     log_audit_event(db, action="create_quiz_config", user=user, resource_type="quiz_config", resource_id=str(config.id), request=request, details={"name": config.name})
 
     return QuizAgentConfigOut.model_validate(config)
@@ -655,7 +1071,6 @@ def update_quiz_config(
     db.refresh(config)
 
     # Audit
-    from app.core.audit import log_audit_event
     log_audit_event(db, action="update_quiz_config", user=user, resource_type="quiz_config", resource_id=str(config.id), request=request, details={"name": config.name})
 
     return QuizAgentConfigOut.model_validate(config)
@@ -678,7 +1093,6 @@ def delete_quiz_config(
     db.commit()
 
     # Audit
-    from app.core.audit import log_audit_event
     log_audit_event(db, action="delete_quiz_config", user=user, resource_type="quiz_config", resource_id=str(config_id), request=request, details={"name": config_name})
 
     return {"message": "Quiz config deleted"}
@@ -687,20 +1101,58 @@ def delete_quiz_config(
 @router.get("/generations")
 def list_generations(type: str | None = None, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
     query = db.query(AIGeneration).filter_by(instructor_id=user.id)
-    if type:
+    if type and type != "quiz":
         query = query.filter_by(type=type)
+    # Quiz-type AIGeneration rows mirror Quiz records (appended below) —
+    # listing both would show every quiz twice.
+    query = query.filter(AIGeneration.type != "quiz")
     generations = query.order_by(AIGeneration.created_at.desc()).all()
-    return [
+    out = [
         {
             "id": g.id,
             "type": g.type,
             "topic": g.topic,
             "prompt": g.prompt,
+            "session_id": g.session_id,
             "created_at": g.created_at,
-            "data": json.loads(g.data_json)
+            "data": json.loads(g.data_json) if g.data_json else {}
         }
         for g in generations
     ]
+    if type is None or type == "quiz":
+        quizzes = db.query(Quiz).order_by(Quiz.created_at.desc()).all()
+        for q in quizzes:
+            out.append({
+                "id": q.id,
+                "type": "quiz",
+                "topic": q.title,
+                "prompt": f"Quiz · {q.difficulty}",
+                "session_id": q.session_id,
+                "created_at": q.created_at,
+                "data": {"title": q.title, "difficulty": q.difficulty}
+            })
+    return out
+
+
+@router.get("/generations/{gen_id}")
+def get_generation(gen_id: int, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
+    """Get the latest data for a single AI generation."""
+    g = db.query(AIGeneration).filter_by(id=gen_id, instructor_id=user.id).first()
+    if not g:
+        raise HTTPException(404, "Generation not found")
+    try:
+        data = json.loads(g.data_json)
+    except Exception:
+        data = {}
+    return {
+        "id": g.id,
+        "type": g.type,
+        "topic": g.topic,
+        "prompt": g.prompt,
+        "session_id": g.session_id,
+        "created_at": g.created_at,
+        "data": data,
+    }
 
 
 @router.delete("/generations/{gen_id}")
@@ -769,14 +1221,94 @@ def pending_jobs(db: Session = Depends(get_db), user: User = Depends(require_rol
 @router.get("/job/{job_id}")
 def poll_job(job_id: str, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
     """Poll the status of a background generation job."""
-    payload = get_job_payload(db, job_id, user.id)
-    if payload:
-        return payload
     with _jobs_lock:
         cached = _jobs.get(job_id)
     if cached:
         return cached
+    payload = get_job_payload(db, job_id, user.id)
+    if payload:
+        return payload
     raise HTTPException(404, "Job not found")
+
+
+@router.get("/available-models")
+def available_models(user: User = Depends(get_current_user)):
+    """Healthy models across configured LLM providers for UI dropdowns.
+
+    Returns "Auto" first, followed by:
+      - Free-tier cloud models for providers with valid API keys (live-probed at startup)
+      - Installed Ollama local models with "Offline" badge (if Ollama is reachable)
+    Dead, cooling, or providers with no keys are excluded.
+    """
+    from app.services import llm
+    from app.core.config import get_settings
+    settings = get_settings()
+    allow_paid = getattr(settings, "allow_paid_models", False)
+
+    now = time.time()
+    # Re-check the local daemon so the dropdown always shows the 4 local models
+    # when Ollama is up, and an actionable message when it is down.
+    llm.router._ensure_ollama()
+    ollama_up = bool(llm.router.provider_keys("ollama"))
+    healthy = [
+        {"provider": "auto", "model": "auto", "label": "Auto (best working model)", "group": "auto"}
+    ]
+    seen: set[tuple[str, str]] = set()
+
+    for provider, key_idx, _, model in llm.router.candidates("general"):
+        if (provider, model) in seen:
+            continue
+
+        # Ollama local models get the "Offline" badge — always free
+        if provider == "ollama":
+            seen.add((provider, model))
+            healthy.append({
+                "provider": "ollama",
+                "model": model,
+                "label": f"ollama: {model}",
+                "free_tier": True,
+                "is_local": True,
+                "group": "offline",
+                "badge": "Offline",
+                "slow": not model.lower().startswith("llama3.2"),
+            })
+            continue
+
+        # C16: Filter by free tier if paid models not allowed
+        if not allow_paid:
+            profile = llm.router.get_model_profile(provider, model)
+            is_free = profile.get("free_tier", profile.get("cost") == "free")
+            if provider == "openrouter" and not model.endswith(":free"):
+                is_free = False
+            if provider == "deepinfra":
+                is_free = False
+            if not is_free:
+                continue
+
+        st = llm.router._states.get((provider, key_idx, model))
+        gb = llm.router._group_blocked(provider, llm.router.key_group(provider, key_idx), model)
+        disabled = bool(st and st.disabled)
+        cooling = bool((st and st.cooldown_until > now) or gb > 0)
+        if not disabled and not cooling:
+            seen.add((provider, model))
+            profile = llm.router.get_model_profile(provider, model)
+            healthy.append({
+                "provider": provider,
+                "model": model,
+                "label": f"{provider}: {model}",
+                "free_tier": True,
+                "group": "online",
+                "badge": profile.get("badge") or "Free",
+                "task": profile.get("task"),
+                "speed": profile.get("speed"),
+            })
+    return {
+        "models": healthy,
+        "ollama_running": ollama_up,
+        "ollama_hint": None if ollama_up else (
+            "Local Ollama is not running. Fix: open a terminal and run `ollama serve`."
+        ),
+    }
 
 
 @router.get("/engagement/{session_id}")
@@ -784,12 +1316,171 @@ def get_engagement(session_id: int, db: Session = Depends(get_db), _: User = Dep
     return engagement.calculate(db, session_id).data
 
 
+class RecommendationsQueueRequest(BaseModel):
+    session_id: str | int = "all"
+    session_ids: list[int] | None = None
+    selected_count: int | None = None  # number of sessions the user requested
+
+
+def _resolve_recommendation_sessions(db: Session, instructor_id: int,
+                                     session_id_arg: str | int,
+                                     session_ids: list[int] | None) -> list:
+    """Sessions owned by the instructor, reconciling stale statuses."""
+    from app.api.sessions import reconcile_session_statuses
+    reconcile_session_statuses(db)
+
+    query = visible_sessions(db, ClassSession).filter(
+        ClassSession.instructor_id == instructor_id,
+        ClassSession.status == "ended",
+    )
+    if session_ids:
+        query = query.filter(ClassSession.id.in_([int(i) for i in session_ids]))
+    elif str(session_id_arg) != "all":
+        query = query.filter(ClassSession.id == int(session_id_arg))
+    return query.all()
+
+
+def _run_recommendations_bg(job_id: str, session_id_arg: str | int,
+                            session_ids: list[int] | None, instructor_id: int | None = None,
+                            selected_count: int | None = None):
+    """Runs feedback loop analysis in background thread so it survives tab closes."""
+    if instructor_id is None and isinstance(session_ids, int):
+        instructor_id = session_ids
+        session_ids = None
+    db = SessionLocal()
+    try:
+        cache_key = f"{instructor_id}:{session_id_arg}:{sorted(session_ids or [])}"
+        _update_job_progress(job_id, progress=15, message="Finding ended sessions...")
+
+        ended = _resolve_recommendation_sessions(db, instructor_id, session_id_arg, session_ids)
+        if not ended:
+            _finish_job(job_id, "error", error="No ended sessions found to analyze.")
+            return
+
+        _update_job_progress(job_id, progress=35, message="Computing student emotion telemetry...")
+
+        results = []
+        for i, s in enumerate(ended):
+            single_cache_key = f"{instructor_id}:{s.id}"
+            if single_cache_key in _analytics_cache:
+                results.append(_analytics_cache[single_cache_key])
+                continue
+
+            pct = 35 + int(((i + 1) / max(len(ended), 1)) * 40)
+            _update_job_progress(job_id, progress=pct, message=f"Analyzing session: {s.title}...")
+
+            emotion_report = workflow.emotions.distributions(db, s.id).data
+            engagement_report = workflow.engagement.calculate(db, s.id).data
+            from app.services.report_data import assess_session_data, insufficient_data_message, session_metrics
+            _assessment = assess_session_data(db, s.id)
+            _metrics = session_metrics(db, s.id, _assessment)
+            _metrics["sufficient_data"] = _assessment["sufficient"]
+            rec_report = workflow.recommendations.recommend(
+                engagement_report, emotion_report, metrics=_metrics
+            ).data
+
+            res_item = {
+                "session_id": s.id,
+                "session_title": s.title,
+                "emotion_report": emotion_report,
+                "engagement_report": engagement_report,
+                "recommendations": rec_report,
+                "sufficiency": {
+                    "sufficient": _assessment["sufficient"],
+                    "missing": _assessment["missing"],
+                    "checks": _assessment["checks"],
+                    "message": None if _assessment["sufficient"] else insufficient_data_message(_assessment),
+                },
+            }
+            _analytics_cache[single_cache_key] = res_item
+            results.append(res_item)
+
+        _update_job_progress(job_id, progress=85, message="Synthesizing pedagogical recommendations...")
+
+        rec_list = list(dict.fromkeys(r for res in results for r in res.get("recommendations", {}).get("recommendations", [])))
+        insufficient_sessions = [
+            {"session_id": res["session_id"], "session_title": res["session_title"],
+             "missing": res["sufficiency"]["missing"], "message": res["sufficiency"]["message"]}
+            for res in results if not res["sufficiency"]["sufficient"]
+        ]
+        sufficient_count = len(results) - len(insufficient_sessions)
+        insufficient = bool(insufficient_sessions)
+        session_breakdown = [
+            {
+                "session_id": res["session_id"],
+                "session_title": res["session_title"],
+                "status": "analyzed" if res["sufficiency"]["sufficient"] else "insufficient",
+                "missing": res["sufficiency"]["missing"],
+                "message": res["sufficiency"]["message"] or "Analyzed successfully",
+            }
+            for res in results
+        ]
+        aggregate_dist = {}
+        for res in results:
+            dist = res.get("emotion_report", {}).get("distribution", {})
+            for emo, val in dist.items():
+                aggregate_dist[emo] = aggregate_dist.get(emo, 0) + val
+
+        final_result = {
+            "session_id": session_id_arg,
+            "recommendations": {
+                "recommendations": rec_list,
+                "insufficient_data": insufficient,
+                "sufficient_sessions": sufficient_count,
+                "total_sessions": len(results),
+                "selected_sessions": selected_count if selected_count is not None else len(results),
+                "insufficient_sessions": insufficient_sessions,
+                "session_breakdown": session_breakdown,
+                "message": (f"{sufficient_count} of {len(results)} selected session(s) analyzed."
+                            + (f" ({len(insufficient_sessions)} lack enough data)" if insufficient_sessions else "")),
+            },
+            "emotion_report": {"distribution": aggregate_dist},
+            "engagement_report": results[0].get("engagement_report", {"attention_timeline": []}) if results else {"attention_timeline": []},
+        }
+
+        _analytics_cache[cache_key] = final_result
+        _update_job_progress(job_id, progress=100, message="Analysis complete!")
+        _finish_job(job_id, "done", final_result)
+    except Exception as exc:
+        _finish_job(job_id, "error", error=str(exc))
+    finally:
+        db.close()
+
+
+@router.post("/recommendations/queue")
+def queue_recommendations(
+    payload: RecommendationsQueueRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor"))
+):
+    """Starts dashboard feedback loop analysis in background. Returns job_id immediately."""
+    # Quick check if cached
+    cache_key = f"{user.id}:{payload.session_id}:{sorted(payload.session_ids or [])}"
+    if cache_key in _analytics_cache:
+        job_id = str(uuid.uuid4())
+        _persist_job(job_id, user.id, "analytics", "Dashboard Analysis")
+        _finish_job(job_id, "done", _analytics_cache[cache_key])
+        return {"job_id": job_id, "status": "done", "result": _analytics_cache[cache_key]}
+
+    job_id = str(uuid.uuid4())
+    _persist_job(job_id, user.id, "analytics", "Dashboard Analysis")
+    t = threading.Thread(target=_run_recommendations_bg,
+                         args=(job_id, payload.session_id, payload.session_ids, user.id, payload.selected_count), daemon=True)
+    t.start()
+    return {"job_id": job_id, "status": "pending"}
+
+
 @router.get("/recommendations/{session_id}")
-def get_recommendations(session_id: int, db: Session = Depends(get_db), _: User = Depends(require_role("instructor"))):
+def get_recommendations(session_id: int, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
+    cache_key = f"{user.id}:{session_id}"
+    if cache_key in _analytics_cache:
+        return _analytics_cache[cache_key]
+
     loop = workflow.improvement_loop(db, session_id)
     report = Report(session_id=session_id, summary=loop["report"]["summary"], pdf_path=loop["report"]["pdf_path"])
     db.add(report)
     db.commit()
+    _analytics_cache[cache_key] = loop
     return loop
 
 
@@ -800,19 +1491,31 @@ def decide_recommendation(session_id: int, payload: RecommendationDecision, _: U
 
 @router.post("/videos")
 def create_video(payload: VideoRequest, db: Session = Depends(get_db), user: User = Depends(require_role("instructor"))):
-    source = _get_source_context(db, payload.source_session_id, user.id)
+    source = _get_source_context(
+        db,
+        payload.source_session_id,
+        user.id,
+        getattr(payload, "source_resource_ids", None)
+    )
     notes = _append_source(payload.notes, source)
-    project = VideoProject(instructor_id=user.id, title=payload.title, prompt=payload.prompt, language=payload.language, style=payload.style, duration=payload.duration, notes=notes, status="processing")
+    project = VideoProject(instructor_id=user.id, title=payload.title, prompt=payload.prompt, language=payload.language, style=payload.style, duration=payload.duration, notes=(payload.notes or ""), status="processing")
     db.add(project)
     db.commit()
     db.refresh(project)
-    lesson = lessons.generate(LessonRequest(topic=payload.title, prompt=payload.prompt, language=payload.language, teaching_style=payload.style, duration=payload.duration, additional_notes=notes, session_id=payload.session_id, source_session_id=payload.source_session_id)).data
-    video = generate_educational_video(project.id, project.title, lesson)
+    try:
+        lesson = lessons.generate(LessonRequest(topic=payload.title, prompt=payload.prompt, language=payload.language, teaching_style=payload.style, additional_notes=notes, session_id=payload.session_id, source_session_id=payload.source_session_id)).data
+        video = generate_educational_video(project.id, project.title, lesson)
+    except Exception as exc:
+        project.status = "failed"
+        db.commit()
+        _raise_video_http(exc)
     project.video_path = video["video_url"]
     project.status = "completed"
     db.commit()
     result = _serialize_video_project(project)
     result["lesson"] = lesson
+    if video.get("warnings"):
+        result["warnings"] = video["warnings"]
     return result
 
 
@@ -826,35 +1529,46 @@ def edit_video(
     project = db.query(VideoProject).filter_by(id=video_id, instructor_id=user.id).first()
     if not project:
         raise HTTPException(404, "Video not found")
-    source = _get_source_context(db, payload.source_session_id, user.id)
+    source = _get_source_context(
+        db,
+        payload.source_session_id,
+        user.id,
+        getattr(payload, "source_resource_ids", None)
+    )
     notes = _append_source(payload.notes, source)
     project.title = payload.title
     project.prompt = payload.prompt
     project.language = payload.language
     project.style = payload.style
     project.duration = payload.duration
-    project.notes = notes
+    project.notes = payload.notes or ""
     project.status = "processing"
     db.commit()
 
-    lesson = lessons.generate(
-        LessonRequest(
-            topic=payload.title,
-            prompt=payload.prompt,
-            language=payload.language,
-            teaching_style=payload.style,
-            duration=payload.duration,
-            additional_notes=notes,
-            session_id=payload.session_id,
-            source_session_id=payload.source_session_id,
-        )
-    ).data
-    video = generate_educational_video(project.id, project.title, lesson)
+    try:
+        lesson = lessons.generate(
+            LessonRequest(
+                topic=payload.title,
+                prompt=payload.prompt,
+                language=payload.language,
+                teaching_style=payload.style,
+                additional_notes=notes,
+                session_id=payload.session_id,
+                source_session_id=payload.source_session_id,
+            )
+        ).data
+        video = generate_educational_video(project.id, project.title, lesson)
+    except Exception as exc:
+        project.status = "failed"
+        db.commit()
+        _raise_video_http(exc)
     project.video_path = video["video_url"]
     project.status = "completed"
     db.commit()
     response = _serialize_video_project(project)
     response["lesson"] = lesson
+    if video.get("warnings"):
+        response["warnings"] = video["warnings"]
     return response
 
 
@@ -864,6 +1578,48 @@ def get_video(video_id: int, db: Session = Depends(get_db), user: User = Depends
     if not project:
         raise HTTPException(404, "Video not found")
     return _serialize_video_project(project)
+
+
+@router.put("/videos/{video_id}/scenes")
+def update_video_scenes(
+    video_id: int,
+    payload: VideoScenesUpdateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("instructor")),
+):
+    """
+    Update a video's scenes (titles, narration, duration_seconds) and re-render
+    the player HTML + re-TTS each segment + re-stitch MP4 (when ffmpeg available).
+    Does NOT re-generate the lesson — edits are applied directly to the scenes.
+    """
+    project = db.query(VideoProject).filter_by(id=video_id, instructor_id=user.id).first()
+    if not project:
+        raise HTTPException(404, "Video not found")
+
+    title = payload.title or project.title
+    language = payload.language or project.language or "English"
+    scenes_data = [s.model_dump() for s in payload.scenes]
+
+    result = rebuild_video_from_scenes(
+        project_id=video_id,
+        title=title,
+        scenes=scenes_data,
+        language=language,
+        re_tts=True,
+    )
+    # Update DB record
+    project.title = title
+    project.language = language
+    project.video_path = result["video_url"]
+    project.status = "completed"
+    db.commit()
+    db.refresh(project)
+
+    serialized = _serialize_video_project(project)
+    serialized["scenes"] = result["scenes"]
+    serialized["fallback"] = result["fallback"]
+    serialized["duration_warning"] = result["duration_warning"]
+    return serialized
 
 
 @router.get("/videos")
@@ -881,7 +1637,155 @@ def delete_video(video_id: int, db: Session = Depends(get_db), user: User = Depe
     return {"message": "Video deleted"}
 
 
+# ─── Gemini Health Diagnostics ───────────────────────────────────────────────
+
+@router.get("/gemini-health")
+def gemini_health(user: User = Depends(require_role("instructor"))):
+    """
+    Probe every configured (key, model) pair with a tiny prompt.
+    Returns masked keys only — never key material.
+    """
+    from app.services.gemini import rotator
+    import concurrent.futures
+
+    keys = rotator.get_keys()
+    models = rotator.model_chain("general")
+    pairs = [(i, k, m) for i, k in enumerate(keys) for m in models]
+
+    def probe(idx, key, model):
+        t0 = time.time()
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{model}:generateContent?key={key}")
+        body = json.dumps({"contents": [{"parts": [{"text": "Reply with the word: ok"}]}],
+                           "generationConfig": {"maxOutputTokens": 8}}).encode()
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                payload = json.loads(r.read().decode())
+            text = "".join(p.get("text", "") for p in (payload.get("candidates") or [{}])[0].get("content", {}).get("parts") or [])
+            return {"key_index": idx, "key_masked": rotator.mask_key(key), "model": model,
+                    "healthy": bool(text.strip()), "latency_ms": round((time.time() - t0) * 1000),
+                    "response": text.strip()[:40]}
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode()[:200]
+            except Exception:
+                pass
+            return {"key_index": idx, "key_masked": rotator.mask_key(key), "model": model,
+                    "healthy": False, "latency_ms": round((time.time() - t0) * 1000),
+                    "error": f"HTTP {exc.code}: {detail[:120]}"}
+        except Exception as exc:
+            return {"key_index": idx, "key_masked": rotator.mask_key(key), "model": model,
+                    "healthy": False, "latency_ms": round((time.time() - t0) * 1000),
+                    "error": str(exc)[:120]}
+
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+        futures = [ex.submit(probe, i, k, m) for i, k, m in pairs]
+        for f in concurrent.futures.as_completed(futures):
+            results.append(f.result())
+    results.sort(key=lambda r: (r["key_index"], r["model"]))
+    return {
+        "total_keys": len(keys),
+        "models_tested": models,
+        "healthy_pairs": sum(1 for r in results if r["healthy"]),
+        "total_pairs": len(results),
+        "results": results,
+        "rotator_state": rotator.status(),
+    }
+
+
 # ─── Chat Endpoint ────────────────────────────────────────────────────────────
+
+def _get_chatbot_settings():
+    """Return (name, persona) from config, cached."""
+    from app.core.config import get_settings
+    s = get_settings()
+    return s.chatbot_name, s.chatbot_persona
+
+
+def _build_chat_query(message: str, file_context: str | None) -> str:
+    """Prepend uploaded file context to the user message if present."""
+    if file_context and file_context.strip():
+        return f"[Uploaded file context]\n{file_context.strip()}\n\n[User question]\n{message}"
+    return message
+
+
+def migrate_conversation_kinds(db) -> int:
+    """Tag legacy (unprefixed) AI Chatbot conversations with "web:".
+
+    Reversible: dropping the prefix restores the original ids. Knowledge Base
+    conversations (already "kb:") are untouched.
+    """
+    rows = db.query(ChatMessageModel.conversation_id).filter(
+        ~ChatMessageModel.conversation_id.like("kb:%"),
+        ~ChatMessageModel.conversation_id.like(f"{WEB_PREFIX}%"),
+    ).distinct().all()
+    moved = 0
+    for (cid,) in rows:
+        if not cid:
+            continue
+        moved += db.query(ChatMessageModel).filter(
+            ChatMessageModel.conversation_id == cid
+        ).update({"conversation_id": f"{WEB_PREFIX}{cid}"}, synchronize_session=False)
+    if moved:
+        db.commit()
+    return moved
+
+
+@router.post("/enhance-prompt")
+def enhance_prompt(payload: EnhancePromptRequest, user: User = Depends(get_current_user)):
+    """Rewrite a generation prompt into a clearer instruction.
+
+    Preserves the user's language, intent, and all concrete constraints
+    (topic, duration, counts, level). Uses the cheap 'prompt_enhance'
+    provider chain; never trains on data (chat-completions only).
+    """
+    from app.services import llm
+
+    prompt_text = (payload.prompt or "").strip()
+    if not prompt_text:
+        raise HTTPException(400, "Prompt is required")
+    if len(prompt_text) > 8000:
+        raise HTTPException(400, "Prompt is too long")
+
+    ctx = {k: v for k, v in (payload.context or {}).items() if v not in (None, "", [], {})}
+    context_line = "; ".join(f"{k}: {v}" for k, v in ctx.items()) or "none"
+
+    instruction = (
+        "You are a prompt engineer for an educational content generator. "
+        "Rewrite the user's prompt into a clearer, more effective instruction. "
+        "Improve clarity, audience, structure and constraints while preserving "
+        "the user's intent AND their language. Detect the prompt's language and answer in "
+        "that exact language: English stays English, Arabic stays Arabic, mixed stays mixed. "
+        "Never translate the prompt into another language. "
+        "Never change concrete values such as duration, question counts, topics or languages. "
+        "Return ONLY the improved prompt text — no preamble, no quotes, no explanation.\n\n"
+        f"Form context: {context_line}\n\n"
+        f"User prompt:\n{prompt_text}"
+    )
+    import hashlib
+    cache_key = "enhance:" + hashlib.sha256(
+        (prompt_text + "|" + context_line).encode("utf-8")
+    ).hexdigest()
+    try:
+        # Cached for an hour: repeated enhance clicks no longer spend quota.
+        enhanced = llm.chat(instruction, task_type="prompt_enhance",
+                            temperature=0.4, timeout=45,
+                            cache_key=cache_key, cache_ttl=3600)
+    except Exception:
+        # Short readable message — never the raw provider JSON.
+        raise HTTPException(
+            503,
+            "The prompt enhancer is busy right now. Please try again in a minute.",
+        )
+
+    enhanced = (enhanced or "").strip().strip('"').strip()
+    if not enhanced:
+        raise HTTPException(502, "The prompt enhancer returned an empty answer. Please try again.")
+    return {"prompt": enhanced}
+
 
 @router.post("/chat")
 async def chat(
@@ -893,11 +1797,16 @@ async def chat(
     Returns answer with sources and mode metadata.
     Rate limited: 30 requests/minute per user.
     Persists conversation history by conversation_id.
+    Supports chatbot identity (name/persona from config) and file context injection.
     """
     _check_rate_limit(user)
 
-    # Generate or use existing conversation_id
-    conversation_id = payload.conversation_id or str(uuid.uuid4())
+    bot_name, bot_persona = _get_chatbot_settings()
+
+    # AI Chatbot conversations are always kind="web" and never read the KB.
+    if payload.conversation_id and payload.conversation_id.startswith("kb:"):
+        raise HTTPException(400, "Knowledge Base conversations belong to the KB chat page.")
+    conversation_id = payload.conversation_id or f"{WEB_PREFIX}{uuid.uuid4()}"
 
     # Load history from DB if conversation_id provided and history not in request
     history = []
@@ -907,18 +1816,26 @@ async def chat(
             messages = db.query(ChatMessageModel).filter_by(
                 conversation_id=payload.conversation_id,
                 user_id=user.id
-            ).order_by(ChatMessageModel.created_at).all()
+            ).order_by(ChatMessageModel.created_at, ChatMessageModel.id).all()
             history = [{"role": m.role, "content": m.content} for m in messages]
         finally:
             db.close()
     else:
         history = [{"role": msg.role, "content": msg.content} for msg in payload.conversation_history]
 
+    effective_query = _build_chat_query(payload.message, payload.file_context)
+
+    # Inject chatbot persona as a leading system context in the query
+    persona_prefix = f"[System: Your name is {bot_name}. {bot_persona}]\n\n" if bot_persona else ""
+    final_query = persona_prefix + effective_query
+
     result = await orchestrator._run_async(
-        query=payload.message,
+        query=final_query,
         subject=payload.subject,
         grade_level=payload.grade_level,
         conversation_history=history,
+        source_id=None,
+        use_kb=False,  # web + attached-file context only, never KB retrieval
     )
 
     # Persist user message and assistant response
@@ -943,6 +1860,8 @@ async def chat(
                 "rag_chunks_used": result.rag_chunks_used,
                 "web_results_used": result.web_results_used,
                 "fallback_reason": result.fallback_reason,
+                "provider": result.provider,
+                "model": result.model,
             })
         )
         db.add(user_msg)
@@ -953,13 +1872,190 @@ async def chat(
 
     return {
         "conversation_id": conversation_id,
+        "kind": "web",
         "answer": result.answer,
+        "chatbot_name": bot_name,
         "sources": result.sources,
         "web_sources": result.web_sources,
         "mode": result.mode,
         "rag_chunks_used": result.rag_chunks_used,
         "web_results_used": result.web_results_used,
         "fallback_reason": result.fallback_reason,
+        "provider": result.provider,
+        "model": result.model,
+    }
+
+
+# ─── Chat File Upload ──────────────────────────────────────────────────────────
+
+@router.post("/chat/upload")
+async def chat_upload(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    """
+    Upload a file and extract its text content for use as chat context.
+    Supports: .txt, .md, .pdf (basic), .docx (basic).
+    Returns extracted text (truncated to 8000 chars).
+    """
+    MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+    MAX_CHARS = 8000
+
+    content = await file.read()
+    if len(content) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+
+    filename = (file.filename or "").lower()
+    text = ""
+
+    try:
+        if filename.endswith(".pdf"):
+            try:
+                import io
+                import pypdf
+                reader = pypdf.PdfReader(io.BytesIO(content))
+                pages = [p.extract_text() or "" for p in reader.pages]
+                text = "\n".join(pages)
+            except ImportError:
+                # Fallback: try raw text extraction
+                text = content.decode("utf-8", errors="ignore")
+        elif filename.endswith(".docx"):
+            try:
+                import io
+                import docx
+                doc = docx.Document(io.BytesIO(content))
+                text = "\n".join(p.text for p in doc.paragraphs)
+            except ImportError:
+                text = content.decode("utf-8", errors="ignore")
+        else:
+            # txt, md, csv, etc.
+            text = content.decode("utf-8", errors="ignore")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not extract text from file: {e}")
+
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="No text could be extracted from the file.")
+
+    return {
+        "filename": file.filename,
+        "char_count": len(text),
+        "text": text[:MAX_CHARS],
+        "truncated": len(text) > MAX_CHARS,
+    }
+
+
+# ─── Chat Conversation History Endpoints ──────────────────────────────────────
+
+@router.get("/chat/conversations")
+async def list_conversations(
+    user: User = Depends(get_current_user),
+    limit: int = 50,
+):
+    """List this user's AI Chatbot conversations (never Knowledge Base chats)."""
+    from sqlalchemy import func
+    db = SessionLocal()
+    try:
+        conv_stats = db.query(
+            ChatMessageModel.conversation_id,
+            func.max(ChatMessageModel.created_at).label("last_at"),
+            func.count(ChatMessageModel.id).label("message_count"),
+        ).filter(
+            ChatMessageModel.user_id == user.id,
+            # Web conversations are "web:<id>", but a client may open one with a
+            # plain id (the startup migration also treats those as web). Only
+            # Knowledge Base threads are excluded here, which is why a chat
+            # created seconds ago now appears in the list.
+            ~ChatMessageModel.conversation_id.like("kb:%"),
+        ).group_by(
+            ChatMessageModel.conversation_id
+        ).order_by(
+            func.max(ChatMessageModel.created_at).desc()
+        ).limit(limit).all()
+
+        results = []
+        for conv_id, last_at, count in conv_stats:
+            first_msg = db.query(ChatMessageModel.content).filter_by(
+                conversation_id=conv_id,
+                user_id=user.id,
+                role="user"
+            ).order_by(ChatMessageModel.created_at.asc()).first()
+            results.append({
+                "conversation_id": conv_id,
+                "kind": "web",
+                "last_at": str(last_at),
+                "message_count": count,
+                "preview": (first_msg[0] if first_msg else "")[:80],
+            })
+        return results
+    finally:
+        db.close()
+
+
+@router.get("/chat/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Load full message history for an AI Chatbot conversation."""
+    if conversation_id.startswith("kb:"):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    db = SessionLocal()
+    try:
+        messages = db.query(ChatMessageModel).filter_by(
+            conversation_id=conversation_id,
+            user_id=user.id
+        ).order_by(ChatMessageModel.created_at, ChatMessageModel.id).all()
+        if not messages:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        import json as _json
+        return {
+            "conversation_id": conversation_id,
+            "messages": [
+                {
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": str(m.created_at),
+                    "metadata": _json.loads(m.metadata_json) if m.metadata_json else None,
+                }
+                for m in messages
+            ]
+        }
+    finally:
+        db.close()
+
+
+@router.delete("/chat/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Delete all messages in an AI Chatbot conversation."""
+    if conversation_id.startswith("kb:"):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    db = SessionLocal()
+    try:
+        deleted = db.query(ChatMessageModel).filter_by(
+            conversation_id=conversation_id,
+            user_id=user.id
+        ).delete()
+        db.commit()
+        if deleted == 0:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return {"deleted": deleted, "conversation_id": conversation_id}
+    finally:
+        db.close()
+
+
+@router.get("/chat/settings")
+async def get_chatbot_settings(
+    user: User = Depends(get_current_user),
+):
+    """Return chatbot identity settings (name, persona preview)."""
+    bot_name, bot_persona = _get_chatbot_settings()
+    return {
+        "chatbot_name": bot_name,
+        "persona_preview": bot_persona[:200],
     }
 
 
@@ -976,7 +2072,9 @@ async def chat_stream(
     """
     _check_rate_limit(user)
 
-    conversation_id = payload.conversation_id or str(uuid.uuid4())
+    if payload.conversation_id and payload.conversation_id.startswith("kb:"):
+        raise HTTPException(400, "Knowledge Base conversations belong to the KB chat page.")
+    conversation_id = payload.conversation_id or f"{WEB_PREFIX}{uuid.uuid4()}"
 
     # Load history from DB if conversation_id provided and history not in request
     history = []
@@ -986,7 +2084,7 @@ async def chat_stream(
             messages = db.query(ChatMessageModel).filter_by(
                 conversation_id=payload.conversation_id,
                 user_id=user.id
-            ).order_by(ChatMessageModel.created_at).all()
+            ).order_by(ChatMessageModel.created_at, ChatMessageModel.id).all()
             history = [{"role": m.role, "content": m.content} for m in messages]
         finally:
             db.close()
@@ -1017,6 +2115,8 @@ async def chat_stream(
             subject=payload.subject,
             grade_level=payload.grade_level,
             conversation_history=history,
+            source_id=None,
+            use_kb=False,
         ):
             if chunk.startswith("\n\n__METADATA__"):
                 import json as _json

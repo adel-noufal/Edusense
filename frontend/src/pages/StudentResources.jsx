@@ -3,14 +3,13 @@ import {
   BookOpen, ChevronDown, ChevronRight, Download, FileDown, FileText,
   FolderOpen, GraduationCap, Layers, RefreshCw, Sparkles,
 } from 'lucide-react'
-import { api } from '../services/api'
+import { api, staticUrl } from '../services/api'
+import { formatDate } from '../services/time'
 import {
   downloadLessonAsDoc, downloadLessonAsPdf, downloadLessonAsPptxHtml,
   downloadQuizAsPdf, downloadQuizAsDoc, downloadFlashcardsAsDoc, downloadFlashcardsAsPdf,
   downloadText, flashcardsToHtml,
 } from '../utils/download'
-
-const BACKEND = 'http://localhost:8000'
 
 function typeIcon(type) {
   if (type === 'lesson') return <GraduationCap size={16} />
@@ -217,17 +216,23 @@ export default function StudentResources() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-semibold truncate">{r.name}</p>
-                                <p className="text-xs text-slate-500">{formatBytes(r.file_size)} · {new Date(r.uploaded_at).toLocaleDateString()}</p>
+                                <p className="text-xs text-slate-500">{formatBytes(r.file_size)} · {formatDate(r.uploaded_at)}</p>
                               </div>
-                              <a
-                                href={`${BACKEND}${r.url}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                download={r.name}
-                                className="btn-soft text-xs py-1.5 px-3 text-ocean dark:text-mint"
-                              >
-                                <Download size={14} />Download
-                              </a>
+                              {r.available ? (
+                                <a
+                                  href={staticUrl(r.url)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  download={r.name}
+                                  className="btn-soft text-xs py-1.5 px-3 text-ocean dark:text-mint"
+                                >
+                                  <Download size={14} />Download
+                                </a>
+                              ) : (
+                                <span className="text-xs font-medium text-red-600 dark:text-red-400" role="status">
+                                  File unavailable
+                                </span>
+                              )}
                             </li>
                           ))}
                         </ul>
@@ -253,7 +258,7 @@ export default function StudentResources() {
                                   {typeIcon(gen.type)}{gen.type}
                                 </span>
                                 <p className="text-sm font-semibold flex-1 truncate">{gen.topic}</p>
-                                <p className="text-xs text-slate-400 shrink-0">{new Date(gen.created_at).toLocaleDateString()}</p>
+                                <p className="text-xs text-slate-400 shrink-0">{formatDate(gen.created_at)}</p>
                               </div>
                               <GenerationDownloads gen={gen} />
                             </div>

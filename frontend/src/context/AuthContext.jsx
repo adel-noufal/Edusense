@@ -5,6 +5,7 @@ const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('edusense_user') || 'null'))
+  const [token, setToken] = useState(() => localStorage.getItem('edusense_token'))
   const [consents, setConsents] = useState(() => JSON.parse(localStorage.getItem('edusense_consents') || '{}'))
 
   useEffect(() => {
@@ -15,9 +16,34 @@ export function AuthProvider({ children }) {
     localStorage.setItem('edusense_consents', JSON.stringify(consents))
   }, [consents])
 
+  // Sync fresh user information on load
+  useEffect(() => {
+    const storedToken = localStorage.getItem('edusense_token')
+    if (storedToken) {
+      setToken(storedToken)
+      api('/users/me')
+        .then((freshUser) => {
+          if (freshUser && freshUser.id) {
+            setUser(freshUser)
+            localStorage.setItem('edusense_user', JSON.stringify(freshUser))
+          }
+        })
+        .catch(() => {})
+    }
+  }, [])
+
+  function updateUser(partial) {
+    setUser((prev) => {
+      const next = { ...prev, ...partial }
+      localStorage.setItem('edusense_user', JSON.stringify(next))
+      return next
+    })
+  }
+
   async function login(email, password) {
-    const result = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+    const result = await api('/auth/login', { method: 'POST', body: { email, password } })
     localStorage.setItem('edusense_token', result.access_token)
+    setToken(result.access_token)
     setUser(result.user)
     // Fetch consents after login
     await fetchConsents()
@@ -25,8 +51,9 @@ export function AuthProvider({ children }) {
   }
 
   async function register(payload) {
-    const result = await api('/auth/register', { method: 'POST', body: JSON.stringify(payload) })
+    const result = await api('/auth/register', { method: 'POST', body: payload })
     localStorage.setItem('edusense_token', result.access_token)
+    setToken(result.access_token)
     setUser(result.user)
     return result.user
   }
@@ -51,7 +78,7 @@ export function AuthProvider({ children }) {
   }
 
   async function giveConsent(consentType, version = '1.0') {
-    await api('/emotions/consent/give', { method: 'POST', body: JSON.stringify({ consent_type: consentType, version }) })
+    await api('/emotions/consent/give', { method: 'POST', body: { consent_type: consentType, version } })
     await fetchConsents()
   }
 
@@ -69,21 +96,24 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('edusense_token')
     localStorage.removeItem('edusense_user')
     localStorage.removeItem('edusense_consents')
+    setToken(null)
     setUser(null)
     setConsents({})
   }
 
   const value = useMemo(() => ({
     user,
+    token,
     consents,
     login,
     register,
     logout,
+    updateUser,
     fetchConsents,
     giveConsent,
     withdrawConsent,
     hasConsent,
-  }), [user, consents])
+  }), [user, token, consents])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
