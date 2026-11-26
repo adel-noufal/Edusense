@@ -1,4 +1,5 @@
 import json
+import logging
 import urllib.error
 import urllib.request
 import uuid
@@ -6,6 +7,8 @@ import threading
 import time
 from pathlib import Path
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -440,17 +443,38 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
         db.commit()
         db.refresh(project)
         _update_job_progress(job_id, progress=10, message="Generating lesson script...")
-        lesson = lessons.generate(
-            LessonRequest(
-                topic=payload.title,
-                prompt=payload.prompt,
-                language=payload.language,
-                teaching_style=payload.style,
-                additional_notes=notes,
-                session_id=payload.session_id,
-                source_session_id=payload.source_session_id,
-            )
-        ).data
+        # The video writer builds its own sectioned narration; the lesson agent is
+        # only a convenience (it supplies fallback slides). A lesson-provider
+        # outage must not block the video, so fall back to the raw request and let
+        # the video script stage report its own, real failure if it cannot write.
+        try:
+            lesson = lessons.generate(
+                LessonRequest(
+                    topic=payload.title,
+                    prompt=payload.prompt,
+                    language=payload.language,
+                    teaching_style=payload.style,
+                    additional_notes=notes,
+                    session_id=payload.session_id,
+                    source_session_id=payload.source_session_id,
+                )
+            ).data
+        except Exception as lesson_exc:  # noqa: BLE001
+            logger.warning("Lesson agent unavailable for video %s: %s",
+                           payload.title, lesson_exc)
+            lesson = {
+                "title": payload.title,
+                "prompt": payload.prompt,
+                "language": payload.language,
+                "notes": notes or "",
+                "slides": [],
+                "duration": max(1, int(payload.duration or 5)),
+                "lesson_warning": (
+                    "The lesson agent was unavailable ("
+                    + str(lesson_exc)[:200]
+                    + "), so the video used the request itself as its source."
+                ),
+            }
         _update_job_progress(job_id, progress=40, message="Building scenes and narration...")
         # The lesson agent has no duration field, so the duration chosen in the
         # form is what plans the script length and the scene count.
@@ -479,6 +503,9 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
         db.refresh(project)
         result = _serialize_video_project(project)
         result["lesson"] = lesson
+        if lesson.get("lesson_warning"):
+            result.setdefault("warnings", [])
+            result["warnings"] = [lesson["lesson_warning"], *result["warnings"]]
         if video.get("warnings"):
             result["warnings"] = video["warnings"]
         _finish_job(job_id, "done", result)
@@ -517,17 +544,38 @@ def _run_video_edit_bg(job_id: str, video_id: int, payload: VideoRequest, instru
         project.status = "processing"
         db.commit()
         _update_job_progress(job_id, progress=10, message="Generating lesson script...")
-        lesson = lessons.generate(
-            LessonRequest(
-                topic=payload.title,
-                prompt=payload.prompt,
-                language=payload.language,
-                teaching_style=payload.style,
-                additional_notes=notes,
-                session_id=payload.session_id,
-                source_session_id=payload.source_session_id,
-            )
-        ).data
+        # The video writer builds its own sectioned narration; the lesson agent is
+        # only a convenience (it supplies fallback slides). A lesson-provider
+        # outage must not block the video, so fall back to the raw request and let
+        # the video script stage report its own, real failure if it cannot write.
+        try:
+            lesson = lessons.generate(
+                LessonRequest(
+                    topic=payload.title,
+                    prompt=payload.prompt,
+                    language=payload.language,
+                    teaching_style=payload.style,
+                    additional_notes=notes,
+                    session_id=payload.session_id,
+                    source_session_id=payload.source_session_id,
+                )
+            ).data
+        except Exception as lesson_exc:  # noqa: BLE001
+            logger.warning("Lesson agent unavailable for video %s: %s",
+                           payload.title, lesson_exc)
+            lesson = {
+                "title": payload.title,
+                "prompt": payload.prompt,
+                "language": payload.language,
+                "notes": notes or "",
+                "slides": [],
+                "duration": max(1, int(payload.duration or 5)),
+                "lesson_warning": (
+                    "The lesson agent was unavailable ("
+                    + str(lesson_exc)[:200]
+                    + "), so the video used the request itself as its source."
+                ),
+            }
         _update_job_progress(job_id, progress=40, message="Building scenes and narration...")
         # The lesson agent has no duration field, so the duration chosen in the
         # form is what plans the script length and the scene count.
@@ -540,6 +588,9 @@ def _run_video_edit_bg(job_id: str, video_id: int, payload: VideoRequest, instru
         db.refresh(project)
         result = _serialize_video_project(project)
         result["lesson"] = lesson
+        if lesson.get("lesson_warning"):
+            result.setdefault("warnings", [])
+            result["warnings"] = [lesson["lesson_warning"], *result["warnings"]]
         if video.get("warnings"):
             result["warnings"] = video["warnings"]
         _finish_job(job_id, "done", result)

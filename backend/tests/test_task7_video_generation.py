@@ -94,7 +94,7 @@ def test_task7_video_generation():
     fake_generation_data = {
         "title": "Python Basics",
         "language": "English",
-        "duration": 3,
+        "duration": 4,
         "slides": [
             {
                 "title": "Variables",
@@ -114,7 +114,7 @@ def test_task7_video_generation():
             },
             {
                 "title": "Summary",
-                "content": "That concludes the Python Basics overview. You learned how variables store values, how loops repeat work efficiently, how functions organize reusable logic, and how data structures help you model information. Practice writing small programs that combine these ideas, and you will build a strong foundation for more advanced Python topics.",
+                "content": "That concludes the Python Basics overview. You learned how variables store values, how loops repeat work efficiently, how functions organize reusable logic, and how data structures help you model information. Practice writing small programs that combine these ideas, and you will build a strong foundation for more advanced Python topics. Read other people's code, run it yourself, and change one line at a time to see what happens.",
             },
         ],
     }

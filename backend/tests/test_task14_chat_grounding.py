@@ -146,8 +146,9 @@ def test_rebuild_video_updates_narration_duration_and_player(monkeypatch, tmp_pa
     project_dir = tmp_path / "video-9123"
     player = (project_dir / "player.html").read_text(encoding="utf-8")
     saved_scenes = (project_dir / "scenes.json").read_text(encoding="utf-8")
-    assert result["scenes"][0]["duration_seconds"] == 13
+    # Scene length is the measured narration (13.4 s) plus the short slide pause.
+    assert result["scenes"][0]["duration_seconds"] == 15
     assert "A clearly revised narration for the saved video." in player
-    assert 'data-dur="13000"' in player
+    assert 'data-dur="15000"' in player
     assert "A clearly revised narration for the saved video." in saved_scenes
     assert (project_dir / "segment-0-audio.mp3").read_bytes().startswith(b"new audio:")
