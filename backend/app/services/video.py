@@ -1161,12 +1161,18 @@ def apply_measured_durations(project_dir: Path, scenes: list[dict],
         scene["audio_seconds"] = round(played, 2)
         scene["duration_seconds"] = max(MIN_SCENE_SECONDS, int(math.ceil(played + SCENE_PAUSE_SECONDS)))
 
-    # If the narration is shorter than the request, let the closing slide hold
-    # instead of slowing speech below a natural pace.
+    # If the narration is shorter than the request, slides hold a little longer
+    # instead of slowing speech below a natural pace. The gap is spread over
+    # every scene (at most +8 s each) so no single slide stalls.
     if target_seconds and scenes:
         deficit = float(target_seconds) - sum(s["duration_seconds"] for s in scenes)
-        if 0 < deficit <= 30:
-            scenes[-1]["duration_seconds"] = int(scenes[-1]["duration_seconds"] + math.ceil(deficit))
+        if deficit > 0:
+            share = min(8.0, deficit / len(scenes))
+            for scene in scenes:
+                scene["duration_seconds"] = int(scene["duration_seconds"] + round(share))
+        elif deficit < 0:
+            scenes[-1]["duration_seconds"] = max(
+                MIN_SCENE_SECONDS, int(scenes[-1]["duration_seconds"] + math.floor(deficit)))
     return measured
 
 
