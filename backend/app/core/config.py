@@ -62,9 +62,12 @@ class Settings(BaseSettings):
     cerebras_models: str = Field(default="", validation_alias=AliasChoices("CEREBRAS_MODELS", "EDUSENSE_CEREBRAS_MODELS", "cerebras_models"))
 
     # ── Video generation ──────────────────────────────────────────────────────
-    # Narration pace used to map requested duration -> target script word count
+    # Narration pace used to map requested duration -> target script word count.
+    # 110 wpm is the measured pace of the Google TTS voice used for narration
+    # (140 words produced 77 s of audio); planning at the real pace is what keeps
+    # the rendered MP4 near the requested length.
     video_narration_wpm: float = Field(
-        default=140.0,
+        default=110.0,
         validation_alias=AliasChoices("VIDEO_NARRATION_WPM", "EDUSENSE_VIDEO_NARRATION_WPM", "video_narration_wpm")
     )
     # Allowed deviation from target word count (0.10 = ±10%)

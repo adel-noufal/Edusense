@@ -452,6 +452,9 @@ def _run_video_bg(job_id: str, payload: VideoRequest, instructor_id: int):
             )
         ).data
         _update_job_progress(job_id, progress=40, message="Building scenes and narration...")
+        # The lesson agent has no duration field, so the duration chosen in the
+        # form is what plans the script length and the scene count.
+        lesson["duration"] = max(1, int(payload.duration or 5))
         video = generate_educational_video(project.id, project.title, lesson)
         _update_job_progress(job_id, progress=85, message="Finalizing video...")
         ok, reason = validate_video_artifacts(project.id)
@@ -526,6 +529,9 @@ def _run_video_edit_bg(job_id: str, video_id: int, payload: VideoRequest, instru
             )
         ).data
         _update_job_progress(job_id, progress=40, message="Building scenes and narration...")
+        # The lesson agent has no duration field, so the duration chosen in the
+        # form is what plans the script length and the scene count.
+        lesson["duration"] = max(1, int(payload.duration or 5))
         video = generate_educational_video(project.id, project.title, lesson)
         _update_job_progress(job_id, progress=85, message="Finalizing video...")
         project.video_path = video["video_url"]
@@ -1504,6 +1510,9 @@ def create_video(payload: VideoRequest, db: Session = Depends(get_db), user: Use
     db.refresh(project)
     try:
         lesson = lessons.generate(LessonRequest(topic=payload.title, prompt=payload.prompt, language=payload.language, teaching_style=payload.style, additional_notes=notes, session_id=payload.session_id, source_session_id=payload.source_session_id)).data
+        # The lesson agent has no duration field, so the duration chosen in the
+        # form is what plans the script length and the scene count.
+        lesson["duration"] = max(1, int(payload.duration or 5))
         video = generate_educational_video(project.id, project.title, lesson)
     except Exception as exc:
         project.status = "failed"
@@ -1557,6 +1566,9 @@ def edit_video(
                 source_session_id=payload.source_session_id,
             )
         ).data
+        # The lesson agent has no duration field, so the duration chosen in the
+        # form is what plans the script length and the scene count.
+        lesson["duration"] = max(1, int(payload.duration or 5))
         video = generate_educational_video(project.id, project.title, lesson)
     except Exception as exc:
         project.status = "failed"

@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import html
 import json
+import logging
+import math
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -25,6 +28,8 @@ from typing import Optional
 
 from app.core.config import get_settings
 from app.services.binaries import find_ffmpeg, find_ffprobe
+
+logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static" / "videos"
 
@@ -36,6 +41,15 @@ MAX_SCENE_SECONDS = 300
 DUPLICATE_SIMILARITY_THRESHOLD = 0.82
 # Max corrective LLM passes for script length / dedupe
 MAX_SCRIPT_FIX_ATTEMPTS = 2
+
+# A slide stays on screen for its narration length plus this short pause.
+SCENE_PAUSE_SECONDS = 0.7
+# A slide shows at most this many key points (never the narration again).
+MAX_BULLETS = 5
+BULLET_MAX_CHARS = 80
+
+SLIDE_WIDTH = 1920
+SLIDE_HEIGHT = 1080
 
 
 class VideoStageError(RuntimeError):
@@ -118,13 +132,95 @@ def strip_citations(text: str) -> str:
     return out.strip()
 
 
+# Template artefacts a model sometimes emits instead of real lesson content.
+_PLACEHOLDER_PATTERNS = (
+    re.compile(r"\[\s*(?:input|insert|your|add|topic|context|engine|outcome|placeholder|"
+               r"content|time|duration|scene|slide|title|optimized)\b[^\]]*\]", re.IGNORECASE),
+    re.compile(r"\[\s*\.\.\.\s*[^\]]*\]", re.IGNORECASE),
+    re.compile(r"\[\s*\]"),
+    re.compile(r"->"),
+)
+
+_FILLER_PHRASES = (
+    "why top organizations",
+    "fast-paced world",
+    "fast paced world",
+    "let's dive in",
+    "let us dive in",
+    "unlock the power",
+    "game-changer",
+    "game changer",
+    "a testament to",
+    "tapestry of",
+)
+
+
+def is_placeholder(text: str) -> bool:
+    """True when text is a template artefact or generic filler, not content."""
+    value = (text or "").strip()
+    if not value:
+        return True
+    lowered = value.lower()
+    if any(phrase in lowered for phrase in _FILLER_PHRASES):
+        return True
+    return any(pattern.search(value) for pattern in _PLACEHOLDER_PATTERNS)
+
+
+def dedupe_bullets(items: list[str]) -> list[str]:
+    """Drop repeats (case/punctuation insensitive) while keeping the first order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        key = re.sub(r"[^0-9a-z\u0600-\u06ff]+", "", (item or "").lower())
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def sanitize_bullets(items: list[str] | None) -> list[str]:
+    """On-screen key points: no citations, no placeholders, no repeats, at most 5."""
+    cleaned: list[str] = []
+    for item in items or []:
+        text = strip_citations(strip_latex(str(item))).strip(" .\u2022-\u2013\u2014\t")
+        text = re.sub(r"\s{2,}", " ", text)
+        if not text or is_placeholder(text):
+            continue
+        if len(text) > BULLET_MAX_CHARS:
+            cut = text[:BULLET_MAX_CHARS]
+            text = cut.rsplit(" ", 1)[0].rstrip(",;:") if " " in cut else cut
+        cleaned.append(text)
+    return dedupe_bullets(cleaned)[:MAX_BULLETS]
+
+
+def reject_placeholders(scenes: list[dict]) -> None:
+    """Never ship template text: fail loudly instead of rendering a placeholder."""
+    offenders: list[str] = []
+    for index, scene in enumerate(scenes, 1):
+        for label in ("title", "highlight"):
+            value = scene.get(label)
+            if isinstance(value, str) and value.strip() and is_placeholder(value):
+                offenders.append(f"scene {index} {label}: {value.strip()[:60]}")
+        for bullet in scene.get("bullets") or []:
+            if is_placeholder(bullet):
+                offenders.append(f"scene {index} bullet: {str(bullet)[:60]}")
+    if offenders:
+        raise VideoStageError(
+            "script_generation", "PLACEHOLDER_CONTENT",
+            "The AI returned template text instead of lesson content ("
+            + "; ".join(offenders[:3])
+            + "). Try again or rephrase the topic.",
+        )
+
+
 def _sanitize_scene(scene: dict) -> dict:
     cleaned = dict(scene)
     for key in ("title", "narration", "content", "diagram", "highlight"):
         if isinstance(cleaned.get(key), str):
             cleaned[key] = strip_citations(strip_latex(cleaned[key]))
     if isinstance(cleaned.get("bullets"), list):
-        cleaned["bullets"] = [strip_citations(strip_latex(b)) for b in cleaned["bullets"]]
+        cleaned["bullets"] = sanitize_bullets(cleaned["bullets"])
     return cleaned
 
 
@@ -275,7 +371,14 @@ def _section_count(duration_min: int) -> int:
     return max(5, min(12, by_density))
 
 
-def _llm_chat(prompt: str, task_type: str = "video", **kwargs) -> str:
+def _llm_chat(prompt: str, task_type: str = "video",
+              pin: tuple[str, str] | None = None, **kwargs) -> str:
+    """One provider/model for the whole script: `pin` is (provider, model)."""
+    if pin:
+        from app.services.llm import chat as _chat
+        provider, model = pin
+        return _chat(prompt, task_type=task_type, model=model,
+                     only_provider=provider, strict_model=True, **kwargs)
     from app.services.gemini import generate_content
     return generate_content(prompt, task_type=task_type, **kwargs)
 
@@ -300,8 +403,10 @@ Target runtime: ~{duration_min} minutes, ~{target} words of narration total.
 Notes: {notes or 'none'}
 
 Produce exactly {n_sections} sections. Each section MUST cover a DISTINCT aspect — no overlap, no repeated points.
+For every section give 3 to 5 key_points: short noun phrases (at most 8 words) a student reads on the slide.
+key_points must state real ideas about the topic: no brackets, no arrows, no "[Input Context]" style templates, no marketing filler.
 Return ONLY valid JSON:
-{{"sections": [{{"title": "...", "goal": "one sentence on what this section teaches", "budget_words": {budget_each}}}, ...]}}
+{{"sections": [{{"title": "...", "goal": "one sentence on what this section teaches", "budget_words": {budget_each}, "key_points": ["...", "..."]}}, ...]}}
 Every budget_words must be between {int(budget_each*0.7)} and {int(budget_each*1.3)}.
 """, task_type="video")
     sections = []
@@ -322,15 +427,18 @@ Every budget_words must be between {int(budget_each*0.7)} and {int(budget_each*1
             "title": str(s.get("title") or f"Section {i+1}")[:120],
             "goal": str(s.get("goal") or "")[:300],
             "budget_words": budget,
+            "key_points": sanitize_bullets(s.get("key_points") or s.get("bullets") or []),
         })
     # Pad/truncate to exactly n_sections with sensible defaults
     while len(out) < n_sections:
-        out.append({"title": f"Section {len(out)+1}", "goal": "", "budget_words": budget_each})
+        out.append({"title": f"Section {len(out)+1}", "goal": "",
+                    "budget_words": budget_each, "key_points": []})
     return out[:n_sections]
 
 
 def _gen_section_text(section: dict, outline: list[dict], index: int,
-                      running_summary: str, title: str, language: str) -> str:
+                      running_summary: str, title: str, language: str,
+                      pin: tuple[str, str] | None = None) -> str:
     """Step 2: generate one section's narration within its word budget.
     One corrective expand/condense retry if outside ±15%."""
     target = section["budget_words"]
@@ -346,7 +454,7 @@ Full outline (context only — do NOT cover other sections' content):
 - Plain text only, no headings, no markdown, no stage directions.
 - Do not repeat or restate content from earlier sections.
 Return ONLY the narration text."""
-    text = (_llm_chat(base_prompt, task_type="video",
+    text = (_llm_chat(base_prompt, task_type="video", pin=pin,
                       max_output_tokens=max(600, target * 3), timeout=180) or "").strip()
     words = _count_words(text)
     if not (int(target * 0.85) <= words <= int(target * 1.15)) and words > 0:
@@ -356,7 +464,7 @@ Return ONLY the narration text."""
 NARRATION:
 {text}"""
         try:
-            fixed = (_llm_chat(fix_prompt, task_type="video",
+            fixed = (_llm_chat(fix_prompt, task_type="video", pin=pin,
                                max_output_tokens=max(600, target * 3), timeout=180) or "").strip()
             if _count_words(fixed) > 0:
                 text = fixed
@@ -386,29 +494,59 @@ def generate_sectioned_scenes(title: str, prompt: str, duration_min: int,
                               slides: list[dict] | None = None) -> list[dict]:
     """
     Generate the video script in sections: outline -> per-section narration
-    with word budgets and a running summary. Returns scene dicts compatible
-    with the rest of the pipeline. Raises GeminiError (typed code) when all
-    providers are exhausted; raises VideoStageError on unrecoverable length.
+    with word budgets and a running summary. Returns (scenes, models_used).
+    One model writes every section; if it fails mid-way the failed section is
+    retried on the next model of the same tier. Raises GeminiError (typed code)
+    when all providers are exhausted; raises VideoStageError on unrecoverable
+    length or placeholder content.
     """
     target = _target_words(duration_min)
     n = _section_count(duration_min)
+    outline_started = time.time()
     outline = _section_outline(title, prompt, duration_min, language, notes, n, target)
+    logger.info("[video] outline ready in %.1fs (%d sections, %d target words)",
+                time.time() - outline_started, len(outline), target)
 
     scenes: list[dict] = []
     summary_parts: list[str] = []
+    models_used: list[str] = []
+    pin: tuple[str, str] | None = None
     for i, section in enumerate(outline):
-        text = _gen_section_text(section, outline, i,
-                                 "\n".join(summary_parts[-3:]), title, language)
+        section_started = time.time()
+        try:
+            text = _gen_section_text(section, outline, i,
+                                     "\n".join(summary_parts[-3:]), title, language, pin=pin)
+        except Exception:
+            if pin is None:
+                raise
+            # The pinned model failed mid-script: retry this scene on the next
+            # model of the same tier, then continue with whatever answered.
+            logger.warning("[video] pinned model %s failed on section %d; retrying unpinned",
+                           pin[1], i + 1)
+            pin = None
+            text = _gen_section_text(section, outline, i,
+                                     "\n".join(summary_parts[-3:]), title, language)
+        try:
+            from app.services.llm import last_used as _last_used
+            used = _last_used() or {}
+        except Exception:
+            used = {}
+        if used.get("model"):
+            pair = (used.get("provider") or "", used["model"])
+            pin = pin or pair
+            if used["model"] not in models_used:
+                models_used.append(used["model"])
         if not text:
             raise VideoStageError("script_generation", "EMPTY_SECTION",
                                   f"Section '{section['title']}' produced no narration. Please try again.")
-        slide = (slides[i] if slides and i < len(slides) else {}) or {}
+        logger.info("[video] section %d/%d written in %.1fs", i + 1, len(outline),
+                    time.time() - section_started)
         scenes.append({
             "title": section["title"],
             "narration": text,
-            "content": slide.get("content") or text[:600],
-            "highlight": slide.get("diagram") or slide.get("highlight") or "",
-            "bullets": _split_bullets(slide.get("content") or text),
+            "content": text[:600],
+            "highlight": "",
+            "bullets": sanitize_bullets(section.get("key_points") or []),
             "duration_seconds": DEFAULT_SCENE_SECONDS,
         })
         # running summary = first ~25 words of each finished section
@@ -429,7 +567,8 @@ def generate_sectioned_scenes(title: str, prompt: str, duration_min: int,
             f"~{target} words (±{int(get_settings().video_script_tolerance * 100)}%). "
             "Please try again or choose a shorter duration.",
         )
-    return scenes
+    logger.info("[video] script models used: %s", ", ".join(models_used) or "unknown")
+    return scenes, models_used
 
 
 # ---------------------------------------------------------------------------
@@ -627,6 +766,7 @@ def _write_player(
     title: str,
     scenes: list[dict],
     audio_name: str | None,
+    rtl: bool = False,
 ) -> str:
     slides_html = []
     chapters_html = []
@@ -634,10 +774,7 @@ def _write_player(
     # Build JS array of per-slide durations in ms for timed autoplay
     slide_durations_ms = []
     for index, scene in enumerate(scenes):
-        bullets = scene.get("bullets") or _split_bullets(
-            scene.get("narration") or scene.get("content") or ""
-        )
-        highlight = scene.get("highlight") or (bullets[0] if bullets else "")
+        bullets = sanitize_bullets(scene.get("bullets"))
         body = html.escape(scene.get("narration") or scene.get("content") or "")
         dur_ms = _clamp_duration(scene.get("duration_seconds", DEFAULT_SCENE_SECONDS)) * 1000
         slide_durations_ms.append(dur_ms)
@@ -650,24 +787,24 @@ def _write_player(
               <div class="slide-inner">
                 <p class="slide-num">Slide {index + 1} / {len(scenes)}</p>
                 <h2>{html.escape(scene.get('title') or f'Scene {index + 1}')}</h2>
-                {f'<p class="highlight">{html.escape(highlight)}</p>' if highlight else ''}
-                <p class="body">{body}</p>
-                {_bullet_html(bullets[1:] if len(bullets) > 1 else bullets)}
+                {_bullet_html(bullets)}
               </div>
             </section>
             """
         )
     audio_block = f'<audio id="audio" controls src="{audio_name}"></audio>' if audio_name else ""
+    lang_attr = "ar" if rtl else "en"
+    dir_attr = "rtl" if rtl else "ltr"
     durations_js = json.dumps(slide_durations_ms)
     player = f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="{lang_attr}" dir="{dir_attr}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{html.escape(title)}</title>
   <style>
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; font-family: Inter, Arial, sans-serif; background: radial-gradient(circle at top, rgba(45,212,191,0.18), transparent 30%), linear-gradient(135deg, #071120, #10243f 55%, #0d1b2e); color: white; min-height: 100vh; overflow-x: hidden; }}
+    body {{ margin: 0; font-family: Inter, 'Noto Sans Arabic', Arial, sans-serif; background: radial-gradient(circle at top, rgba(45,212,191,0.18), transparent 30%), linear-gradient(135deg, #071120, #10243f 55%, #0d1b2e); color: white; min-height: 100vh; overflow-x: hidden; }}
     body::before, body::after {{ content: ""; position: fixed; inset: auto; width: 28rem; height: 28rem; border-radius: 999px; filter: blur(80px); opacity: 0.4; animation: floatBlob 12s ease-in-out infinite; z-index: 0; }}
     body::before {{ top: -6rem; left: -4rem; background: rgba(45, 212, 191, 0.25); }}
     body::after {{ right: -6rem; bottom: -8rem; background: rgba(59, 130, 246, 0.2); animation-delay: -4s; }}
@@ -691,8 +828,9 @@ def _write_player(
     h2 {{ margin: 12px 0 16px; color: #5eead4; font-size: clamp(1.4rem, 3vw, 2rem); line-height: 1.3; }}
     .highlight {{ background: rgba(20,184,166,0.2); border-left: 4px solid #14b8a6; padding: 12px 16px; border-radius: 8px; font-weight: 600; margin-bottom: 16px; }}
     .body {{ line-height: 1.8; font-size: clamp(1rem, 2.2vw, 1.15rem); margin-bottom: 20px; white-space: pre-wrap; }}
-    .bullets {{ margin: 0; padding-left: 1.25rem; line-height: 1.9; }}
-    .bullets li {{ margin-bottom: 8px; }}
+    .bullets {{ margin: 0; padding-left: 1.25rem; line-height: 1.9; font-size: clamp(1.05rem, 2.4vw, 1.5rem); }}
+    .bullets li {{ margin-bottom: 10px; }}
+    html[dir="rtl"] .bullets {{ padding-left: 0; padding-right: 1.25rem; }}
     .controls {{ display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }}
     button {{ background: linear-gradient(135deg, #14b8a6, #0d9488); color: white; border: 0; border-radius: 10px; padding: 12px 18px; font-weight: 700; cursor: pointer; }}
     audio {{ width: 100%; margin-top: 16px; }}
@@ -777,7 +915,7 @@ def _write_player(
         : 'Try again — choose the scene highlight.';
     }}));
     document.getElementById('explain').addEventListener('click', async () => {{
-      const sceneText = slides[current]?.querySelector('.body')?.innerText || '{html.escape(title)}';
+      const sceneText = slides[current]?.innerText || '{html.escape(title)}';
       const token = localStorage.getItem('edusense_token');
       try {{
         const response = await fetch('/api/ai/chat', {{
@@ -796,7 +934,7 @@ def _write_player(
       if (autoplay.checked && !audio) scheduleNext();
     }});
     document.getElementById('play').addEventListener('click', () => {{
-      const text = slides[current]?.querySelector('.body')?.innerText || '{html.escape(title)}';
+      const text = slides[current]?.innerText || '{html.escape(title)}';
       if (audio) {{ audio.play(); return; }}
       const utterance = new SpeechSynthesisUtterance(text);
       window.speechSynthesis.speak(utterance);
@@ -823,7 +961,217 @@ def _write_player(
 
 
 # ---------------------------------------------------------------------------
-# ffmpeg: per-scene video segments with optional per-scene audio
+# Slides: designed background + ASS text (libass shapes Arabic correctly)
+# ---------------------------------------------------------------------------
+
+SLIDE_TITLE_SIZE = 76
+SLIDE_BULLET_SIZE = 44
+
+
+def _asset_fonts_dir() -> Path:
+    """Bundled fonts live with the frontend so nothing is fetched from a CDN."""
+    return Path(__file__).resolve().parents[3] / "frontend" / "public" / "fonts"
+
+
+def _resolve_slide_font(rtl: bool) -> tuple[Path | None, str]:
+    candidates = (
+        [("noto-arabic-700.ttf", "Noto Sans Arabic"),
+         ("noto-arabic-600.ttf", "Noto Sans Arabic")]
+        if rtl else
+        [("inter-700.ttf", "Inter"), ("inter-600.ttf", "Inter")]
+    )
+    for name, family in candidates:
+        path = _asset_fonts_dir() / name
+        if path.exists():
+            return path, family
+    system_font = Path("C:/Windows/Fonts/tahoma.ttf") if rtl else Path("C:/Windows/Fonts/arial.ttf")
+    if system_font.exists():
+        return system_font, ("Tahoma" if rtl else "Arial")
+    return None, ("Noto Sans Arabic" if rtl else "Inter")
+
+
+def _prepare_slide_font(project_dir: Path, rtl: bool) -> str:
+    """Copy the slide font beside the ASS files so fontsdir=fonts stays a plain name."""
+    source, family = _resolve_slide_font(rtl)
+    fonts_dir = project_dir / "fonts"
+    fonts_dir.mkdir(parents=True, exist_ok=True)
+    if source and source.exists():
+        target = fonts_dir / source.name
+        if not target.exists():
+            shutil.copy(str(source), str(target))
+    return family
+
+
+def _render_slide_background(project_dir: Path) -> Path:
+    """A designed 1080p backdrop (gradient, accent bar, soft shapes) without text."""
+    from PIL import Image, ImageDraw
+
+    width, height = SLIDE_WIDTH, SLIDE_HEIGHT
+    image = Image.new("RGB", (width, height), (11, 18, 32))
+    draw = ImageDraw.Draw(image)
+    top, bottom = (8, 15, 28), (17, 38, 62)
+    for y in range(height):
+        ratio = y / max(1, height - 1)
+        draw.line([(0, y), (width, y)],
+                  fill=tuple(int(top[i] + (bottom[i] - top[i]) * ratio) for i in range(3)))
+    draw.ellipse([width - 620, -280, width + 160, 460], fill=(20, 58, 86))
+    draw.ellipse([-300, height - 420, 380, height + 200], fill=(14, 45, 68))
+    draw.rectangle([0, 0, width, height], outline=(28, 46, 68), width=2)
+    draw.rectangle([0, 0, 18, height], fill=(20, 184, 166))
+    path = project_dir / "slide-bg.png"
+    image.save(path)
+    return path
+
+
+def _ass_time(seconds: float) -> str:
+    total = max(0.0, float(seconds))
+    hours = int(total // 3600)
+    minutes = int((total % 3600) // 60)
+    return f"{hours}:{minutes:02d}:{total % 60:05.2f}"
+
+
+def _ass_escape(text: str) -> str:
+    return (
+        str(text or "")
+        .replace("\\", "\\\\")
+        .replace("{", "\\{")
+        .replace("}", "\\}")
+        .replace("\r", " ")
+        .replace("\n", "\\N")
+    )
+
+
+def build_slide_text(scene: dict) -> tuple[str, list[str]]:
+    """Exactly one title and up to five key points; the narration is not repeated."""
+    title = strip_citations(str(scene.get("title") or "")).strip()
+    return title, sanitize_bullets(scene.get("bullets"))
+
+
+def _write_slide_ass(path: Path, scene: dict, duration: float, family: str) -> None:
+    title, bullets = build_slide_text(scene)
+    lines = [f"{{\\fs{SLIDE_TITLE_SIZE}\\b1}}{_ass_escape(title)}"]
+    if bullets:
+        lines.append("")
+        for bullet in bullets:
+            lines.append(f"{{\\fs{SLIDE_BULLET_SIZE}\\b0}}\u2022 {_ass_escape(bullet)}")
+    text = "\\N".join(lines)
+    content = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {SLIDE_WIDTH}
+PlayResY: {SLIDE_HEIGHT}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Slide,{family},{SLIDE_TITLE_SIZE},&H00FFFFFF,&H000000FF,&H00101820,&H64000000,0,0,0,0,100,100,0,0,1,2,1,5,190,190,0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,{_ass_time(0)},{_ass_time(duration)},Slide,,0,0,0,,{{\\an5\\pos({SLIDE_WIDTH // 2},{SLIDE_HEIGHT // 2})}}{text}
+"""
+    path.write_text(content, encoding="utf-8")
+
+
+def _srt_time(seconds: float) -> str:
+    total = max(0.0, float(seconds))
+    hours = int(total // 3600)
+    minutes = int((total % 3600) // 60)
+    secs = int(total % 60)
+    millis = int(round((total - int(total)) * 1000))
+    if millis == 1000:
+        secs += 1
+        millis = 0
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if part.strip()]
+
+
+def write_srt(project_dir: Path, scenes: list[dict]) -> Path | None:
+    """Narration as subtitles: the only place the spoken text appears in full."""
+    blocks: list[str] = []
+    clock = 0.0
+    index = 1
+    for scene in scenes:
+        duration = float(scene.get("duration_seconds") or DEFAULT_SCENE_SECONDS)
+        narration = str(scene.get("narration") or scene.get("title") or "")
+        sentences = _split_sentences(narration) or [narration]
+        total_words = sum(_count_words(s) for s in sentences) or 1
+        cursor = clock
+        for sentence in sentences:
+            span = max(0.8, duration * (_count_words(sentence) / total_words))
+            start = cursor
+            end = min(clock + duration, cursor + span)
+            if end <= start:
+                break
+            blocks.append(f"{index}\n{_srt_time(start)} --> {_srt_time(end)}\n{sentence}\n")
+            index += 1
+            cursor = end
+        clock += duration
+    if not blocks:
+        return None
+    path = project_dir / "subtitles.srt"
+    path.write_text("\n".join(blocks), encoding="utf-8")
+    return path
+
+
+def apply_measured_durations(project_dir: Path, scenes: list[dict],
+                             target_seconds: float | None = None) -> int:
+    """Scene length = measured narration length + a short pause, never a fixed number.
+
+    Falls back to words / WPM only when the audio cannot be probed. Returns how
+    many scenes were actually measured.
+    """
+    settings = get_settings()
+    wpm = max(1.0, float(getattr(settings, "video_narration_wpm", 140.0) or 140.0))
+    measured = 0
+    raw_audio: list[float] = []
+    for index, scene in enumerate(scenes):
+        audio_path = project_dir / f"segment-{index}-audio.mp3"
+        seconds = None
+        if audio_path.exists() and audio_path.stat().st_size > 100:
+            seconds = _probe_audio_duration(audio_path)
+            if seconds is not None:
+                measured += 1
+        if seconds is None:
+            words = _count_words(scene.get("narration") or scene.get("content") or "")
+            seconds = max(1.5, (words / wpm) * 60.0) if words else float(DEFAULT_SCENE_SECONDS)
+        raw_audio.append(float(seconds))
+
+    # Fit the narration to the requested runtime: the TTS voice pace varies with
+    # punctuation, so a 60 s script can read as 84 s. atempo keeps speech natural
+    # while making the rendered MP4 match the duration the user asked for.
+    speed = 1.0
+    total_audio = sum(raw_audio)
+    if target_seconds and total_audio > 0:
+        usable = max(1.0, float(target_seconds) - len(scenes) * SCENE_PAUSE_SECONDS)
+        speed = total_audio / usable
+        speed = min(1.6, max(0.75, speed))
+        if 0.95 <= speed <= 1.05:
+            speed = 1.0
+
+    for scene, seconds in zip(scenes, raw_audio):
+        if speed != 1.0:
+            scene["speed_factor"] = round(speed, 3)
+        else:
+            scene.pop("speed_factor", None)
+        played = seconds / speed
+        scene["audio_seconds"] = round(played, 2)
+        scene["duration_seconds"] = max(MIN_SCENE_SECONDS, int(math.ceil(played + SCENE_PAUSE_SECONDS)))
+
+    # If the narration is shorter than the request, let the closing slide hold
+    # instead of slowing speech below a natural pace.
+    if target_seconds and scenes:
+        deficit = float(target_seconds) - sum(s["duration_seconds"] for s in scenes)
+        if 0 < deficit <= 30:
+            scenes[-1]["duration_seconds"] = int(scenes[-1]["duration_seconds"] + math.ceil(deficit))
+    return measured
+
+
+# ---------------------------------------------------------------------------
+# ffmpeg: per-scene slide segments (background + burned slide text + narration)
 # ---------------------------------------------------------------------------
 
 def _try_ffmpeg(
@@ -831,97 +1179,97 @@ def _try_ffmpeg(
     title: str,
     scenes: list[dict],
     total_minutes: int = 5,
-) -> str | None:
+    rtl: bool = False,
+) -> tuple[str | None, str | None]:
+    """Render one MP4. Returns (path, None) or (None, real reason it failed).
+
+    Each scene becomes a segment of exactly its narration length (plus a short
+    pause) showing one title and its key points burned in by libass, then the
+    segments are stitched. Audio is padded so a lossy MP3 never cuts the slide.
     """
-    Build MP4 by concatenating per-scene segments. Each segment:
-    - Duration = scene['duration_seconds'] (or calculated from total_minutes / scene count)
-    - If per-scene audio exists (segment-N-audio.mp3), mux it into the segment video
-    - Otherwise produce a silent segment
-    """
-    ffmpeg_bin = find_ffmpeg()
-    if not ffmpeg_bin:
-        return None
     output = STATIC_DIR / f"video-{project_id}.mp4"
     project_dir = STATIC_DIR / f"video-{project_id}"
     project_dir.mkdir(parents=True, exist_ok=True)
     if not scenes:
-        return None
-    try:
-        def escape_drawtext(value: str) -> str:
-            return (
-                value.replace("\\", "\\\\")
-                .replace(":", "\\:")
-                .replace("'", "\\'")
-                .replace(",", "\\,")
-                .replace(";", "\\;")
-                .replace("\n", " ")
-            )
+        return None, "There are no scenes to render."
 
-        fallback_secs = max(6, min(18, int((max(total_minutes, 1) * 60) / max(len(scenes), 1))))
-        concat_lines = []
-        for index, scene in enumerate(scenes):
-            seg_dur = _clamp_duration(scene.get("duration_seconds", fallback_secs))
-            title_text = escape_drawtext((scene.get("title") or title)[:180])
-            body_text = escape_drawtext(
-                (scene.get("highlight") or scene.get("content") or "")[:180]
-            )
-            segment_path = project_dir / f"segment-{index}.mp4"
-            audio_file = project_dir / f"segment-{index}-audio.mp3"
-            has_audio = audio_file.exists() and audio_file.stat().st_size > 100
-
-            if has_audio:
-                # Build segment with per-scene audio: use audio duration to drive video length
-                cmd = [
-                    ffmpeg_bin, "-y",
-                    "-i", str(audio_file),
-                    "-f", "lavfi", "-i",
-                    f"color=c=0x0f172a:s=1280x720:r=24",
-                    "-shortest",    # end video when audio ends
-                    "-pix_fmt", "yuv420p",
-                    "-acodec", "aac", "-b:a", "128k",
-                    str(segment_path),
-                ]
-            else:
-                # Build silent visual-only segment with fixed duration
-                cmd = [
-                    ffmpeg_bin, "-y",
-                    "-f", "lavfi", "-i",
-                    f"color=c=0x0f172a:s=1280x720:d={seg_dur}",
-                    "-pix_fmt", "yuv420p",
-                    str(segment_path),
-                ]
-            subprocess.run(cmd, check=True, capture_output=True)
-            concat_lines.append(f"file '{segment_path.as_posix()}'\n")
-
-        list_file = project_dir / "ffmpeg-list.txt"
-        list_file.write_text("".join(concat_lines), encoding="utf-8")
-        # Stream copy is fastest but fails when segments disagree on codec
-        # parameters; fall back to a real re-encode and keep ffmpeg's message so
-        # the user sees a reason instead of a generic "MP4 was not produced".
-        attempts = (
-            [ffmpeg_bin, "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
-             "-c", "copy", str(output)],
-            [ffmpeg_bin, "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
-             "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-             "-c:a", "aac", "-b:a", "128k", str(output)],
+    ffmpeg_bin = find_ffmpeg()
+    if not ffmpeg_bin:
+        return None, (
+            "MP4 was not produced because ffmpeg was not found. Install it "
+            "(winget install Gyan.FFmpeg) or set EDUSENSE_FFMPEG_PATH."
         )
-        errors = []
-        for command in attempts:
-            try:
-                subprocess.run(command, check=True, capture_output=True)
-            except Exception as exc:  # noqa: BLE001
-                detail = getattr(exc, "stderr", b"") or b""
-                errors.append(f"{type(exc).__name__}: "
-                              f"{detail.decode('utf-8', 'ignore')[-800:] if detail else exc}")
-                continue
-            if output.exists() and output.stat().st_size >= 1024:
-                return str(output)
-            errors.append("ffmpeg exited 0 but produced no usable MP4")
+
+    errors: list[str] = []
+    try:
+        _render_slide_background(project_dir)
+        family = _prepare_slide_font(project_dir, rtl)
+        concat_lines: list[str] = []
+        for index, scene in enumerate(scenes):
+            duration = max(1.0, float(scene.get("duration_seconds") or DEFAULT_SCENE_SECONDS))
+            ass_name = f"slide-{index}.ass"
+            _write_slide_ass(project_dir / ass_name, scene, duration, family)
+            audio_name = f"segment-{index}-audio.mp3"
+            audio_path = project_dir / audio_name
+            has_audio = audio_path.exists() and audio_path.stat().st_size > 100
+            segment = f"segment-{index}.mp4"
+
+            # Relative names + cwd=project_dir keep Windows drive colons out of
+            # the filter graph, which otherwise must be escaped twice.
+            command = [ffmpeg_bin, "-y", "-loop", "1", "-framerate", "30",
+                       "-i", "slide-bg.png"]
+            if has_audio:
+                command += ["-i", audio_name]
+            command += ["-t", f"{duration:.2f}",
+                        "-vf", f"subtitles=filename={ass_name}:fontsdir=fonts",
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                        "-pix_fmt", "yuv420p", "-r", "30"]
+            if has_audio:
+                audio_filters = []
+                speed = float(scene.get("speed_factor") or 1.0)
+                if abs(speed - 1.0) > 0.01:
+                    audio_filters.append(f"atempo={speed:.3f}")
+                audio_filters.append("apad")
+                command += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+                            "-af", ",".join(audio_filters)]
+            else:
+                command += ["-an"]
+            command.append(segment)
+
+            result = subprocess.run(command, cwd=str(project_dir), capture_output=True)
+            if result.returncode != 0:
+                detail = (result.stderr or b"").decode("utf-8", "ignore").strip()[-600:]
+                errors.append(f"segment {index + 1}: {detail or 'ffmpeg failed'}")
+                (project_dir / "concat-error.txt").write_text(
+                    "\n---\n".join(errors), encoding="utf-8")
+                return None, (
+                    f"The encoder could not render scene {index + 1}. "
+                    f"ffmpeg said: {detail or 'unknown error'}"
+                )
+            concat_lines.append(f"file '{segment}'\n")
+
+        (project_dir / "ffmpeg-list.txt").write_text("".join(concat_lines), encoding="utf-8")
+        attempts = (
+            ["-f", "concat", "-safe", "0", "-i", "ffmpeg-list.txt", "-c", "copy"],
+            ["-f", "concat", "-safe", "0", "-i", "ffmpeg-list.txt",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+             "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"],
+        )
+        for flags in attempts:
+            result = subprocess.run([ffmpeg_bin, "-y", *flags, str(output)],
+                                    cwd=str(project_dir), capture_output=True)
+            if result.returncode == 0 and output.exists() and output.stat().st_size >= 1024:
+                return str(output), None
+            detail = (result.stderr or b"").decode("utf-8", "ignore").strip()[-600:]
+            errors.append(detail or "ffmpeg exited 0 but produced no usable MP4")
         (project_dir / "concat-error.txt").write_text("\n---\n".join(errors), encoding="utf-8")
-        return None
+        return None, (
+            "The encoder could not stitch the scenes into one MP4. "
+            f"ffmpeg said: {errors[-1][:400]}"
+        )
     except Exception as exc:  # noqa: BLE001
         (project_dir / "concat-error.txt").write_text(repr(exc), encoding="utf-8")
-        return None
+        return None, f"The video encoder failed: {exc}"
 
 
 def validate_video_artifacts(project_id: int) -> tuple[bool, str]:
@@ -992,8 +1340,9 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
     # only when the script service itself is unavailable.
     scenes: list[dict] | None = None
     script_warnings: list[str] = []
+    models_used: list[str] = []
     try:
-        scenes = generate_sectioned_scenes(
+        scenes, models_used = generate_sectioned_scenes(
             title=title,
             prompt=lesson.get("prompt") or lesson.get("topic") or "",
             duration_min=duration_min,
@@ -1077,12 +1426,6 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
 
     scenes = [_sanitize_scene(s) for s in scenes]
 
-    # Persist scenes.json
-    (project_dir / "scenes.json").write_text(
-        json.dumps({"title": title, "scenes": scenes, "warnings": script_warnings}, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
     # Per-scene TTS — per-scene timeout; partial failures are reported,
     # total failure raises a structured stage error.
     any_audio, audio_name, tts_errors = _tts_all_scenes(project_dir, scenes, lang_code)
@@ -1092,21 +1435,48 @@ def generate_educational_video(project_id: int, title: str, lesson: dict) -> dic
                               f"Narration audio could not be generated ({detail}). "
                               "Check network access to the TTS service and try again.")
 
-    # Write interactive HTML player (uses per-scene duration_seconds for timed autoplay)
-    _write_player(project_dir, title, scenes, audio_name)
+    # Timing comes from the narration itself: measured length plus a short pause.
+    measured = apply_measured_durations(project_dir, scenes,
+                                       target_seconds=duration_min * 60)
+    if not measured:
+        script_warnings.append(
+            "ffprobe is unavailable, so scene lengths were estimated from the word count."
+        )
+    reject_placeholders(scenes)
 
-    # ffmpeg MP4 stitching (per-scene audio + timed visuals) — optional;
-    # the HTML player remains the playback path when ffmpeg is absent.
-    mp4_path = _try_ffmpeg(project_id, title, scenes, duration_min)
+    (project_dir / "scenes.json").write_text(
+        json.dumps({"title": title, "scenes": scenes, "warnings": script_warnings,
+                    "generated_with": models_used}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    write_srt(project_dir, scenes)
+
+    rtl = lang_code == "ar"
+    # Write interactive HTML player (same per-scene durations the MP4 uses)
+    _write_player(project_dir, title, scenes, audio_name, rtl=rtl)
+
+    # MP4 rendering is the only optional stage: the script, SRT and player are
+    # already on disk, so a codec failure is reported instead of losing them.
+    rendered = _try_ffmpeg(project_id, title, scenes, duration_min, rtl=rtl)
+    mp4_path, mp4_error = rendered if isinstance(rendered, tuple) else (rendered, None)
+
+    warnings = list(script_warnings)
+    if tts_errors:
+        warnings.append(f"Partial TTS: {'; '.join(tts_errors[:3])}")
+    if mp4_error:
+        warnings.append(f"MP4: {mp4_error}")
 
     return {
         "video_path": str(project_dir / "player.html"),
         "video_url": f"/static/videos/video-{project_id}/player.html",
         "audio_url": f"/static/videos/video-{project_id}/narration.mp3" if any_audio else None,
         "mp4_url": f"/static/videos/video-{project_id}.mp4" if mp4_path else None,
+        "srt_url": f"/static/videos/video-{project_id}/subtitles.srt",
         "scenes": scenes,
+        "generated_with": ", ".join(models_used) or None,
+        "mp4_error": mp4_error,
         "fallback": not mp4_path,
-        "warnings": script_warnings + ([f"Partial TTS: {'; '.join(tts_errors[:3])}"] if tts_errors else []),
+        "warnings": warnings,
         "tts_errors": tts_errors,
     }
 
@@ -1147,15 +1517,7 @@ def rebuild_video_from_scenes(
         (project_dir / "narration.mp3").unlink(missing_ok=True)
         any_audio, audio_name, tts_errors = _tts_all_scenes(project_dir, scenes, lang_code)
         if any_audio:
-            measured_durations = 0
-            for idx, scene in enumerate(scenes):
-                audio_path = project_dir / f"segment-{idx}-audio.mp3"
-                if not audio_path.exists():
-                    continue
-                duration = _probe_audio_duration(audio_path)
-                if duration is not None:
-                    scene["duration_seconds"] = _clamp_duration(round(duration))
-                    measured_durations += 1
+            measured_durations = apply_measured_durations(project_dir, scenes)
             if not measured_durations:
                 duration_warning = "Audio was regenerated, but ffprobe is unavailable; scene durations use the provided values."
             if tts_errors:
@@ -1178,10 +1540,13 @@ def rebuild_video_from_scenes(
         json.dumps({"title": title, "scenes": scenes}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    _write_player(project_dir, title, scenes, audio_name)
+    write_srt(project_dir, scenes)
+    rtl = lang_code == "ar"
+    _write_player(project_dir, title, scenes, audio_name, rtl=rtl)
     total_minutes = max(1, sum(s.get("duration_seconds", DEFAULT_SCENE_SECONDS) for s in scenes) // 60)
     (STATIC_DIR / f"video-{project_id}.mp4").unlink(missing_ok=True)
-    mp4_path = _try_ffmpeg(project_id, title, scenes, total_minutes)
+    rendered = _try_ffmpeg(project_id, title, scenes, total_minutes, rtl=rtl)
+    mp4_path, mp4_error = rendered if isinstance(rendered, tuple) else (rendered, None)
 
     return {
         "video_url": f"/static/videos/video-{project_id}/player.html",
@@ -1189,5 +1554,6 @@ def rebuild_video_from_scenes(
         "mp4_url": f"/static/videos/video-{project_id}.mp4" if mp4_path else None,
         "scenes": scenes,
         "fallback": not mp4_path,
+        "mp4_error": mp4_error,
         "duration_warning": duration_warning,
     }

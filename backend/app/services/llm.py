@@ -1403,7 +1403,8 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
          temperature: float | None = None, max_output_tokens: int | None = None,
          timeout: float = 60.0, exclude_provider: str | None = None,
          touch_student_data: bool = False, cache_key: str | None = None,
-         cache_ttl: float = 300.0, only_provider: str | None = None) -> str:
+         cache_ttl: float = 300.0, only_provider: str | None = None,
+         strict_model: bool = False) -> str:
     """
     Generate text using best-fit routing across all configured providers & keys.
     """
@@ -1434,7 +1435,16 @@ def chat(prompt: str, task_type: str = "general", model: str | None = None,
     if only_provider:
         cands = [c for c in cands if c[0] == only_provider.lower()]
 
-    if model:
+    if model and strict_model:
+        # Whole-script consistency: never answer with a different model, so the
+        # caller can decide to retry the failed section instead of mixing voices.
+        cands = [(p, i, k, m) for p, i, k, m in cands if m == model]
+        if not cands:
+            raise GeminiError(
+                GeminiError.MODEL_UNAVAILABLE,
+                f"The pinned model {model} is not available right now.",
+            )
+    elif model:
         preferred = [(p, i, k, m) for p, i, k, m in cands if m == model]
         rest = [(p, i, k, m) for p, i, k, m in cands if m != model]
         cands = preferred + rest
