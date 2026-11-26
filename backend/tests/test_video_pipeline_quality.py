@@ -214,3 +214,72 @@ def test_player_is_rtl_for_arabic(tmp_path):
     assert 'dir="rtl"' in html_text
     assert 'lang="ar"' in html_text
     assert "Noto Sans Arabic" in html_text
+
+
+# ---------------------------------------------------------------------------
+# 7. Sectioned script: a short total gets one whole-script corrective pass
+# ---------------------------------------------------------------------------
+
+def _outline(n: int, budget: int) -> list[dict]:
+    return [{"title": f"Part {i + 1}", "goal": "teach", "budget_words": budget,
+             "key_points": [f"Point {i + 1}"]} for i in range(n)]
+
+
+def _words(n: int, tag: str = "word") -> str:
+    return " ".join(f"{tag}{i}" for i in range(n))
+
+
+def test_sectioned_script_expands_once_before_failing(monkeypatch):
+    # 3 minutes => 330 words at 110 wpm; 200 words is outside the ±10% band.
+    outline = _outline(3, 110)
+    short = _words(66)
+    from app.services.video import generate_sectioned_scenes
+
+    counter = {"i": 0}
+
+    def distinct_short(*a, **k):
+        counter["i"] += 1
+        return _words(66, f"part{counter['i']}_")
+
+    monkeypatch.setattr(video_service, "_section_outline", lambda *a, **k: outline)
+    monkeypatch.setattr(video_service, "_gen_section_text", distinct_short)
+
+    fixed = [{"title": "Part 1", "narration": _words(110, "a"), "content": _words(110, "a"),
+              "bullets": ["Point 1"], "duration_seconds": 10},
+             {"title": "Part 2", "narration": _words(110, "b"), "content": _words(110, "b"),
+              "bullets": ["Point 2"], "duration_seconds": 10},
+             {"title": "Part 3", "narration": _words(110, "c"), "content": _words(110, "c"),
+              "bullets": ["Point 3"], "duration_seconds": 10}]
+    calls: list[int] = []
+
+    def fake_adjust(scenes, duration_min, title, duplicates=None):
+        calls.append(len(scenes))
+        return fixed
+
+    monkeypatch.setattr(video_service, "_llm_adjust_scenes", fake_adjust)
+    scenes, _models = generate_sectioned_scenes("T", "P", 3, "English")
+    assert calls == [3]
+    assert video_service._scenes_word_count(scenes) == 330
+    assert len(scenes) == 3
+
+
+def test_sectioned_script_reports_real_length_error_when_expand_fails(monkeypatch):
+    outline = _outline(3, 110)
+    short = _words(66)
+    from app.services.video import generate_sectioned_scenes
+
+    counter = {"i": 0}
+
+    def distinct_short(*a, **k):
+        counter["i"] += 1
+        return _words(66, f"part{counter['i']}_")
+
+    monkeypatch.setattr(video_service, "_section_outline", lambda *a, **k: outline)
+    monkeypatch.setattr(video_service, "_gen_section_text", distinct_short)
+    monkeypatch.setattr(video_service, "_llm_adjust_scenes", lambda *a, **k: None)
+
+    with pytest.raises(VideoStageError) as exc:
+        generate_sectioned_scenes("T", "P", 3, "English")
+    assert exc.value.code == "LENGTH_OUT_OF_TOLERANCE"
+    assert "198 words" in exc.value.user_message
+    assert "330 words" in exc.value.user_message

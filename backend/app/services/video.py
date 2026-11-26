@@ -558,8 +558,19 @@ def generate_sectioned_scenes(title: str, prompt: str, duration_min: int,
         drop = {j for _, j, _ in dups}
         scenes = [s for i, s in enumerate(scenes) if i not in drop]
 
-    # Final gate: total must be within ±tolerance of target
+    # Final gate: total must be within ±tolerance of target. Sections are written
+    # against their own budgets, so the total can still land short (or long); one
+    # whole-script corrective pass gets a chance before a real error is reported.
     total = _scenes_word_count(scenes)
+    if not _within_tolerance(total, target, duration_min):
+        adjusted = _llm_adjust_scenes(scenes, duration_min, title,
+                                      duplicates=find_duplicate_scene_pairs(scenes) or None)
+        if adjusted is not None:
+            scenes = adjusted
+            drop = {j for _, j, _ in find_duplicate_scene_pairs(scenes)}
+            if drop:
+                scenes = [s for i, s in enumerate(scenes) if i not in drop]
+            total = _scenes_word_count(scenes)
     if not _within_tolerance(total, target, duration_min):
         raise VideoStageError(
             "script_generation", "LENGTH_OUT_OF_TOLERANCE",
