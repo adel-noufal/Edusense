@@ -1886,7 +1886,20 @@ function VideoResult({ result, initialForm, onReplace, onHistoryRefresh }) {
           { label: 'Package (.zip)', onClick: () => downloadAuthenticatedRequest(`/ai/videos/${result.id}/download`, `${(result.title || 'video').replace(/\s+/g, '-').toLowerCase()}-package.zip`) },
         ]}
       />
-      {result.fallback && (
+      {result.generated_with && (
+        <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Generated with {result.generated_with}</p>
+      )}
+      {result.mp4_error && (
+        <div className="space-y-2 rounded-md bg-rose-50 p-3 text-sm text-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+          <p className="font-semibold">The MP4 could not be rendered</p>
+          <p>{result.mp4_error}</p>
+          <button type="button" className="btn-secondary" onClick={saveSceneEdits} disabled={sceneSaving}>
+            {sceneSaving ? 'Retrying…' : 'Retry'}
+          </button>
+          <p className="text-xs">The script, PDF, DOCX and SRT are ready even while the MP4 fails.</p>
+        </div>
+      )}
+      {result.fallback && !result.mp4_error && (
         <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
           MP4 export depends on FFmpeg being available on the backend. The interactive player remains available even when a full MP4 is not generated.
         </p>
